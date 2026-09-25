@@ -11,8 +11,7 @@
 > модулей (Tier 2) — Фаза 3; до неё доступны только Tier 0 (skill-паки) и Tier 1
 > (доверенные модули в процессе).
 >
-> **Предыдущая редакция** была выправлена по результатам ревью
-> [`TECHSPEC_REVIEW.md`](./TECHSPEC_REVIEW.md); соответствие правок зафиксировано в §20.2.
+> Ключевые проектные решения и их расположение в документе сведены в §20.2.
 > Все внешние факты (версии SDK и пакетов, ревизии протоколов, возможности рантайма)
 > проверены по источникам из §20.3.
 
@@ -276,7 +275,7 @@ Resolver выполняет следующие проверки:
 
 Контент Tier 0 и результаты внешних инструментов получают provenance-метки (`trusted_user`, `untrusted_web`, `untrusted_tool_output`, `private_data`, `secret`) на границе типов. Такой контент информирует модель, но не выдаёт capability и не разрешает egress; lethal trifecta разрывается отсутствием у недоверенного контекста прямой эмиссии и полномочий. Все сетевые операции Tier 2 проходят через broker, который проверяет destination, method, redirect, размер, credential scope и rate limit.
 
-Изолят не является границей безопасности. В изоляте доступны `Platform.environment`, `dart:io exit()`, FFI и `DynamicLibrary.open()`, а VM Service может расширить полномочия наблюдаемого процесса; per-isolate лимитов CPU и памяти в API Dart нет. Tier 2 никогда не линкуется в ядро и не исполняется в изоляте ядра. Подробная проверка этих утверждений приведена в [TECHSPEC_REVIEW.md §3.1–§3.2](TECHSPEC_REVIEW.md).
+Изолят не является границей безопасности. В изоляте доступны `Platform.environment`, `dart:io exit()`, FFI и `DynamicLibrary.open()`, а VM Service может расширить полномочия наблюдаемого процесса; per-isolate лимитов CPU и памяти в API Dart нет. Tier 2 никогда не линкуется в ядро и не исполняется в изоляте ядра. Ограничения и следствия этой модели разобраны в §19.
 
 Платформенная политика:
 
@@ -572,7 +571,7 @@ Retry определяется видом операции; side-effecting tool 
 | `−32040` | Sandbox violation или module killed | нет | нет |
 | `−32050` | Несовместимость версий | нет | нет |
 
-Диапазон `−32768…−32000` зарезервирован JSON-RPC для implementation-defined ошибок. Доменные коды AlteriOne размещаются именно в нём; стандартные коды `−32700…−32603` сохраняют стандартный смысл. Таксономия согласована с [TECHSPEC_REVIEW.md §4(е)](TECHSPEC_REVIEW.md).
+Диапазон `−32768…−32000` зарезервирован JSON-RPC для implementation-defined ошибок. Доменные коды AlteriOne размещаются именно в нём; стандартные коды `−32700…−32603` сохраняют стандартный смысл.
 
 ### 4.8. Транспорты
 
@@ -755,7 +754,7 @@ abstract interface class AlteriOneProvider {
 }
 ```
 
-`AlteriOneProvider` не инкапсулирует конкретный SDK провайдера. Реализация OpenAI-compatible строится на `package:http` и собственных типизированных DTO: это сохраняет единый wire, но не наследует opinionated типы и невалидные допущения стороннего SDK. Ошибки HTTP/transport преобразуются в таксономию JSON-RPC из ревью §4(е); исходный код и тело ответа сохраняются только в redacted-диагностике.
+`AlteriOneProvider` не инкапсулирует конкретный SDK провайдера. Реализация OpenAI-compatible строится на `package:http` и собственных типизированных DTO: это сохраняет единый wire, но не наследует opinionated типы и невалидные допущения стороннего SDK. Ошибки HTTP/transport преобразуются в таксономию JSON-RPC из §4.7; исходный код и тело ответа сохраняются только в redacted-диагностике.
 
 ### 6.1 Capabilities и обязательные `requires`
 
@@ -823,7 +822,7 @@ model:
 
 ### 6.5 Повторы и идемпотентность
 
-Provider retry допустим только для ошибок, помеченных retryable в таксономии ревью §4(е), с backoff и `Retry-After` для rate limit. Повтор одного вызова использует один `idempotencyKey`; новый ключ означает новую операцию. Model turn сам по себе read-only, но provider-generated tool call не считается разрешением повторить выбранный инструмент.
+Provider retry допустим только для ошибок, помеченных retryable в таксономии §4.7, с backoff и `Retry-After` для rate limit. Повтор одного вызова использует один `idempotencyKey`; новый ключ означает новую операцию. Model turn сам по себе read-only, но provider-generated tool call не считается разрешением повторить выбранный инструмент.
 
 Автоматический retry side-effecting-инструмента без `idempotencyKey` запрещён. Наличие ключа не отменяет policy и не превращает confirmation в бессрочное разрешение: approval и ключ привязаны к точным аргументам.
 
@@ -1047,7 +1046,7 @@ abstract interface class ReasoningStrategy {
 
 ### 8.2 Цикл
 
-Псевдокод использует typed error outcomes, а не исключения для обычных отказов. Коды и retryability берутся из ревью §4(е).
+Псевдокод использует typed error outcomes, а не исключения для обычных отказов. Коды и retryability берутся из §4.7.
 
 ```dart
 Future<AlteriOneRunResult> run(
@@ -1142,8 +1141,8 @@ Future<AlteriOneRunResult> run(
 - Каждый run имеет обязательный finite `Deadline`; `Infinity` и «неограниченный timeout» не принимаются. Per-call timeout всегда не больше оставшегося общего времени.
 - Каждый run имеет обязательный `CostBudget` с token и USD ceilings; отсутствующий или невалидный budget — configuration error до model turn.
 - `CancelToken` каскадирует в provider stream, tools, subagent tree и будущий Tier 2 process group; pending approval также отменяется.
-- Ошибка инструмента — `ToolOutcome`, который видит модель и может исправить. Это неверно для terminal control outcomes `-32030/-32031/-32032`, которые завершают run согласно ревью §4(е).
-- Автоматический retry выполняется только для retryable ошибок из ревью §4(е), с backoff, jitter и `Retry-After`; parse, invalid request/params, policy denied и content filter не повторяются.
+- Ошибка инструмента — `ToolOutcome`, который видит модель и может исправить. Это неверно для terminal control outcomes `-32030/-32031/-32032`, которые завершают run согласно §4.7.
+- Автоматический retry выполняется только для retryable ошибок из §4.7, с backoff, jitter и `Retry-After`; parse, invalid request/params, policy denied и content filter не повторяются.
 - Side-effecting tool без `idempotencyKey` не повторяется автоматически. При retry ключ и approval остаются привязанными к неизменённым аргументам.
 - Один и тот же tool с канонически одинаковыми аргументами `stagnationWindow` раз подряд — застой; run останавливается, даже если модель меняет текст рассуждения.
 - Model, tool и subagent не могут обойти `CostBudget`, deadline, cancellation или policy через внутренний API.
@@ -1998,9 +1997,9 @@ analyzer:
 | Fail-closed | При невозможности enforce policy, sandbox, signature или dependency система отказывает, а не переходит в более слабый режим. |
 | ToolOutcome | Типизированный результат инструмента, включая denied/declined/error; denial возвращается модели и не обязан завершать весь run. |
 
-### 20.2. Карта исправлений ревью
+### 20.2. Ключевые проектные решения
 
-| Исправление из `TECHSPEC_REVIEW.md` | Где описано в итоговой спецификации |
+| Проектное решение | Где описано |
 |---|---|
 | Melos 8.9, root `pubspec.yaml`, pub workspaces и `resolution: workspace` | §2, §14 (Фаза 0), §16 |
 | `alteri_one_platform` как граница `dart:io`/browser API | §2, §5, §14 (Фазы 0 и 5) |
