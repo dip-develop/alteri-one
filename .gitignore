@@ -1,0 +1,33 @@
+# Dart / pub
+.dart_tool/
+.packages
+build/
+doc/api/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# Melos / workspace
+.melos_tool/
+melos_*.iml
+
+# NOTE: pubspec.lock is intentionally NOT ignored. Melos 8 / pub workspaces
+# resolve the whole workspace through a single root lockfile, which must be
+# committed for reproducible CI and local bootstrap.
+
+# AOT artifacts
+*.aot
+*.snapshot
+dist/
+
+# Local AlteriOne state — user data and generated modules must never be committed
+.alteri_one/
+
+# Editors
+.idea/
+.vscode/
+*.iml
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
