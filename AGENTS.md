@@ -54,8 +54,10 @@ Once `0.1` lands, the gate order is `generate → analyze → format → test`, 
   and fails on any Cyrillic. Translate pasted non-English content; do not defer it.
   Note that the local `git grep -P` / `grep -P` in some containers is built against a
   non-UTF PCRE and aborts with *"character code point value in \x{} is too large"*
-  (exit 128) on that exact pattern — that is a local toolchain limit, not a finding. Use
-  `python3 -c "import re,pathlib; ..."` with a `Ѐ-ӿ` class to check locally instead.
+  (exit 128) on that exact pattern — that is a local toolchain limit, not a finding. Check
+  locally with `python3` and the escape form of the class, `[\u0400-\u04FF]`, never with the
+  characters themselves: a note that spells the range out literally fails the very gate it
+  is describing.
 - **Markdown has no hard line breaks** (no trailing double-space). Break with a blank
   line. Note: `.editorconfig` claims CI enforces trailing whitespace — it does not;
   only the editor config does.
