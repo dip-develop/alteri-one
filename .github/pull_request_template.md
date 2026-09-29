@@ -23,7 +23,7 @@ $ melos run test
 
 - [ ] `melos run generate`
 - [ ] `melos run analyze` (`--fatal-infos`)
-- [ ] `melos run format`
+- [ ] `melos run format` and `melos run format:root` (one gate, two commands)
 - [ ] `melos run test`
 - [ ] Green on Linux, macOS and Windows (or the platform matrix is unchanged)
 - [ ] No golden file was rewritten without a separate commit explaining why

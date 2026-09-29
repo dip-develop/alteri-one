@@ -117,24 +117,26 @@ environment:
 workspace:
   - packages/*
   - apps/*
-  - tools/*
   - injections/*
   - plugins/*
-  - sdk/*
 
 dev_dependencies:
   melos: ^8.9.0
   build_runner: ^2.16.1
+  test: ^1.32.0
+  yaml: ^3.1.4
 
 melos:
+  useRootAsPackage: true
   command:
     version:
       versionPrivatePackages: true
   scripts:
     generate: melos exec --depends-on="^build" -- dart run build_runner build
     analyze: melos exec -c 1 -- dart analyze --fatal-infos
-    format: melos exec -c 1 -- dart format --output=none --set-exit-if-changed .
-    test: melos exec -c 1 --fail-fast -- dart test
+    format: melos exec -c 1 --ignore=alteri_one_workspace -- dart format --output=none --set-exit-if-changed .
+    format:root: melos exec -c 1 --scope=alteri_one_workspace -- dart format --output=none --set-exit-if-changed test tool
+    test: melos exec -c 1 --dir-exists=test --fail-fast -- dart test
     build:aot: melos exec -c 1 --scope="alteri_one_cli" -- dart compile aot-snapshot bin/main.dart -o dist/alterione.aot
     build:cli: melos exec -c 1 --scope="alteri_one_cli" -- dart build cli
     doctor: melos exec -c 1 --scope="alteri_one_cli" -- dart run bin/main.dart doctor
@@ -164,6 +166,16 @@ melos:
 This is the **only** definition of the Melos scripts. `melos.yaml` is not created and
 `pubspec.workspaces.yaml` does not exist. `doctor` is invoked through the CLI package,
 because `alteri_one_core` is a library with `publish_to: none` and is not executable.
+
+Four entries in that block are not obvious, and each is a consequence of a toolchain fact
+rather than a preference:
+
+| Entry | Because |
+|---|---|
+| `workspace:` lists only subprojects that hold a package | `dart pub get` fails on a glob that matches nothing, so a pattern joins the list with the commit that creates its first package. There is no `sdk/*`: `alteri_one_sdk` lives under `packages/` |
+| `test` and `yaml` are dev_dependencies | `test/` and `tool/` are the root package's own directories, so `dart test` at the root needs `test`, and the workspace contract test parses manifests with `yaml` rather than grepping for keys |
+| `useRootAsPackage: true` | The root is a package. Without the flag `melos exec` skips it and no gate ever looks at a line of `test/` or `tool/` |
+| `format` and `format:root` are one gate, and `test` carries `--dir-exists=test` | `dart format` has no exclude flag and does not read `analyzer.exclude`, so a `.` at the repository root would walk into `site/` — a different toolchain with its own build gate, whose build output is ~28 MB of resolved package source ([ADR-0020](../decisions/0020-project-website.md)) — and into the website's sources, which would couple a product PR to website formatting. `dart test` in a package with no `test/` directory is a usage error rather than a pass, and `--dir-exists=test` is what `melos test` does by definition |
 
 Every workspace package begins with:
 
