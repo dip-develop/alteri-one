@@ -121,7 +121,12 @@ final class _Options {
           }
           root = arguments[++i];
         case '-h' || '--help':
-          return _Options(root: root, orphans: orphans, help: true, unknown: null);
+          return _Options(
+            root: root,
+            orphans: orphans,
+            help: true,
+            unknown: null,
+          );
         default:
           unknown = 'unknown argument "$argument"';
       }
@@ -221,13 +226,13 @@ List<Finding> _checkLinks(
 
       for (final match in _linkPattern.allMatches(line)) {
         final target = match.group(1)!;
-        if (_externalPrefixes.any(target.startsWith)) continue;
+        if (_isExternal(target)) continue;
 
         final separator = target.indexOf('#');
-        final targetPath =
-            separator == -1 ? target : target.substring(0, separator);
-        final fragment =
-            separator == -1 ? '' : target.substring(separator + 1);
+        final targetPath = separator == -1
+            ? target
+            : target.substring(0, separator);
+        final fragment = separator == -1 ? '' : target.substring(separator + 1);
 
         final resolved = targetPath.isEmpty
             ? path
@@ -237,8 +242,7 @@ List<Finding> _checkLinks(
           findings.add((where: where, target: target, problem: 'missing file'));
         } else if (fragment.isNotEmpty && resolved.endsWith('.md')) {
           final known = anchors[resolved];
-          if (known != null &&
-              !known.contains(fragment.toLowerCase())) {
+          if (known != null && !known.contains(fragment.toLowerCase())) {
             findings.add((
               where: where,
               target: target,
@@ -287,7 +291,7 @@ List<Finding> _checkOrphans(String root, List<String> files) {
       for (final match in _linkPattern.allMatches(line)) {
         final target = match.group(1)!.split('#').first;
         if (target.isEmpty) continue;
-        if (_externalPrefixes.any(target.startsWith)) continue;
+        if (_isExternal(target)) continue;
         final resolved = _normalise(_join(base, target));
         if (known.contains(resolved) && !seen.contains(resolved)) {
           queue.add(resolved);
@@ -315,15 +319,13 @@ String _dirname(String path) {
 
 String _join(String base, String relative) =>
     relative.startsWith('/') || _isAbsolute(relative)
-        ? relative
-        : '$base${Platform.pathSeparator}$relative';
+    ? relative
+    : '$base${Platform.pathSeparator}$relative';
 
-bool _isExternal(String target) =>
-    _externalPrefixes.any(target.startsWith);
+bool _isExternal(String target) => _externalPrefixes.any(target.startsWith);
 
 bool _isAbsolute(String path) =>
     Platform.isWindows && RegExp(r'^[A-Za-z]:').hasMatch(path);
-
 String _normalise(String path) {
   final separator = Platform.pathSeparator;
   final slashed = path.replaceAll('/', separator);
