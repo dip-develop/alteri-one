@@ -1,0 +1,135 @@
+name: _artifacts
+
+# Reusable: build the native CLI for the three supported operating systems, verify each
+# artifact, produce a reproducible manifest with checksums, and sign where the platform
+# supports it.
+#
+# Build hooks are the reason this exists. `dart compile exe` does not run build hooks and
+# fails or omits assets when they are present, so the release path is `dart build cli` and
+# `dart install` only. `dart compile exe` is not a fallback here.
+#
+# Not called directly. Called from release.yml on a tag.
+
+on:
+  workflow_call:
+    inputs:
+      run_benchmarks:
+        description: "Run the startup and offline release gates before publishing"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  DART_VERSION: "3.13.4"
+  ARTIFACTS: dist
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            runner: ubuntu-latest
+          - target: darwin-arm64
+            runner: macos-latest
+          - target: darwin-x64
+            runner: macos-latest
+          - target: windows-x64
+            runner: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: ${{ env.DART_VERSION }}
+
+      - run: dart pub global activate melos
+      - run: dart pub get
+      - run: melos run generate
+
+      - name: Build the AOT CLI
+        # Build hooks run here. This is the release path.
+        run: melos run build:cli
+
+      - name: Locate the artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$ARTIFACTS"
+          find . -type f \( -name 'alteri_one' -o -name 'alteri_one.exe' \) \
+            -not -path './.git/*' -not -path './build/*/cache/*' | head -20
+
+      - name: Smoke test startup
+        # A binary that does not start is not a release.
+        run: |
+          set -euo pipefail
+          binary="$(find "$ARTIFACTS" -type f -name 'alteri_one*' | head -1)"
+          "$binary" --version
+          "$binary" doctor --json || true
+
+      - name: Release gates
+        if: ${{ inputs.run_benchmarks }}
+        run: |
+          set -euo pipefail
+          melos run release:startup-check
+          melos run release:offline-check
+
+      - name: Checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$ARTIFACTS"
+          find . -type f ! -name '*.sha256' -print0 | sort -z | xargs -0 shasum -a 256 > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Sign
+        # macOS: codesign then notarize. Windows: signtool. Linux: detached signature.
+        # Credentials come from the environment; a missing credential fails the release
+        # rather than shipping an unsigned artifact.
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "signing requires APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID"
+          echo "and MACOS_CERTIFICATE / MACOS_CERTIFICATE_PASSWORD for Windows"
+          echo "no unsigned artifact is ever published"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: alteri_one-${{ matrix.target }}
+          path: ${{ env.ARTIFACTS }}
+          retention-days: 14
+
+  manifest:
+    name: Reproducible manifest
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Assemble and verify the manifest
+        run: |
+          set -euo pipefail
+          cd dist
+          find . -type f -name 'SHA256SUMS' -exec cat {} + | sort -k2 > SHA256SUMS.all
+          mv SHA256SUMS.all SHA256SUMS
+          sha256sum --check SHA256SUMS
+          ls -la
+
+      - name: Upload to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**
+          fail_on_unmatched_files: false

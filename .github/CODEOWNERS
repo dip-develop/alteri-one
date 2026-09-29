@@ -1,0 +1,33 @@
+# CODEOWNERS
+# Paths are matched from the repository root. The last matching pattern wins.
+#
+# NOTE: the @owner values below are placeholders pointing at the organisation. Replace
+# them with real GitHub handles or teams before turning on required review. A CODEOWNERS
+# rule that matches nobody provides no protection while looking like it does.
+
+# Default owner for anything not matched below.
+/*                       @dip-develop
+
+# Specification and architecture: changes here change the contract for every package.
+/docs/                   @dip-develop
+/ARCHITECTURE.md         @dip-develop
+
+# Security-sensitive material. Treat every PR touching these as security-relevant and
+# require a reviewer other than the author.
+/SECURITY.md                  @dip-develop
+/docs/security/               @dip-develop
+/docs/extensibility/plugins.md @dip-develop
+/docs/extensibility/tools.md   @dip-develop
+/docs/decisions/risks.md      @dip-develop
+
+# Compatibility surfaces: protocol framing, config schema, error and exit codes.
+/docs/architecture/protocol.md      @dip-develop
+/docs/architecture/configuration.md @dip-develop
+/docs/reference/                    @dip-develop
+
+# Release, signing and automation.
+/.github/workflows/   @dip-develop
+/.github/dependabot.yml @dip-develop
+
+# The lockfile is committed deliberately: one reviewer, no drive-by updates.
+/pubspec.lock         @dip-develop

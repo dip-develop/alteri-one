@@ -1,0 +1,148 @@
+name: release
+
+# Release gates and artifact production.
+#
+# Two trigger paths:
+#   - pull_request, when a release/* or backmerge/* branch changes: verify only, no publish
+#   - push of a v* tag on main: full pipeline
+#
+# Publishing to pub.dev is deliberately a separate, manually approved environment, so a tag
+# cannot publish by accident. Everything before it is automatic.
+
+on:
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - "packages/**"
+      - "pubspec.yaml"
+      - "pubspec.lock"
+      - ".github/workflows/release.yml"
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish to pub.dev after the gates pass"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DART_VERSION: "3.13.4"
+  ARTIFACTS: dist
+
+jobs:
+  detect:
+    name: Detect release mode
+    runs-on: ubuntu-latest
+    outputs:
+      is_tag: ${{ steps.detect.outputs.is_tag }}
+      has_workspace: ${{ steps.detect.outputs.has_workspace }}
+      has_app: ${{ steps.detect.outputs.has_app }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: detect
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_type }}" = "tag" ]; then
+            t=true; else t=false; fi
+          [ -f pubspec.yaml ] && w=true || w=false
+          [ -d applications/app ] && a=true || a=false
+          {
+            echo "is_tag=$t"
+            echo "has_workspace=$w"
+            echo "has_app=$a"
+          } >> "$GITHUB_OUTPUT"
+          echo "is_tag=$t workspace=$w app=$a"
+
+  verify:
+    name: ${{ matrix.os }} · verify
+    needs: detect
+    if: needs.detect.outputs.has_workspace == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: ${{ env.DART_VERSION }}
+
+      - run: dart pub global activate melos
+      - run: dart pub get
+      - run: melos run generate
+      - run: melos run analyze
+      - run: melos run format
+      - run: melos run test
+
+  artifacts:
+    name: Build signed artifacts
+    needs: [detect, verify]
+    if: needs.detect.outputs.is_tag == 'true'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/_artifacts.yml
+    secrets: inherit
+
+  publish-dry-run:
+    name: pub publish dry-run
+    needs: [detect, verify]
+    if: needs.detect.outputs.is_tag == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: ${{ env.DART_VERSION }}
+
+      - name: Dry-run every publishable package
+        # A dry-run failure blocks the release. Publishable packages must carry no path
+        # dependencies: all internal deps become hosted version constraints.
+        run: |
+          set -euo pipefail
+          pub global activate melos
+          melos run release:publish-dry-run
+
+      - name: Publication manifest
+        run: |
+          set -euo pipefail
+          melos run release:version-check
+          melos run release:artifact-check
+          melos run release:signature-check
+          melos run release:startup-check
+          melos run release:offline-check
+
+  publish:
+    name: Publish to pub.dev
+    needs: [detect, artifacts, publish-dry-run]
+    # Requires manual approval plus a protected environment with the credential.
+    if: needs.detect.outputs.is_tag == 'true'
+    runs-on: ubuntu-latest
+    environment: pub-publish
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: ${{ env.DART_VERSION }}
+
+      - name: Publish
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish == 'true' }}
+        run: |
+          set -euo pipefail
+          pub global activate melos
+          melos run release:publish
+        env:
+          PUB_HOSTED_URL: https://pub.dev

@@ -1,0 +1,169 @@
+name: ci
+
+# The deterministic gate. One job per operating system, plus the workspace-level
+# contract tests.
+#
+# Phase awareness is explicit. The repository is specification-first: task 0.1 creates the
+# Dart workspace and Phase 3 creates the Tier 2 suite. Jobs for phases that have not landed
+# are skipped rather than failed, and a `detect` job publishes that state as job outputs,
+# because `hashFiles` is not reliably available in a job-level `if`.
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DART_VERSION: "3.13.4"
+
+jobs:
+  detect:
+    name: Detect repository phase
+    runs-on: ubuntu-latest
+    outputs:
+      has_workspace: ${{ steps.detect.outputs.has_workspace }}
+      has_tier2: ${{ steps.detect.outputs.has_tier2 }}
+      has_app: ${{ steps.detect.outputs.has_app }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: detect
+        run: |
+          set -euo pipefail
+          [ -f pubspec.yaml ] && w=true || w=false
+          if compgen -G "packages/alteri_one_platform/test/tier2/*" > /dev/null; then t=true; else t=false; fi
+          [ -d applications/app ] && a=true || a=false
+          {
+            echo "has_workspace=$w"
+            echo "has_tier2=$t"
+            echo "has_app=$a"
+          } >> "$GITHUB_OUTPUT"
+          echo "workspace=$w tier2=$t app=$a"
+
+  documentation:
+    name: Documentation and governance
+    needs: detect
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Documentation integrity
+        # Links, anchors and reachability. Runs on every change, in every phase.
+        run: python3 tools/check_doc_links.py --orphans
+
+      - name: Governance documents present
+        # Task 0.3 asserts these. Cheap to check early, and it stops them going missing.
+        run: |
+          set -euo pipefail
+          for f in SECURITY.md CONTRIBUTING.md CODE_OF_CONDUCT.md ARCHITECTURE.md \
+                   .github/CODEOWNERS docs/security/threat-model.md \
+                   docs/decisions/README.md .github/workflows/ci.yml; do
+            [ -f "$f" ] || { echo "::error::missing $f"; exit 1; }
+          done
+          echo "governance documents present"
+
+      - name: Specification is English-only
+        # A stray Cyrillic string means content was pasted in without translation, which
+        # silently breaks the localisation contract in task 0.11.
+        run: |
+          set -euo pipefail
+          if git grep -nP '[\x{0400}-\x{04FF}]' -- '*.md'; then
+            echo "::error::Cyrillic text found. The specification is English-only."
+            exit 1
+          fi
+          echo "no Cyrillic found"
+
+  workspace-contracts:
+    name: Workspace and CI contract tests
+    needs: detect
+    if: needs.detect.outputs.has_workspace == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: ${{ env.DART_VERSION }}
+
+      - name: Resolve
+        run: dart pub get
+
+      - run: dart test test/workspace/workspace_contract_test.dart
+      - run: dart test test/ci/quality_gates_contract_test.dart
+      - run: dart test test/ci/telemetry_allowlist_test.dart
+      - run: dart test test/governance/documentation_contract_test.dart
+
+  matrix:
+    name: ${{ matrix.os }} · codegen, analyse, format, test
+    needs: [detect, documentation]
+    if: needs.detect.outputs.has_workspace == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: ${{ env.DART_VERSION }}
+
+      - name: Install Melos
+        run: dart pub global activate melos
+
+      - name: Resolve
+        run: dart pub get
+
+      # Order matters. Codegen first because analysis of generated code is part of the
+      # gate; format last so it checks the post-codegen tree.
+      - name: Codegen
+        run: melos run generate
+
+      - name: Analyse
+        run: melos run analyze
+
+      - name: Format
+        run: melos run format
+
+      - name: Test
+        run: melos run test
+
+      - name: Offline end-to-end
+        run: melos exec -c 1 --scope="alteri_one_cli" -- dart test --tags offline-e2e
+
+      - name: Tier 2 sandbox suite
+        # Linux only. macOS and Windows have a separate job below that asserts refusal.
+        if: needs.detect.outputs.has_tier2 == 'true' && matrix.os == 'ubuntu-latest'
+        run: melos exec -c 1 --scope="alteri_one_platform" -- dart test test/tier2/
+
+  tier2-refusal:
+    name: ${{ matrix.os }} · Tier 2 refuses
+    needs: [detect, documentation]
+    # Off Linux this suite asserts an explicit refusal before any process is created. The
+    # refusal is a pass; a skip would hide a regression to "degrade instead of refuse".
+    if: needs.detect.outputs.has_tier2 == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: ${{ env.DART_VERSION }}
+
+      - run: dart pub global activate melos
+      - run: dart pub get
+      - run: melos exec -c 1 --scope="alteri_one_platform" -- dart test test/tier2/platform_policy_contract_test.dart

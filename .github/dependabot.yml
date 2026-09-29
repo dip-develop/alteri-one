@@ -1,0 +1,47 @@
+# Dependency updates.
+#
+# target-branch is set to develop on every ecosystem. The repository default branch is
+# main, and leaving the default in place is the main source of drift: updates would be
+# raised against a branch that does not receive feature work.
+
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: develop
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - ci
+    commit-message:
+      prefix: ci(deps)
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Dart dependencies. Inactive until task 0.1 creates the root pubspec.yaml, at which
+  # point Dependabot starts opening PRs against it.
+  #
+  # These are opened as PRs and never merged automatically: pub upgrades interact with the
+  # committed pubspec.lock and with freezed 4.x's exact pins, so a bump needs the codegen
+  # and analysis gates to run. See ADR-0001.
+  - package-ecosystem: pub
+    directory: /
+    target-branch: develop
+    schedule:
+      interval: monthly
+      time: "06:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - dart
+    commit-message:
+      prefix: "chore(deps):"
+

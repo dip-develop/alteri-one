@@ -1,0 +1,71 @@
+name: Design or feature proposal
+description: Propose a change to behaviour, a contract, or the plan.
+labels: ["proposal", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Most changes should begin as a task in `docs/process/task-breakdown.md`. Propose
+        here when the change alters a contract, adds a package, or is too large to scope
+        as a single task.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: >-
+        What cannot be done today, or what is wrong with how it is done now. A concrete
+        failure or limitation, not a preference.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Protocol or transports
+        - Configuration or profiles
+        - Engine, loop or budgets
+        - Policy, approval or permissions
+        - Memory, privacy or retention
+        - Plugins or tools
+        - Skill packs (Tier 0)
+        - MCP interoperability
+        - CLI or app
+        - Build, packaging or release
+        - Testing or CI
+        - Documentation
+    validations:
+      required: true
+
+  - type: textarea
+    id: contracts
+    attributes:
+      label: Contracts this would change
+      description: >
+        Which versions, error codes, exit codes or schemas move? If the answer is "none",
+        say so explicitly — that is a useful answer.
+      placeholder: "No wire change. Adds a new policy DiagnosticCode only."
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: How would this be verified?
+      description: >
+        The mechanical acceptance criterion. If none can be written, that is worth
+        discussing before the change is scheduled.
+      placeholder: "melos exec --scope=... -- dart test test/... exits 0 and checks ..."
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Including the option of not doing this.

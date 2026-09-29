@@ -1,0 +1,25 @@
+# EditorConfig: https://editorconfig.org
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+[*.md]
+# No hard line breaks via trailing spaces anywhere in this repository: CI fails on trailing
+# whitespace in Markdown, and every break is explicit with a blank line.
+trim_trailing_whitespace = true
+
+[*.{dart,yaml,yml}]
+indent_size = 2
+
+[*.dart]
+indent_size = 2
+max_line_length = 100
+
+[Makefile]
+indent_style = tab

@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/dip-develop/alteri-one/security/advisories/new
+    about: Report privately. Do not open a public issue for a security problem.
+  - name: Contributing and branches
+    url: https://github.com/dip-develop/alteri-one/blob/develop/CONTRIBUTING.md
+    about: Git Flow, the gates that must pass, and the test rules.
+  - name: Question or discussion
+    url: https://github.com/dip-develop/alteri-one/discussions
+    about: Usage, design questions, anything that is not yet a bug or a task.

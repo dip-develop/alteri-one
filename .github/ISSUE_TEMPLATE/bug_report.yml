@@ -1,0 +1,94 @@
+name: Bug report
+description: Something behaves incorrectly, or a contract is violated.
+labels: ["bug", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If this is a **security** problem, do not file it here. Use
+        https://github.com/dip-develop/alteri-one/security/advisories/new
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened, in one or two sentences.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What you expected, and which document states it.
+      placeholder: "docs/architecture/engine.md states that ... so I expected ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Minimal steps, ideally a fixture. A failing test is the ideal report.
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: "1.0.0-dev / a1b2c3d / main"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - Web (Phase 5, not yet available)
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: tier
+    attributes:
+      label: Plugin tier involved
+      description: Tier 0 skill pack, Tier 1 trusted plugin, Tier 2 untrusted plugin, or none.
+      options:
+        - None
+        - Tier 0 — skill pack
+        - Tier 1 — trusted plugin
+        - Tier 2 — untrusted plugin
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevant configuration
+      description: >
+        Profile name, declared capabilities, provider, trust tier. Redact all secrets —
+        never paste an API key, and never paste an environment dump.
+      render: yaml
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Diagnostics
+      description: Output with `--verbose`. Check it contains no secrets first.
+      render: shell
+
+  - type: textarea
+    id: contract
+    attributes:
+      label: Which contract do you believe is violated?
+      description: >
+        Optional, but it helps a lot. For example a policy rule, a framing limit, an exit
+        code, a provenance label, or a budget bound.
+      placeholder: "policy.denied should have produced exit 4, not 0"

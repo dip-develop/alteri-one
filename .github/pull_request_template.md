@@ -1,0 +1,70 @@
+## What this changes
+
+<!-- One paragraph. What is different after this PR? -->
+
+## Task
+
+<!-- Which task or tasks does this implement? Use the ids from docs/process/task-breakdown.md. -->
+
+Task(s):
+
+## Acceptance
+
+<!-- Paste the acceptance command(s) and their output, or at minimum state what you ran. -->
+
+```
+$ melos run test
+```
+
+- [ ] Every acceptance criterion for the referenced tasks exits `0`
+- [ ] The evidence above is included, not just the claim
+
+## Gates
+
+- [ ] `melos run generate`
+- [ ] `melos run analyze` (`--fatal-infos`)
+- [ ] `melos run format`
+- [ ] `melos run test`
+- [ ] Green on Linux, macOS and Windows (or the platform matrix is unchanged)
+- [ ] No golden file was rewritten without a separate commit explaining why
+
+## Architectural constraints
+
+- [ ] `alteri_one_core` and `alteri_one_protocol` still do not import `dart:io`
+- [ ] `alteri_one_memory` still does not import `hive_ce` or `dart:io`
+- [ ] The engine still contains no UI; approval goes through `ApprovalPort`
+- [ ] Production code does not call `DateTime.now`, a random source or a process-global id
+- [ ] No sandbox degrades instead of refusing
+- [ ] No new package without a repeatable boundary or demonstrated duplication
+
+## Contracts
+
+- [ ] Protocol, `apiVersion`, error code or manifest changes come with a version bump or an
+      explicit note that they do not need one
+- [ ] New behaviour is covered at the right test level (`unit` / `contract` /
+      `integration` / `eval`)
+- [ ] Network access only through the fixture server, never a live endpoint
+- [ ] Tests are deterministic: `FakeProvider`, injected clock, seeded ids
+
+## Documentation
+
+- [ ] `docs/` updated where behaviour or a contract changed
+- [ ] An ADR added in `docs/decisions/` if an architectural decision was made
+- [ ] `python3 tools/check_doc_links.py --orphans` exits `0`
+- [ ] No user-facing string added without an l10n catalogue entry and a `DiagnosticCode`
+
+## Security
+
+- [ ] No secret, credential or raw environment value in source, fixtures, logs or
+      transcripts
+- [ ] Any change to `SECURITY.md`, `docs/security/` or the plugin/tool contracts flagged for
+      a reviewer other than the author
+
+## Review
+
+- [ ] Someone other than the author has reviewed this
+- [ ] Screenshots or terminal output included for CLI and UI changes
+
+## Notes for the reviewer
+
+<!-- Anything non-obvious. Deviations from the task as written, and why. -->
