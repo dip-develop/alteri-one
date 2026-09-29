@@ -85,6 +85,7 @@ Start here: **[docs/README.md](docs/README.md)** — index, reading order and co
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Git Flow, the gates that must pass, test rules |
 | [SECURITY.md](SECURITY.md) | Private vulnerability reporting, severity and disclosure |
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community expectations |
+| [AGENTS.md](AGENTS.md) | Working notes for coding agents: current phase, runnable commands, enforced invariants |
 | [CHANGELOG.md](CHANGELOG.md) | Release history, generated from conventional commits |
 | [docs/security/threat-model.md](docs/security/threat-model.md) | Assets, adversaries, boundaries, attack paths |
 | [docs/decisions/](docs/decisions/README.md) | ADRs, open questions, risk register |
