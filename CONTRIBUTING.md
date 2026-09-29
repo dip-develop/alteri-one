@@ -12,6 +12,13 @@ If you cannot make the acceptance mechanical, the work is not ready to be a task
 to the phase growth curve and label it `[manual]`. Do not present a manual observation as a
 test — that is the fastest way to make this specification untrustworthy.
 
+## The working list
+
+[TODO.md](TODO.md) is the short-lived list of what is in flight. Durable work belongs in
+[the task breakdown](docs/process/task-breakdown.md) or a GitHub issue, and an item that
+lives in both places points at the other in both. It rides in the feature branch and lands
+with the pull request, never on `develop` directly.
+
 ## Branching
 
 We use Git Flow.
@@ -66,12 +73,13 @@ update must be its own commit with a stated reason.
 ## Checking your work before CI does
 
 ```bash
-python3 tools/check_doc_links.py --orphans
+dart run tool/docs/check_doc_links.dart --orphans
 ```
 
 Verifies every relative link, every anchor, and that every markdown file is reachable from
 an entry point. CI runs it on every change, so a broken cross-reference is faster to catch
-locally than in review.
+locally than in review. The checker is a dependency-free Dart script under `tool/`, so it
+runs before any package in the workspace is resolved.
 
 There is also a `docs/` test for the localisation contract: the specification is
 English-only, and CI fails on any Cyrillic in markdown. If you paste content from a source

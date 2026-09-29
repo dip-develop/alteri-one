@@ -36,6 +36,12 @@ $ melos run test
 - [ ] Production code does not call `DateTime.now`, a random source or a process-global id
 - [ ] No sandbox degrades instead of refusing
 - [ ] No new package without a repeatable boundary or demonstrated duplication
+- [ ] A new file is claimed by exactly one subproject — `apps/`, `tools/`, `injections/` or
+      `plugins/` — or by `packages/` / `tool/` when it is a library or tooling
+- [ ] A new extension is declared in both `pubspec.yaml` and `alterione.yaml`, or is listed
+      with `enabled: false` so it resolves but is deliberately not bound
+- [ ] No installed path, launcher, installer script or default configuration value contains
+      `alteri_one`; the installed product is `alterione` (ADR-0016)
 
 ## Contracts
 
@@ -50,7 +56,7 @@ $ melos run test
 
 - [ ] `docs/` updated where behaviour or a contract changed
 - [ ] An ADR added in `docs/decisions/` if an architectural decision was made
-- [ ] `python3 tools/check_doc_links.py --orphans` exits `0`
+- [ ] `dart tool/docs/check_doc_links.dart --orphans` exits `0`
 - [ ] No user-facing string added without an l10n catalogue entry and a `DiagnosticCode`
 
 ## Security

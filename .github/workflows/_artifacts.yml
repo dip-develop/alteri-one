@@ -1,12 +1,26 @@
 name: _artifacts
 
-# Reusable: build the native CLI for the three supported operating systems, verify each
-# artifact, produce a reproducible manifest with checksums, and sign where the platform
-# supports it.
+# Reusable: build the release for the three supported operating systems, assemble the install
+# root the user actually receives, verify it, produce a reproducible manifest with checksums,
+# and sign where the platform supports it.
 #
-# Build hooks are the reason this exists. `dart compile exe` does not run build hooks and
-# fails or omits assets when they are present, so the release path is `dart build cli` and
-# `dart install` only. `dart compile exe` is not a fallback here.
+# Two build paths run on every target, because ADR-0017 keeps both.
+# `melos run build:aot` produces `alterione.aot`, which is what ships: a snapshot executed by
+# a separately downloaded, digest-verified `bin/dartrantime`.
+# `melos run build:cli` produces the self-contained executable, which is the developer and
+# SDK path and the fallback for any target whose closure is not hook-free. It is built on
+# every tag so the fallback is never quietly broken, but it is not shipped into the install
+# root, because its executable is still named for the source package. `manifest.json`
+# records which path produced what.
+#
+# `dart compile aot-snapshot` does not run build hooks. That is not a defect to work around:
+# the hook-free release closure of the CLI package is a gate below, so a build hook fails the
+# release instead of being silently omitted from the snapshot and discovered by a user.
+#
+# Every asset and every installed path here is named for the product, never for the source
+# package it was built from. ADR-0016 puts the source tree on the Dart-convention side of
+# the build boundary and everything a user receives on the `alterione` side, and an artifact
+# name is on the wrong side of it. ci.yml greps this file to keep it that way.
 #
 # Not called directly. Called from release.yml on a tag.
 
@@ -53,25 +67,204 @@ jobs:
       - run: dart pub get
       - run: melos run generate
 
-      - name: Build the AOT CLI
-        # Build hooks run here. This is the release path.
-        run: melos run build:cli
-
-      - name: Locate the artifact
+      - name: Release closure is hook-free
+        # ADR-0017 rule 3. `dart compile aot-snapshot` skips build hooks entirely, so a
+        # dependency shipping `hook/build.dart` or native assets is dropped from the
+        # snapshot without failing the build and fails at run time instead. Refuse to build
+        # rather than ship a release that is missing an asset nobody was told about.
+        #
+        # The closure is read from `.dart_tool/package_config.json`, which is the resolution
+        # `dart pub get` just performed and lists every package with a root URI. It covers
+        # the whole workspace rather than only the CLI closure, and that is deliberate: a
+        # hook anywhere in the workspace would also reach the snapshot.
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$ARTIFACTS"
-          find . -type f \( -name 'alteri_one' -o -name 'alteri_one.exe' \) \
-            -not -path './.git/*' -not -path './build/*/cache/*' | head -20
+          command -v jq > /dev/null 2>&1 || {
+            echo "::error::jq is required for the hook-free closure gate"
+            exit 1
+          }
+          config=".dart_tool/package_config.json"
+          [ -f "$config" ] || {
+            echo "::error::$config is missing; dart pub get did not resolve the workspace"
+            exit 1
+          }
 
-      - name: Smoke test startup
-        # A binary that does not start is not a release.
+          # rootUri is relative to the directory holding package_config.json.
+          base="$(dirname "$config")"
+          checked=0
+          fail=0
+          while IFS=$'\t' read -r name root; do
+            dir="$base/$root"
+            [ -d "$dir" ] || continue
+            checked=$((checked + 1))
+            if compgen -G "$dir/hook/build.dart" > /dev/null; then
+              echo "$name ships hook/build.dart"
+              fail=1
+            elif compgen -G "$dir/hook/*" > /dev/null; then
+              echo "$name ships a file under hook/"
+              fail=1
+            elif [ -f "$dir/native_assets.yaml" ]; then
+              echo "$name ships native_assets.yaml"
+              fail=1
+            fi
+          done < <(jq -r '.packages[] | [.name, .rootUri] | @tsv' "$config")
+
+          [ "$checked" -gt 0 ] || {
+            echo "::error::the resolved closure is empty; the gate would pass vacuously"
+            exit 1
+          }
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::The release closure is not hook-free, so dart compile aot-snapshot"
+            echo "::error::would omit these packages from alterione.aot without failing."
+            echo "::error::Adding a build hook or a native asset requires either a move to the"
+            echo "::error::self-contained executable for that target, or an ADR. See"
+            echo "::error::docs/decisions/0017-aot-snapshot-and-runtime.md, rule 3."
+            exit 1
+          fi
+          echo "hook-free closure verified across $checked resolved packages"
+
+      - name: Build the AOT snapshot
+        # The release path. `dart compile aot-snapshot`, output dist/alterione.aot, run by
+        # the pinned runtime rather than by an SDK shipped inside the product.
+        run: melos run build:aot
+
+      - name: Build the self-contained CLI
+        # The developer, SDK and fallback path, and the only build here that runs hooks. It
+        # is built on every tag so that the fallback cannot rot unnoticed, and it is not
+        # shipped: the install root carries the snapshot, not this executable.
+        run: melos run build:cli
+
+      - name: Assemble the install root
+        # Everything the user receives, and nothing else. Fail closed on a missing piece: a
+        # release without its launcher or its installers is a product nobody can update.
+        shell: bash
         run: |
           set -euo pipefail
-          binary="$(find "$ARTIFACTS" -type f -name 'alteri_one*' | head -1)"
-          "$binary" --version
-          "$binary" doctor --json || true
+          root="$ARTIFACTS"
+          rm -rf "$root"
+          mkdir -p "$root/bin"
+
+          if [ "$RUNNER_OS" = "Windows" ]; then suffix=".exe"; else suffix=""; fi
+
+          # The pinned AOT runtime, which is the one that can execute a snapshot built by
+          # this pinned SDK. It is `dartaotruntime` and never `dart`: shipping the SDK
+          # would hand `pub` and the compiler to the process a Tier 2 child is trying to
+          # escape. The installer downloads this file and verifies it by digest.
+          runtime="$(dirname "$(command -v dart)")/dartaotruntime$suffix"
+          [ -f "$runtime" ] || {
+            echo "::error::no AOT runtime beside the pinned SDK at $runtime"
+            exit 1
+          }
+          cp "$runtime" "$root/bin/dartrantime$suffix"
+
+          # The shipped manifest, copied verbatim from the repository root, and the
+          # snapshot the release actually installs.
+          for f in alterione.yaml apps/cli/dist/alterione.aot; do
+            [ -f "$f" ] || { echo "::error::$f is missing from the build"; exit 1; }
+          done
+          cp alterione.yaml "$root/alterione.yaml"
+          cp apps/cli/dist/alterione.aot "$root/alterione.aot"
+
+          # The launcher, the update script and the three installers are generated from
+          # tool/install/. The launcher is named `alterione`, not `run` and not
+          # `alterione.sh`, because one executable with no extension in the install root is
+          # what makes adding that directory to PATH the whole installation story.
+          for f in alterione alterione-update install.sh install.ps1 install.cmd; do
+            [ -f "tool/install/$f" ] || {
+              echo "::error::release template tool/install/$f is missing"
+              exit 1
+            }
+            cp "tool/install/$f" "$root/$f"
+          done
+          chmod +x "$root/alterione" "$root/alterione-update" 2> /dev/null || true
+
+          find "$root" -type f | LC_ALL=C sort
+
+      - name: Write manifest.json
+        # Every shipped file by digest, which build produced the snapshot, and the runtime
+        # range the snapshot is pinned to. The signature covers this file and this file
+        # covers everything else, so a signature check plus this file is a complete
+        # integrity check of the install root.
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          cd "$ARTIFACTS"
+
+          # A snapshot runs on the runtime it was built with and on nothing else, so the
+          # shipped range is narrowed from the workspace constraint to this major.minor.
+          sdk="${DART_VERSION%.*}"
+          major="${sdk%%.*}"
+          minor="${sdk##*.}"
+          next=$((minor + 1))
+
+          {
+            printf '{\n'
+            printf '  "schema": "alterione.manifest/v1",\n'
+            printf '  "product": "alterione",\n'
+            printf '  "version": "%s",\n' "$RELEASE_VERSION"
+            printf '  "target": "%s",\n' "$TARGET"
+            printf '  "runtime": {"name": "dartrantime", "version": ">=%s.%s.0 <%s.%s.0"},\n' \
+              "$major" "$minor" "$major" "$next"
+            printf '  "build": {\n'
+            printf '    "snapshot": {"path": "alterione.aot", '
+            printf '"producer": "melos run build:aot", "shipped": true},\n'
+            printf '    "sdk_path": {"producer": "melos run build:cli", "shipped": false}\n'
+            printf '  },\n'
+            printf '  "files": [\n'
+            first=true
+            while IFS= read -r f; do
+              name="${f#./}"
+              digest="$(shasum -a 256 "$f" | cut -d' ' -f1)"
+              size="$(wc -c < "$f" | tr -d ' ')"
+              if $first; then first=false; else printf ',\n'; fi
+              printf '    {"path": "%s", "sha256": "%s", "size": %s}' "$name" "$digest" "$size"
+            done < <(find . -type f ! -name 'manifest.json' -print | LC_ALL=C sort)
+            printf '\n  ]\n'
+            printf '}\n'
+          } > manifest.json
+
+          cat manifest.json
+
+      - name: Smoke test the shipped path
+        # The thing the user runs, not the thing the developer built: through the pinned
+        # runtime and through the launcher. A snapshot that only runs when invoked with the
+        # right runtime is not a release.
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$ARTIFACTS"
+          command -v jq > /dev/null 2>&1 || {
+            echo "::error::jq is required by the release smoke test"
+            exit 1
+          }
+
+          if [ "$RUNNER_OS" = "Windows" ]; then suffix=".exe"; else suffix=""; fi
+
+          # Every shipped byte is the byte the manifest signed for.
+          jq -r '.files[] | "\(.sha256)  \(.path)"' manifest.json > .digests
+          shasum -a 256 -c .digests
+
+          # And the check is not vacuous: a tampered file has to be rejected. If this ever
+          # passes, the step above is not verifying anything and the release is unsigned in
+          # practice, whatever the manifest claims.
+          cp alterione.yaml .alterione.yaml.bak
+          printf '\n# tampered by CI\n' >> alterione.yaml
+          tampered=false
+          if shasum -a 256 -c .digests > /dev/null 2>&1; then tampered=true; fi
+          mv .alterione.yaml.bak alterione.yaml
+          if [ "$tampered" = "true" ]; then
+            echo "::error::digest verification accepted a tampered file"
+            exit 1
+          fi
+          rm -f .digests
+
+          "./bin/dartrantime$suffix" alterione.aot --version
+          ./alterione --version
+          ./alterione doctor --json || true
 
       - name: Release gates
         if: ${{ inputs.run_benchmarks }}
@@ -92,16 +285,22 @@ jobs:
         # macOS: codesign then notarize. Windows: signtool. Linux: detached signature.
         # Credentials come from the environment; a missing credential fails the release
         # rather than shipping an unsigned artifact.
+        #
+        # What is signed is `manifest.json`, which carries the digest of every other file in
+        # the install root. One signature over the manifest covers the snapshot, the pinned
+        # runtime, the shipped manifest, the launcher and the installers, so there is no
+        # per-asset signature to keep in step with the file list.
         shell: bash
         run: |
           set -euo pipefail
           echo "signing requires APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID"
           echo "and MACOS_CERTIFICATE / MACOS_CERTIFICATE_PASSWORD for Windows"
+          echo "the detached signature covers manifest.json"
           echo "no unsigned artifact is ever published"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: alteri_one-${{ matrix.target }}
+          name: alterione-${{ matrix.target }}
           path: ${{ env.ARTIFACTS }}
           retention-days: 14
 
