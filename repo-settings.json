@@ -1,0 +1,147 @@
+{
+  "repository": {
+    "defaultBranchRef": {
+      "name": "main"
+    },
+    "deleteBranchOnMerge": true,
+    "description": "Open-source core for a locally executable LLM agent. Extensions are ordinary dependencies; authority is refused, never assumed.",
+    "hasDiscussionsEnabled": true,
+    "hasIssuesEnabled": true,
+    "hasWikiEnabled": false,
+    "homepageUrl": "https://alteri.one",
+    "visibility": "PUBLIC"
+  },
+  "labels": [
+    "adr",
+    "breaking",
+    "bug",
+    "ci",
+    "dart",
+    "dependencies",
+    "design",
+    "documentation",
+    "duplicate",
+    "enhancement",
+    "good first issue",
+    "help wanted",
+    "invalid",
+    "question",
+    "security",
+    "site",
+    "wontfix"
+  ],
+  "rulesets": [
+    {
+      "branch": [
+        "refs/heads/develop"
+      ],
+      "enforcement": "active",
+      "name": "protect: develop",
+      "rules": [
+        {
+          "parameters": null,
+          "type": "deletion"
+        },
+        {
+          "parameters": null,
+          "type": "non_fast_forward"
+        },
+        {
+          "parameters": null,
+          "type": "required_linear_history"
+        },
+        {
+          "parameters": {
+            "allowed_merge_methods": [
+              "merge",
+              "squash"
+            ],
+            "dismiss_stale_reviews_on_push": true,
+            "dismissal_restriction": {
+              "allowed_actors": [],
+              "enabled": false
+            },
+            "require_code_owner_review": true,
+            "require_extra_approval_for_unattributed_changes": true,
+            "require_last_push_approval": true,
+            "required_approving_review_count": 1,
+            "required_review_thread_resolution": true
+          },
+          "type": "pull_request"
+        },
+        {
+          "parameters": {
+            "do_not_enforce_on_create": true,
+            "required_status_checks": [
+              {
+                "context": "Detect repository phase"
+              },
+              {
+                "context": "Documentation and governance"
+              }
+            ],
+            "strict_required_status_checks_policy": true
+          },
+          "type": "required_status_checks"
+        }
+      ],
+      "target": "branch"
+    },
+    {
+      "branch": [
+        "refs/heads/main"
+      ],
+      "enforcement": "active",
+      "name": "protect: main",
+      "rules": [
+        {
+          "parameters": null,
+          "type": "deletion"
+        },
+        {
+          "parameters": null,
+          "type": "non_fast_forward"
+        },
+        {
+          "parameters": null,
+          "type": "required_linear_history"
+        },
+        {
+          "parameters": {
+            "allowed_merge_methods": [
+              "merge",
+              "squash"
+            ],
+            "dismiss_stale_reviews_on_push": true,
+            "dismissal_restriction": {
+              "allowed_actors": [],
+              "enabled": false
+            },
+            "require_code_owner_review": true,
+            "require_extra_approval_for_unattributed_changes": true,
+            "require_last_push_approval": true,
+            "required_approving_review_count": 1,
+            "required_review_thread_resolution": true
+          },
+          "type": "pull_request"
+        },
+        {
+          "parameters": {
+            "do_not_enforce_on_create": true,
+            "required_status_checks": [
+              {
+                "context": "Detect repository phase"
+              },
+              {
+                "context": "Documentation and governance"
+              }
+            ],
+            "strict_required_status_checks_policy": true
+          },
+          "type": "required_status_checks"
+        }
+      ],
+      "target": "branch"
+    }
+  ]
+}

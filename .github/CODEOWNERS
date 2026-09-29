@@ -43,5 +43,9 @@
 /site/                                 @DipDevDevelopers
 /docs/website.md                       @DipDevDevelopers
 
-# The lockfile is committed deliberately: one reviewer, no drive-by updates.
+# # The lockfile is committed deliberately: one reviewer, no drive-by updates.
 /pubspec.lock                           @DipDevDevelopers
+
+# The recorded repository settings. A change here is a change to branch protection or the
+# label set, which is why it is reviewed rather than re-recorded on a whim.
+/repo-settings.json                     @DipDevDevelopers

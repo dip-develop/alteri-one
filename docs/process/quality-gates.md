@@ -47,6 +47,7 @@ These are tests, not lint config, so that they are falsifiable and greppable.
 | Canonical serialisation | `test/transcript/canonical_serialisation_test.dart` (`0.20`) | Digest stability across clocks, paths and key orders |
 | **Site stays a landing page** | `site/` build in `.github/workflows/pages.yml` | The site renders, and `site/pubspec.yaml` carries no `flutter:` embedding key; the deployed output contains `CNAME` and `index.html` |
 | **Site output is small** | the *Drop development output* step in `pages.yml` | `jaspr build` leaves the resolved package tree beside the HTML; the workflow deletes it and the output is a few hundred kilobytes, not tens of megabytes |
+| **Repository settings** | `melos run release:repo-settings-check` | The live description, homepage, feature toggles, labels and branch rulesets match `repo-settings.json`; a rule removed in the GitHub UI fails the gate |
 
 The site gate is the only one that runs outside the workspace, and it is separate on
 purpose: a website build must not be able to fail a product release, or the reverse. See
