@@ -17,6 +17,13 @@ abstract interface class ReasoningStrategy {
 does not bypass engine controls: deadline, budget, policy, capability lookup, tool
 validation and cancellation remain host control.
 
+`ReasoningState` holds typed values only, and among them the run's **labelled context
+fragments** — each piece of content on its way to the model with the provenance and
+sensitivity assigned at its ingress point. That list is what an injection is handed and
+what it returns; the engine strips the label down to a plain string plus a boundary marker
+before anything reaches the model, and never adopts a label an extension returned. The two
+label enums are defined in [concepts.md](../concepts.md#3-content-labels).
+
 There is exactly one implementation in v1, ReAct:
 
 1. The engine gives the model the goal, the permitted tool schemas and the current context.
@@ -133,7 +140,8 @@ Future<AlteriOneRunResult> run(
     }
 
     if (state.contextTokens >= profile.memory.compaction.triggerTokens) {
-      await _compact(state, deadline, budget, cancel);
+      await injections.run(ContextStage.summarise, state,
+          deadline: deadline, cancel: cancel);
     }
   }
 }
@@ -146,6 +154,21 @@ atomically settles it into the budget. `_invoke` similarly receives
 and records the `ToolOutcome` in state. Cancellation, deadline exceeded, cancelled and
 budget exhausted are terminal control outcomes and are never replaced by a successful
 provider response.
+
+When `state.contextTokens` reaches `profile.memory.compaction.triggerTokens` the loop does
+not compact anything itself: it asks the **configured injection pipeline** to run the
+`summarise` stage. The pipeline is ordered, deterministic and declared in
+`alterione.yaml` under `extensions.injections`, so the set of transforms and their order
+are part of the product's reviewed configuration rather than a property of the binary. In
+v1 that stage carries `alteri_one_injection_compress`; see
+[extensibility/injections.md](../extensibility/injections.md) and
+[memory.md](memory.md#4-compaction-by-tokens).
+
+An injection that throws is isolated to its own contribution: the transform is skipped,
+the original fragments are kept, and `injection.failed` is recorded with the reason. **A
+failed transform never ends a run and never grants anything** — failing to compress is
+not a reason to refuse a task, and an injection's output can never become a capability, a
+limit or a policy decision.
 
 ### 2.1 Headless approval
 
@@ -179,6 +202,9 @@ a policy rule with `effect: allow` plus a `--yes` policy override. Neither is im
   stagnation and stops the run, even if the model varies its reasoning text.
 - Model, tool and subagent cannot bypass `CostBudget`, deadline, cancellation or policy
   through an internal API.
+- An injection cannot change a limit, a policy decision or the tool set, because it holds
+  none of them. It is handed labelled context fragments and returns labelled context
+  fragments, inside the run deadline and nothing more.
 - Compaction triggers on `triggerTokens`, not `messages.length`; its own provider usage is
   paid from the same budget.
 

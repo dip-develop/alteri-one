@@ -14,6 +14,12 @@ on:
     branches: [main, develop]
     paths:
       - "packages/**"
+      - "apps/**"
+      - "tools/**"
+      - "injections/**"
+      - "plugins/**"
+      - "tool/**"
+      - "alterione.yaml"
       - "pubspec.yaml"
       - "pubspec.lock"
       - ".github/workflows/release.yml"
@@ -54,7 +60,7 @@ jobs:
           if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_type }}" = "tag" ]; then
             t=true; else t=false; fi
           [ -f pubspec.yaml ] && w=true || w=false
-          [ -d applications/app ] && a=true || a=false
+          [ -d apps/gui ] && a=true || a=false
           {
             echo "is_tag=$t"
             echo "has_workspace=$w"
@@ -89,6 +95,12 @@ jobs:
     name: Build signed artifacts
     needs: [detect, verify]
     if: needs.detect.outputs.is_tag == 'true'
+    # The release carries the install root, not a single executable: `alterione.aot`, the
+    # pinned `bin/dartrantime`, the shipped `alterione.yaml`, the `alterione` launcher,
+    # `alterione-update`, `install.sh` / `install.ps1` / `install.cmd`, and the signed
+    # `manifest.json` that digests all of them. The installer scripts are release assets in
+    # their own right, because `releases/latest/download/install.sh` is the documented
+    # first command a new user runs. Every asset is named `alterione`, never `alteri_one`.
     permissions:
       contents: write
     uses: ./.github/workflows/_artifacts.yml

@@ -1,15 +1,19 @@
-# Skill packs (Tier 0)
+# Skill packs — the Tier 0 injection
 
 **Status: Accepted**
 
-A skill pack is the Tier 0 plugin: declarative data with no code and no authority. It is
-the first tier the marketplace offers, and it is what makes the marketplace possible before
-an OS sandbox exists.
+A skill pack is the **Tier 0 form of an injection**: an `Injection(tier: data)`. It is
+declarative data with no code and no authority, and it is what makes the marketplace
+possible before an OS sandbox exists. A pack is not a seventh noun and not a kind of
+plugin — the classification decision is
+[ADR-0014](../decisions/0014-extension-subprojects.md), and the injection contract it obeys
+is in [injections.md](injections.md), of which this document is the Tier 0 section.
 
 ## 1. What a pack is
 
 | Property | Value |
 |---|---|
+| Classified as | `Injection(tier: data)` — Tier 0, `stage: assemble` |
 | Contents | `SKILL.md`, prompts, schemas, reference files, templates |
 | Executable code | None. Scripts found inside a pack are data and are never run |
 | Authority | None. A pack registers no capability and no tool |
@@ -68,9 +72,10 @@ with a diagnosable error.
 
 ## 3. Discovery and application
 
-The loader:
+A pack is installed under `~/.alterione/injections/<id>/` — a Tier 0 data injection, which
+is one of the only two things that can change without a rebuild. The loader:
 
-1. finds `SKILL.md` and resources in a user or project skill directory;
+1. finds `SKILL.md` and resources in a user or project injection directory;
 2. validates the front matter against the specification and the pack's own digest;
 3. binds the pack to a profile for the duration of a run;
 4. makes the body available to the context assembler under `skillContent` provenance;
@@ -79,7 +84,9 @@ The loader:
 
 Installation is a directory copy plus a digest record. Removal deletes the directory and
 the record; a removed pack's content disappears from the next run's context, and any
-reference to it in a stored transcript remains, redacted and inert.
+reference to it in a stored transcript remains, redacted and inert. The install root is
+specified in
+[install-and-update.md](../architecture/install-and-update.md#2-the-install-root).
 
 ### 3.1 Digest and provenance
 
@@ -87,14 +94,15 @@ Each installed pack records `packId`, `version`, `contentDigest` and `source`. T
 covers every file in the pack, so an edited pack is detectable:
 
 ```bash
-alteri_one skills list --profile companion
-alteri_one skills verify
+alterione injections list --profile companion
+alterione injections verify
 ```
 
-`skills verify` recomputes digests and reports any mismatch. A pack whose digest does not
-match its record is **not loaded**; it is reported. This is integrity, not trust: a
-mismatched pack is treated as untrusted content of unknown provenance, and since a pack
-already has no authority, the practical effect is exclusion from the context.
+`injections verify` recomputes every installed pack's digest and reports any mismatch. A
+pack whose digest does not match its record is **not loaded**; it is reported. This is
+integrity, not trust: a mismatched pack is treated as untrusted content of unknown
+provenance, and since a pack already has no authority, the practical effect is exclusion
+from the context.
 
 ## 4. What a pack may and may not do
 
@@ -112,8 +120,13 @@ provenance and the approval flow — not by the pack format.
 
 ## 5. Interaction with MCP
 
-MCP now defines an official **Skills over MCP** extension for discovering and reading
-agent skills from an MCP server. AlteriOne does not implement that extension in v1. When
-it does, the mapping rule is fixed in advance: skills arriving over MCP are
-`skillContent/untrusted` exactly like a locally installed pack, never `userStated`, and
-they can never grant a capability. See [mcp.md](mcp.md#6-official-extensions).
+MCP itself is a plugin — the client and server modes ship in `plugins/mcp/`, as
+`alteri_one_plugin_mcp`, and its dialect, consent model and security rules are specified
+in [mcp.md](mcp.md).
+
+MCP defines an official **Skills over MCP** extension for discovering and reading agent
+skills from an MCP server. AlteriOne does not implement that extension in v1. When it
+does, the mapping rule is fixed in advance: skills arriving over MCP arrive as a Tier 0
+injection and are `skillContent/untrusted` exactly like a locally installed pack, never
+`userStated`, and they can never grant a capability. There is no second, weaker path into
+the context. See [mcp.md](mcp.md#6-official-extensions).

@@ -3,7 +3,8 @@
 **Status: Proposed** — the package does not exist and is not in v1.
 
 `sdk/` reserves no working package. The public package for external embedders is
-`alteri_one_sdk`, and it appears only after the core API stabilises.
+`alteri_one_sdk`, reserved at `packages/alteri_one_sdk/` and appearing only after the core
+API stabilises.
 
 ## 1. Materialization gate
 
@@ -81,12 +82,21 @@ Two properties this shape guarantees:
 
 ## 4. Relationship to apps
 
-| Consumer | Phase | Relationship |
-|---|---|---|
-| CLI | v1 | First consumer; composition root for the binary |
-| Second embed consumer | Gate for this package | Must exist before the SDK is materialised |
-| Flutter app | 5 | Uses the public API; DI framework chosen only there |
-| Web | 5 | Uses the public API under the architecture chosen by the web ADR |
+Every application lives under `apps/`, the `App` subproject of
+[ADR-0014](../decisions/0014-extension-subprojects.md):
+
+| Subproject | Package | Phase | Relationship |
+|---|---|---|---|
+| `apps/cli` | `alteri_one_cli` | v1 | First consumer; composition root for the binary |
+| `apps/bootstrap` | `alterione` | v1 | Installer and updater; installs the release, never contains the core — see [ADR-0018](../decisions/0018-bootstrap-package.md) |
+| `apps/gui` | `alteri_one_gui` | 5 | Flutter GUI over the public API; DI framework chosen only there |
+| `apps/web` | `alteri_one_web` | 5 | A local server that starts the core natively and hosts a GUI written in Flutter and compiled for the web; the browser is its client, per [ADR-0019](../decisions/0019-web-local-server.md) |
+| Second embed consumer | — | Gate for this package | Must exist before the SDK is materialised |
+
+The app rule is the one in [concepts.md](../concepts.md#1-the-six-nouns): **an app
+composes the core, ships no tools, requests no capabilities, and is never Tier 0 or Tier
+2.** It is always a host process, never an extension, so nothing it does can be reached by
+adding a package to an extension subproject.
 
 The Flutter app and web target are specified in
 [flutter-and-web.md](flutter-and-web.md).

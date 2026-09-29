@@ -30,12 +30,25 @@ version and a migration guide — never a silent reinterpretation.
 1. [vision-and-scope.md](vision-and-scope.md) — what AlteriOne is, the north-star
    metrics, and the ten principles everything else is derived from.
 2. [concepts.md](concepts.md) — the vocabulary. **Read this before any other document**;
-   it disambiguates tool / plugin / capability / app, which the rest of the tree relies on.
+   it disambiguates tool / injection / plugin / capability / app, which the rest of the
+   tree relies on.
 3. `architecture/` — how the system is built.
-4. `extensibility/` — how it is extended: plugins, tools, skill packs, MCP.
+4. `extensibility/` — how it is extended: plugins, tools, injections, skill packs, MCP.
 5. `apps/` — the frontends that embed it: CLI, SDK, Flutter, web.
 6. `process/` — how the work is planned and gated.
 7. `reference/` — lookup tables.
+
+## The shape in one paragraph
+
+The repository is four extension subprojects — `apps/`, `tools/`, `injections/`,
+`plugins/` — beside the libraries the product is built from. Everything except an app is
+an ordinary Dart dependency, added or removed in `pubspec.yaml` and declared in
+`alterione.yaml`; there is no fixed extension set and no runtime code loading, because
+Dart has no class loader. The installed product is a verified release: `alterione.aot`
+executed by a pinned `bin/dartrantime`, launched by a script named `alterione`, installed
+by a shell script or by the `alterione` bootstrap package on pub.dev. The decisions behind
+that shape are ADR-0014 through ADR-0018, the web target is ADR-0019, and the project
+website is ADR-0020 — see [website.md](website.md).
 
 ## Architecture
 
@@ -46,7 +59,8 @@ budgets, policy and the capability registry.
 | Document | Covers |
 |---|---|
 | [architecture/overview.md](architecture/overview.md) | Package graph, dependency rules, composition root |
-| [architecture/workspace-layout.md](architecture/workspace-layout.md) | Monorepo layout, Melos scripts, config precedence |
+| [architecture/workspace-layout.md](architecture/workspace-layout.md) | The four subprojects, `pubspec.yaml` versus `alterione.yaml`, config precedence |
+| [architecture/install-and-update.md](architecture/install-and-update.md) | The install root, `bin/dartrantime`, install, update and verification |
 | [architecture/protocol.md](architecture/protocol.md) | Envelope, framing, negotiation, cancellation, error codes, transports |
 | [architecture/configuration.md](architecture/configuration.md) | YAML schemas, four-level precedence, secrets, personas, i18n |
 | [architecture/providers.md](architecture/providers.md) | OpenAI-compatible wire, capability probe and its cache, streaming, usage and cost |
@@ -56,25 +70,36 @@ budgets, policy and the capability registry.
 | [architecture/observability.md](architecture/observability.md) | Traces, canonical serialisation, transcripts, replay, evals, `doctor` |
 | [architecture/build-and-release.md](architecture/build-and-release.md) | Toolchain, AOT packaging, signing, release |
 
+## Project
+
+| Document | Covers |
+|---|---|
+| [website.md](website.md) | `alteri.one`: the static Jaspr landing page, its build, its constraints and its follow-ups |
+
 ## Extensibility
 
-Four separate extension surfaces, deliberately not unified — they have different trust
-models, different lifecycles and different wire formats.
+Five separate extension surfaces, deliberately not unified — they have different trust
+models, different lifecycles and different wire formats. Each has one subproject in the
+repository and one directory in the install root.
 
 | Document | Subject | Trust model |
 |---|---|---|
-| [extensibility/plugins.md](extensibility/plugins.md) | The plugin unit and its three execution tiers | Tier 0 data, Tier 1 in-process, Tier 2 sandboxed |
+| [extensibility/plugins.md](extensibility/plugins.md) | Runtime services — memory, MCP — and the three execution tiers | Tier 1 in-process, Tier 2 sandboxed |
 | [extensibility/tools.md](extensibility/tools.md) | The model-facing tool contract | Schema-validated, policy-gated |
-| [extensibility/skill-packs.md](extensibility/skill-packs.md) | Tier 0 skill pack format and loader | Untrusted content, no authority |
+| [extensibility/injections.md](extensibility/injections.md) | Context transforms and the authority-free guarantee | Tier 0 data or Tier 1; never authority |
+| [extensibility/skill-packs.md](extensibility/skill-packs.md) | Tier 0 skill pack format and loader, as an injection | Untrusted content, no authority |
 | [extensibility/mcp.md](extensibility/mcp.md) | Model Context Protocol client and server mode | Two-level consent |
 
 ## Apps
+
+Apps compose the core; they never extend it. They live in `apps/`, they ship no tools and
+they request no capabilities.
 
 | Document | Subject | Phase |
 |---|---|---|
 | [apps/cli.md](apps/cli.md) | Native CLI: commands, flags, exit codes, REPL | v1 |
 | [apps/sdk.md](apps/sdk.md) | Public embedding API and its materialization gate | 5 |
-| [apps/flutter-and-web.md](apps/flutter-and-web.md) | Flutter app and web target | 5 |
+| [apps/flutter-and-web.md](apps/flutter-and-web.md) | Flutter GUI and web target | 5 |
 
 ## Process
 

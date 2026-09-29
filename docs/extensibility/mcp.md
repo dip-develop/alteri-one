@@ -14,9 +14,38 @@ MCP is not free interoperability with the internal JSON-RPC envelope. Revision
 - capability discovery happens through `server/discover`;
 - a server does not initiate ordinary requests to the client.
 
-`alteri_one_mcp` is therefore a separate adapter with its own versioning, negotiation,
+The adapter is therefore a separate component with its own versioning, negotiation,
 cancellation, limits and contract tests. Having one internal envelope does not mean
 implementing MCP by hand.
+
+### 1.1 MCP is a plugin
+
+MCP is a **plugin** — a runtime service — and not a core module. `plugins/mcp/`,
+`alteri_one_plugin_mcp`, is where the client and the server mode live once the extraction
+criterion in [overview.md](../architecture/overview.md#23-deferred) is met; until then the
+adapter stays inside `alteri_one_core` behind exactly the same port, and the core does not
+know the difference. Either way the plugin declares the `mcp` port and may expose the tools
+an MCP server advertises. The version it is spoken at is declared in `alterione.yaml` →
+`api.ports.mcp`, currently `"2026-07-28"`, and the package is declared under
+`extensions.plugins`:
+
+```yaml
+api:
+  ports:
+    mcp: "2026-07-28"
+extensions:
+  plugins:
+    - package: alteri_one_plugin_mcp
+      version: ^1.0.0
+      enabled: false          # resolved and compiled, deliberately not bound
+```
+
+The core keeps only the typed host interface and the port version. The adapter is an
+ordinary dependency, so it can be switched off: with `enabled: false` the core still
+starts, and the port is simply unbound. A plugin whose port version falls outside
+`api.ports` is refused at discovery, before anything binds — the API agreement invariant
+in [plugins.md](plugins.md#41-alterioneyaml-agreement). The subproject is fixed in
+[workspace-layout.md](../architecture/workspace-layout.md#11-the-four-subprojects).
 
 ## 2. Implementation
 
@@ -59,8 +88,10 @@ as capability probes: identity-keyed, TTL-bounded, invalidated by server version
 or description digest, and never populated during startup.
 
 Resources and prompts arrive as untrusted content with provenance. A server's instructions
-never become a system prompt automatically. Tool output passes the same schema, size,
-deadline, cancellation, provenance and redaction checks as a Tier 1 tool.
+never become a system prompt automatically: a server description, an instruction block and
+a tool schema are all `mcpToolOutput`/`untrusted` ingress, and only host code assigns
+labels — see [concepts.md](../concepts.md#3-content-labels). Tool output passes the same
+schema, size, deadline, cancellation, provenance and redaction checks as a Tier 1 tool.
 
 ### 3.2 Primitive control levels
 
@@ -87,7 +118,8 @@ unknown internal method never becomes an MCP method automatically.
 
 ## 5. Security
 
-- **Tool poisoning.** A server's description, schema and output are untrusted. The user is
+- **Tool poisoning.** A server's description, schema and output are untrusted — ingress
+  labelled `mcpToolOutput`, never `userStated`. The user is
   shown the full text and schema, policy checks the actual arguments, and a server cannot
   change system instructions or capability declarations.
 - **OAuth.** The token is held at the credential platform boundary, has minimal scopes, a
@@ -111,7 +143,7 @@ Three are relevant to AlteriOne's roadmap:
 
 | Extension | Relevance | AlteriOne position |
 |---|---|---|
-| `io.modelcontextprotocol/skills` — Skills over MCP | Discover and read agent skills from an MCP server | **Not implemented in v1.** When implemented, content is `skillContent/untrusted` exactly like a local pack — see [skill-packs.md](skill-packs.md#5-interaction-with-mcp) |
+| `io.modelcontextprotocol/skills` — Skills over MCP | Discover and read agent skills from an MCP server | **Not implemented in v1.** When implemented, skills arrive as a Tier 0 injection and content is `skillContent/untrusted` exactly like a local pack — see [skill-packs.md](skill-packs.md#5-interaction-with-mcp) |
 | `io.modelcontextprotocol/ui` — MCP Apps | Servers render interactive UI inline in a conversation | **Not implemented.** Noted as an interop option for the Phase 5 Flutter app, which must not assume it |
 | `io.modelcontextprotocol/tasks` — MCP Tasks | Async execution of long operations, polling, mid-flight input, durable handles | **Deferred.** Would interact with the engine's own step and deadline model and needs its own ADR |
 
@@ -129,6 +161,6 @@ Skills and Dart package skills is in
 | Phase | Work |
 |---|---|
 | 2.5 | Select the client adapter against a shared `2026-07-28` fixture; record an ADR |
-| 2.6 | MCP client in core: tools, resources, prompts, correlation, cancellation, progress, frame limits, explicit version negotiation. Server mode absent |
+| 2.6 | MCP client in `alteri_one_core`: tools, resources, prompts, correlation, cancellation, progress, frame limits, explicit version negotiation. Server mode absent. The extraction into `plugins/mcp/` waits for the second-consumer criterion in [overview.md](../architecture/overview.md#23-deferred) |
 | 2.7 | Track official extensions; no implementation |
 | 4.6 | Server mode and the mapping layer, exporting only mapped, policy-checked capabilities |

@@ -13,9 +13,21 @@ test file so the assertion is greppable.
 
 ## Phase ordering rule
 
-Phase 0 creates exactly the six initial v1 packages: `alteri_one_protocol`,
-`alteri_one_platform`, `alteri_one_core`, `alteri_one_cli`, `alteri_one_memory`,
-`alteri_one_skills`. `alteri_one_workspace` is a root manifest with no library.
+Phase 0 creates the three product libraries the CLI is built from —
+`alteri_one_protocol`, `alteri_one_platform` and `alteri_one_core` in `packages/` — plus
+the default v1 extension set: `apps/cli` (`alteri_one_cli`), `apps/bootstrap`
+(`alterione`), `plugins/memory` (`alteri_one_memory`) and `injections/skill`
+(`alteri_one_injection_skill`). `alteri_one_workspace` is a root manifest with no library,
+and the root is also where the extension set is declared: `alterione.yaml`, cross-checked
+against `pubspec.yaml` by tasks `0.28` and `0.29`.
+
+**That set is the default, not a fixed one.** The extensions a product ships are whatever
+`pubspec.yaml` resolves and `alterione.yaml` declares; nothing in the build hard-codes the
+four names above. A third-party hosted, git or path dependency participates exactly like a
+first-party one: it goes in `pubspec.yaml`, it is declared in `alterione.yaml`, and it is
+in the compiled registry. There is no runtime `extensions add` for compiled code and there
+cannot be one, because Dart has no class loader — see
+[ADR-0015](../decisions/0015-extension-dependencies.md).
 
 None of `alteri_one_providers`, `alteri_one_mcp`, `alteri_one_subagents`,
 `alteri_one_hooks`, `alteri_one_tracing`, `alteri_one_sandbox`, `alteri_one_sdk` is
@@ -31,15 +43,16 @@ Phase 5 only after a second independent embed consumer exists.
 reachable from the native CLI and covered by protocol, unit, contract and integration
 checks.
 
-### 0.1 Melos 8 workspace and the six packages
+### 0.1 Melos 8 workspace and the default v1 package set
 
-Packages: workspace, all six v1 packages. The root `pubspec.yaml` carries `workspace:` and
+Packages: workspace, the three `packages/` libraries and the default v1 extension set in
+`apps/`, `plugins/` and `injections/`. The root `pubspec.yaml` carries `workspace:` and
 a `melos:` section; every package has `resolution: workspace`; `pubspec.lock` is
 committed; `melos.yaml` and `pubspec.workspaces.yaml` do not exist. The single definition
 of the Melos scripts is in
 [architecture/workspace-layout.md](../architecture/workspace-layout.md#2-root-manifest).
-`alteri_one_memory` does not import `hive_ce` or `dart:io`; the Hive adapter lives in
-`alteri_one_platform`.
+`alteri_one_memory` (`plugins/memory/`) does not import `hive_ce` or `dart:io`; the Hive
+adapter lives in `alteri_one_platform`.
 
 **Acceptance:** `dart test test/workspace/workspace_contract_test.dart` exits `0` and
 checks the exact workspace membership, `resolution: workspace`, that `.gitignore` does not
@@ -48,7 +61,7 @@ ignore `pubspec.lock`, the absence of legacy configuration, and the dependency r
 
 ### 0.2 Unified quality gates and CI
 
-Packages: workspace and all six v1 packages. CI runs `dart analyze --fatal-infos`,
+Packages: workspace and the default v1 package set. CI runs `dart analyze --fatal-infos`,
 `dart test`, a format check and the same chain on Linux, macOS and Windows, with separate
 test timeouts and a coverage configuration.
 
@@ -210,7 +223,7 @@ model — *fake provider drives one complete walking skeleton*.
 
 ### 0.16 Deterministic test tiers, transcript and replay
 
-Packages: `alteri_one_core`, `alteri_one_cli`. Test tiers are separated from execution
+Packages: `alteri_one_core`, `alteri_one_cli` (`apps/cli/`). Test tiers are separated from execution
 tiers: unit, contract and integration are distinct directories. Each run writes a JSONL
 transcript with `traceId`, redaction and a SHA-256 digest; replay reproduces tool outcomes
 and usage without calling the model.
@@ -222,7 +235,7 @@ seed — *recorded transcript replays without provider access*.
 
 ### 0.17 Minimal CLI REPL and graceful shutdown
 
-Package: `alteri_one_cli`. The REPL loads a profile, accepts a goal, prints streaming
+Package: `alteri_one_cli` (`apps/cli/`). The REPL loads a profile, accepts a goal, prints streaming
 output, progress and the result. SIGINT performs cancel → drain → flush → exit, leaving an
 uncorrupted transcript.
 
@@ -231,9 +244,9 @@ uncorrupted transcript.
 exits `0` and checks a scripted REPL session and correct interruption during a tool call —
 *REPL runs fake profile and drains cancellation*.
 
-### 0.18 `alteri_one doctor`
+### 0.18 `alterione doctor`
 
-Packages: `alteri_one_core`, invoked from `alteri_one_cli`. The command validates YAML,
+Packages: `alteri_one_core`, invoked from `alteri_one_cli` (`apps/cli/`). The command validates YAML,
 paths, permissions, free space, provider capabilities, versions and transcript/profile
 digests, and explains a failed plugin load. Diagnostics carry file, line and field path.
 
@@ -244,7 +257,7 @@ broken one — *doctor validates config providers paths and digests*.
 
 ### 0.19 Tier 1 plugin scaffold generator
 
-Package: `alteri_one_cli`, wired into `alteri_one_core`. `init plugin` creates a package
+Package: `alteri_one_cli` (`apps/cli/`), wired into `alteri_one_core`. `init plugin` creates a package
 scaffold, a versioned manifest, typed tools, contract tests and codegen registration. No
 dynamic import and no runtime scan.
 
@@ -268,7 +281,7 @@ roots and different key insertion orders produce the same digest —
 
 ### 0.21 Offline harness and a local OpenAI-compatible fixture server
 
-Packages: `alteri_one_core`, `alteri_one_cli`, `alteri_one_platform`. A deny-all egress
+Packages: `alteri_one_core`, `alteri_one_cli` (`apps/cli/`), `alteri_one_platform`. A deny-all egress
 mode is provided by swapping the HTTP port for a client that refuses every request not on
 the allowlist. A local fixture server implements OpenAI-compatible chat completions and
 emits **deliberately misaligned** SSE chunks, so tool-call delta assembly is exercised for
@@ -282,7 +295,7 @@ fails the test, and that misaligned chunks assemble into the correct tool call �
 
 ### 0.22 Startup benchmark harness
 
-Package: `alteri_one_cli`. A benchmark measures cold start to input prompt on the AOT build,
+Package: `alteri_one_cli` (`apps/cli/`). A benchmark measures cold start to input prompt on the AOT build,
 p50 and p95 over N runs, and writes a machine-readable result.
 
 **Acceptance:**
@@ -318,7 +331,7 @@ artifact pointer — *tool contract validates schemas and bounds exposure determ
 
 ### 0.25 CLI exit codes and stdout contract
 
-Package: `alteri_one_cli`. The exit-code table in
+Package: `alteri_one_cli` (`apps/cli/`). The exit-code table in
 [apps/cli.md](../apps/cli.md#4-exit-codes) is implemented, `--json` puts exactly one JSON
 document on stdout, and diagnostics always go to stderr.
 
@@ -342,7 +355,7 @@ performs egress — *probe cache keeps startup offline and identity bound*.
 
 ### 0.27 Approval port and headless default
 
-Packages: `alteri_one_core`, `alteri_one_cli`. `ApprovalPort`, `ApprovalOutcome`, argument
+Packages: `alteri_one_core`, `alteri_one_cli` (`apps/cli/`). `ApprovalPort`, `ApprovalOutcome`, argument
 digest binding, and the headless default of `Unavailable`. The engine contains no UI
 reference; a contract test scans core sources for UI types.
 
@@ -352,6 +365,79 @@ exits `0` and checks digest mismatch denial, headless `Unavailable` mapping, exi
 `10`, and that no core source references a terminal or UI type —
 *approval is a port and headless never waits for a human*.
 
+### 0.28 Workspace layout with the four extension subprojects
+
+Packages: workspace, repository, `alterione.yaml`. The monorepo has four extension
+subprojects — `apps/`, `tools/`, `injections/`, `plugins/` — with product libraries in
+`packages/` and single-package tooling in `tool/`. `alterione.yaml` is created at the root
+and every package under `tools/`, `injections/` and `plugins/` appears in it, or is
+explicitly `enabled: false`. No `alteri_one_*` package declares a dependency on an app. The
+layout is normative in
+[architecture/workspace-layout.md](../architecture/workspace-layout.md) and the taxonomy in
+[ADR-0014](../decisions/0014-extension-subprojects.md).
+
+**Acceptance:** `dart test test/workspace/extension_subprojects_test.dart` exits `0` and
+checks the four workspace globs, that every package under `tools/`, `injections/` and
+`plugins/` is declared in `alterione.yaml` or `enabled: false`, and that no `alteri_one_*`
+package depends on an app —
+*workspace has four extension subprojects and every extension is declared*.
+
+### 0.29 `alterione.yaml` schema, validation and the bind-time invariants
+
+Packages: `alteri_one_core`, `alteri_one_protocol`, `alterione.yaml`. The manifest parses
+with a field path for every error, `apiVersion`/`kind` is never migrated silently, and the
+three bind-time invariants of
+[reference/config-schema.md](../reference/config-schema.md#15-the-three-bind-time-invariants)
+hold in both directions: resolution agreement, no silent participants, API agreement. See
+[ADR-0015](../decisions/0015-extension-dependencies.md).
+
+**Acceptance:**
+`melos exec --scope=alteri_one_core -- dart test test/config/manifest_contract_test.dart`
+exits `0` and checks that a valid manifest parses, that an `apiVersion`/`kind` mismatch is
+refused, that an entry resolving to nothing is `-32050`, that a compiled-but-undeclared
+extension is a bind failure with `config.manifest_drift`, and that an `apiVersion` outside
+`api.extension` is refused before any capability is bound —
+*manifest is validated and agrees with the resolved dependency graph*.
+
+### 0.30 Install pipeline and release layout
+
+Packages: `alterione` (`apps/bootstrap/`), `tool/install/`, `tool/release/`, the fixture
+release under `config/fixtures/release/`. The six steps — resolve target, fetch manifest,
+verify signature, stage, verify digests, swap — run over a local fixture release, never a
+download. The release layout is `alterione.aot` plus `bin/dartrantime`; a digest mismatch,
+an unverifiable signature or an unsupported platform exits `9` and changes nothing. The
+AOT closure must be hook-free — no `hook/build.dart` and no native asset anywhere in the
+resolved graph — because `dart compile aot-snapshot` does not run build hooks, so CI parses
+the graph and fails rather than trusting a review. `dart build cli` stays the developer and
+fallback path. See
+[architecture/install-and-update.md](../architecture/install-and-update.md),
+[ADR-0017](../decisions/0017-aot-snapshot-and-runtime.md) and
+[ADR-0018](../decisions/0018-bootstrap-package.md).
+
+**Acceptance:**
+`melos exec --scope=alterione -- dart test test/install/install_pipeline_integration_test.dart`
+exits `0` and checks an install from the fixture release, manifest signature and per-file
+digest verification, refusal of a tampered `dartrantime` or `alterione.aot` with exit `9`,
+an atomic swap leaving the previous tree byte-identical after a failure, and idempotence on
+a second install — *install verifies every artefact and fails closed*.
+
+### 0.31 Launcher and the naming gate
+
+Packages: `alterione` (`apps/bootstrap/`), `tool/install/`, `tool/release/`. The generated
+launcher is named `alterione`, resolves its own directory, honours `ALTERIONE_HOME` and
+execs `bin/dartrantime alterione.aot`. No `alteri_one` survives into the release: the
+assembly fails if the string appears in any installed path, in the launcher or update
+script, in the `manifest.json` payload or in a default configuration value. See
+[ADR-0016](../decisions/0016-product-naming.md) and
+[ADR-0017](../decisions/0017-aot-snapshot-and-runtime.md).
+
+**Acceptance:**
+`melos exec --scope=alterione -- dart test test/install/launcher_naming_integration_test.dart`
+exits `0` and checks that the generated `alterione` script runs the release from an
+arbitrary working directory through `PATH`, honours `ALTERIONE_HOME`, and that the release
+assembly fails when `alteri_one` appears in an installed path, script or default
+configuration value — *launcher runs from PATH and no alteri_one survives into the release*.
+
 ### Phase 0 growth curve
 
 1. `[automatable]` One scripted transcript yields identical result, usage, ids and digest
@@ -360,7 +446,10 @@ exits `0` and checks digest mismatch denial, headless `Unavailable` mapping, exi
    detects a wrong `apiVersion`, an unknown field and a missing provider capability.
 3. `[automatable]` The offline scenario set passes 100 % with egress denied and 0 bytes of
    telemetry leaving the process.
-4. `[manual]` A reviewer checks the readability of streaming and progress output and the
+4. `[automatable]` The fixture release under `config/fixtures/release/` installs, verifies
+   and updates with no network at all, a tampered artefact is refused with exit `9`, and a
+   failed install leaves the previous tree byte-identical.
+5. `[manual]` A reviewer checks the readability of streaming and progress output and the
    absence of a false impression of a hang. This item is **not** an acceptance criterion.
 
 ---
@@ -372,7 +461,7 @@ reaches the context, with no path from untrusted provenance to trusted.
 
 ### 1.1 `hive_ce` collections
 
-Package: `alteri_one_memory`. `sessions`, `messages`, `facts`, `episodes`, `preferences`
+Package: `alteri_one_memory` (`plugins/memory/`). `sessions`, `messages`, `facts`, `episodes`, `preferences`
 and `artifacts` are implemented behind `StoragePort`; migrations and opening are verified
 on a clean temporary directory.
 
@@ -383,7 +472,7 @@ exits `0` and checks creation, reopen and round-trip of all six typed collection
 
 ### 1.2 `MemoryRecord`, provenance, TTL and confidence
 
-Package: `alteri_one_memory`. Sealed records distinguish user-stated, model-inferred and
+Package: `alteri_one_memory` (`plugins/memory/`). Sealed records distinguish user-stated, model-inferred and
 tool-observed data through the single `Provenance` enum; `ttl`, `confidence`, `createdAt`,
 `lastSeenAt`, conflict history and `supersededBy` are strictly validated.
 
@@ -395,7 +484,7 @@ prohibition on silently overwriting a conflict —
 
 ### 1.3 Delete, export, forget and retention
 
-Packages: `alteri_one_memory`, `alteri_one_cli`. Point delete, full-profile export, forget
+Packages: `alteri_one_memory` (`plugins/memory/`), `alteri_one_cli` (`apps/cli/`). Point delete, full-profile export, forget
 with cleanup of related records and artifacts, and retention against an injected clock. A
 JSON export contains no secrets.
 
@@ -407,15 +496,19 @@ of removed data after forget —
 
 ### 1.4 Token-triggered compaction
 
-Packages: `alteri_one_memory`, integrated with `alteri_one_core`. The trigger uses verified
-provider usage, not message count; the operation is deterministic on `FakeProvider`,
-preserves facts with their original provenance and never turns an untrusted summary into a
-trusted fact.
+Packages: `alteri_one_injection_compress` (`injections/compress/`), reading fragments through
+the `alteri_one_memory` (`plugins/memory/`) port and integrated with `alteri_one_core`.
+Compaction is an **injection** (`stage: summarise`), not a memory operation: it receives a
+labelled context and returns a labelled context, and it has no field in which a capability
+could be requested. The trigger uses verified provider usage, not message count; the
+operation is deterministic on `FakeProvider`, preserves facts with their original provenance
+and never turns an untrusted summary into a trusted fact.
 
 **Acceptance:**
-`melos exec --scope=alteri_one_memory -- dart test test/compaction/compaction_integration_test.dart`
+`melos exec --scope=alteri_one_injection_compress -- dart test test/compaction/compaction_integration_test.dart`
 exits `0` and checks the usage threshold, a golden transcript and provenance after
-compaction — *compaction triggers on usage and preserves trust labels*.
+compaction, and that a throwing injection is skipped rather than fatal with
+`injection.failed` — *compaction triggers on usage and preserves trust labels*.
 
 ### 1.5 Policy engine `deny > confirm > allow`
 
@@ -430,7 +523,7 @@ after deny and decline — *deny wins and denied tool outcomes remain model-visi
 
 ### 1.6 Tool-result budgeting
 
-Packages: `alteri_one_core`, `alteri_one_memory`. A large result is truncated or offloaded
+Packages: `alteri_one_core`, `alteri_one_memory` (`plugins/memory/`). A large result is truncated or offloaded
 to an `ArtifactRecord`; the model receives a typed pointer and retrieval requires policy.
 
 **Acceptance:**
@@ -440,7 +533,7 @@ policy-gated retrieval — *large tool output becomes a bounded artifact pointer
 
 ### 1.7 First Tier 1 trusted plugin
 
-Packages: `alteri_one_core` and the generated package from `alteri_one_cli`. The plugin is
+Packages: `alteri_one_core` and the generated package from `alteri_one_cli` (`apps/cli/`). The plugin is
 linked into the AOT binary, registered by the generated registry and may run in an isolate
 purely for fault localisation. No security boundary is claimed.
 
@@ -452,7 +545,7 @@ an ordinary plugin error —
 
 ### 1.8 Single-writer state lock
 
-Packages: `alteri_one_platform`, `alteri_one_memory`. The `.lock` file with atomic create,
+Packages: `alteri_one_platform`, `alteri_one_memory` (`plugins/memory/`). The `.lock` file with atomic create,
 pid liveness, stale reclamation, exit code `3` on a live holder, and `doctor` reporting.
 
 **Acceptance:**
@@ -463,7 +556,7 @@ reclaimed with a warning, and two concurrent writes never interleave —
 
 ### 1.9 Transcript store and index
 
-Packages: `alteri_one_memory`, `alteri_one_cli`. Transcripts land at
+Packages: `alteri_one_memory` (`plugins/memory/`), `alteri_one_cli` (`apps/cli/`). Transcripts land at
 `state/<profile>/transcripts/<yyyy-mm>/`, with an append-only `index.jsonl` mapping
 `traceId` to path, digest and terminal status.
 
@@ -493,29 +586,29 @@ without letting untrusted content become authority.
 
 ### 2.1 Skill pack format
 
-Package: `alteri_one_skills`. The format and validator align with the open Agent Skills
+Package: `alteri_one_injection_skill` (`injections/skill/`). The format and validator align with the open Agent Skills
 specification and Dart package skills; no proprietary container format is introduced.
 
 **Acceptance:**
-`melos exec --scope=alteri_one_skills -- dart test test/format/agent_skills_conformance_test.dart`
+`melos exec --scope=alteri_one_injection_skill -- dart test test/format/agent_skills_conformance_test.dart`
 exits `0` and checks that valid external fixtures are accepted and incompatible ones are
 rejected with a named diagnostic —
 *skill pack parser matches Agent Skills and Dart package skills contracts*.
 
 ### 2.2 Discovery and application of a data-only pack
 
-Package: `alteri_one_skills`. The loader finds `SKILL.md` and resources, verifies the
+Package: `alteri_one_injection_skill` (`injections/skill/`). The loader finds `SKILL.md` and resources, verifies the
 manifest and digest, binds the pack to a profile and does **not** execute scripts it
 contains. Tier 0 registers no authority.
 
 **Acceptance:**
-`melos exec --scope=alteri_one_skills -- dart test test/runtime/skill_pack_integration_test.dart`
+`melos exec --scope=alteri_one_injection_skill -- dart test test/runtime/skill_pack_integration_test.dart`
 exits `0` and checks that a data-only pack installs and applies with no core change and no
 script execution — *skill pack applies as data without gaining capabilities*.
 
 ### 2.3 Host-side provenance labels
 
-Packages: `alteri_one_core`, `alteri_one_skills`. The single `Provenance` × `Sensitivity`
+Packages: `alteri_one_core`, `alteri_one_injection_skill` (`injections/skill/`). The single `Provenance` × `Sensitivity`
 pair from [concepts.md](../concepts.md#3-content-labels) is assigned deterministically by
 host code at the ingress boundary and survives transport and serialisation.
 
@@ -526,10 +619,10 @@ model-assigned label — *provenance is host-assigned and immutable across trans
 
 ### 2.4 Untrusted content boundaries
 
-Packages: `alteri_one_core`, `alteri_one_skills`, the internal MCP adapter. Data and
-instructions are separated; untrusted content does not authorise a tool, MCP instructions
-and tool descriptions do not become a system prompt, and capabilities stay narrow and
-typed.
+Packages: `alteri_one_core`, `alteri_one_injection_skill` (`injections/skill/`), the internal MCP
+adapter. Data and instructions are separated; untrusted content does not authorise a tool,
+MCP instructions and tool descriptions do not become a system prompt, and capabilities stay
+narrow and typed.
 
 **Acceptance:**
 `melos exec --scope=alteri_one_core -- dart test test/provenance/untrusted_content_integration_test.dart`
@@ -574,12 +667,12 @@ and that a missing mandatory extension is a rejection —
 
 ### 2.8 Agent Skills and Dart package skills mapping decision
 
-Packages: `alteri_one_skills`. Fix every manifest field, path layout, resource reference
+Packages: `alteri_one_injection_skill` (`injections/skill/`). Fix every manifest field, path layout, resource reference
 and discovery rule for both systems, and record the minimal lossless mapping. Incompatible
 fields are diagnosed, not ignored. Account for the official MCP Skills extension.
 
 **Acceptance:**
-`melos exec --scope=alteri_one_skills -- dart test test/format/skills_mapping_decision_test.dart`
+`melos exec --scope=alteri_one_injection_skill -- dart test test/format/skills_mapping_decision_test.dart`
 exits `0` and checks that a recorded mapping covers every field of both specifications and
 that each unmappable field has a named diagnostic —
 *skills mapping decision covers every field of both specifications*.
@@ -760,7 +853,7 @@ refusal when tools or streaming are absent —
 
 ### 4.5 Developer mode
 
-Packages: `alteri_one_core`, `alteri_one_cli`, Tier 0 and Tier 1 packs. Repository context,
+Packages: `alteri_one_core`, `alteri_one_cli` (`apps/cli/`), Tier 0 and Tier 1 packs. Repository context,
 test commands and dev capabilities are granted by the developer profile; destructive git,
 file and process operations pass confirm or deny policy and do not bypass confirmation in
 `--headless`.
@@ -785,7 +878,7 @@ unknown capability —
 
 ### 4.7 Subprocess and SDK resolution
 
-Packages: `alteri_one_cli`, `alteri_one_core`. Any code spawning a subprocess resolves the
+Packages: `alteri_one_cli` (`apps/cli/`), `alteri_one_core`. Any code spawning a subprocess resolves the
 Dart SDK through `package:cli_util`; `Platform.resolvedExecutable` is never used to locate
 the SDK. A regression test covers the AOT self-exec loop.
 
@@ -811,21 +904,26 @@ re-executing AlteriOne, and that a lint rule rejects
 ## Phase 5 — SDK and frontends
 
 **Goal:** after embed duplication is demonstrated, release the SDK, polish the native CLI
-and add a Flutter app and web without moving v1 to the web.
+and add a Flutter app and a local web server hosting a Flutter web GUI, without moving v1
+to the web.
 
 Task detail is in [apps/flutter-and-web.md](../apps/flutter-and-web.md#4-phase-5-task-map)
 and [apps/sdk.md](../apps/sdk.md).
 
-### 5.1 Web architecture decision: monolith or thin UI
+### 5.1 The local web server hosts the Flutter web GUI and preserves the envelope
 
-Packages: `alteri_one_platform`, ADR. At the start of Phase 5, a full core in the browser
-bundle is compared against a thin UI with a remote or embedded core; v1 remains a native
-CLI. The ADR must account for storage, auth, streaming, cancellation and the absence of
-native isolates and Tier 2.
+Packages: `alteri_one_web` (`apps/web/`), `alteri_one_core`, `alteri_one_platform`. The
+architecture is already decided by
+[ADR-0019](../decisions/0019-web-local-server.md), so this task verifies the decided shape
+rather than choosing between two: the server serves the compiled Flutter web GUI, starts
+the core natively with the same composition root, policy, ports and single-writer state
+lock as the CLI, and adds only an HTTP surface. The core is not compiled into a browser
+bundle and is not hosted remotely.
 
 **Acceptance:** `dart test test/architecture/frontend_decision_contract_test.dart` exits
-`0` and checks that exactly one decision is selected, with an owner and the mandatory
-trade-offs — *web ADR selects one supported architecture and records constraints*.
+`0` and checks that the server hosts the Flutter web build, runs the core in its own
+process rather than in the tab, and round-trips the envelope unchanged —
+*web server hosts the GUI and preserves the envelope*.
 
 ### 5.2 `alteri_one_sdk` materialisation gate
 
@@ -840,7 +938,7 @@ imports — *SDK examples depend only on public API*.
 
 ### 5.3 CLI polish and the machine interface
 
-Package: `alteri_one_cli`. `--profile`, `--dry-run`, `--json`, `--headless`, unified exit
+Package: `alteri_one_cli` (`apps/cli/`). `--profile`, `--dry-run`, `--json`, `--headless`, unified exit
 codes, explicit approval handling in headless mode and a stable stdout contract.
 
 **Acceptance:**
@@ -851,7 +949,7 @@ policy, cancel and timeout —
 
 ### 5.4 `why` and replay CLI
 
-Packages: `alteri_one_cli`, `alteri_one_core`. `alteri_one why <traceId>` shows the
+Packages: `alteri_one_cli` (`apps/cli/`), `alteri_one_core`. `alteri_one why <traceId>` shows the
 decision timeline, policy, usage, cost, deadline, budget and provenance with redaction;
 replay stays read-only.
 
@@ -862,46 +960,52 @@ replay — *why explains a redacted replayable run*.
 
 ### 5.5 Flutter app
 
-Package: `applications/app` over the public API; the DI framework is chosen only here. The
-app uses core stream and state, does not duplicate the engine, and respects the same
-cancellation and session boundaries as the CLI.
+Package: `alteri_one_gui` (`apps/gui/`) over the public API; the DI framework is chosen only
+here. The app uses core stream and state, does not duplicate the engine, and respects the
+same cancellation and session boundaries as the CLI.
 
-**Acceptance:** `flutter test test/app_contract_test.dart` from `applications/app` exits `0`
+**Acceptance:** `flutter test test/app_contract_test.dart` from `apps/gui` exits `0`
 and checks a scripted run, streaming UI and cancellation without a direct engine fork —
 *Flutter app renders core stream and cancellation*.
 
-### 5.6 Web `StoragePort`
+### 5.6 The web transport: the same envelope over HTTP and SSE
 
-Package: `alteri_one_platform`. The chosen web architecture gets an IndexedDB or equivalent
-browser storage adapter with a versioned schema, TTL and quota and error handling through
-`package:web`; native `dart:io` is not imported.
-
-**Acceptance:**
-`flutter test test/web_storage_contract_test.dart` from `applications/web` exits `0` and
-checks schema migration, TTL and the browser quota and error paths —
-*web storage is versioned and contains no dart:io*.
-
-### 5.7 Web workers instead of isolates
-
-Package: `alteri_one_platform`. `Concurrency` gains a worker-backed implementation with
-bounded concurrency, progress and cooperative cancellation; Tier 2 and OS sandboxing are
-declared unavailable.
+Package: `alteri_one_web` (`apps/web/`). Server-sent events carry the existing event
+stream inside the existing envelope, with the same framing, the same 8 MiB frame limit and
+the same error codes; nothing in the core changes for this. A closed connection cascades
+into `CancelToken`, so a closed tab cancels the run rather than orphaning it.
 
 **Acceptance:**
-`flutter test test/web_concurrency_contract_test.dart` from `applications/web` exits `0` and
-checks bounded workers, cancellation and an explicit Tier 2 refusal —
-*web concurrency uses workers and rejects native isolation claims*.
+`dart test test/web_transport_contract_test.dart` from `apps/web` exits `0` and checks the
+envelope round-trip, the frame-limit refusal and cancellation on disconnect —
+*the web transport is the same envelope, and a disconnect cancels the run*.
 
-### 5.8 Web UI and the end-to-end boundary
+### 5.7 Loopback-only binding, and the explicit refusal for a non-loopback bind
 
-Package: `applications/web` over `alteri_one_sdk` or the public core API. The UI receives no
-raw secret, creates no native capability and preserves the transcript and policy semantics
-of the chosen architecture.
+Package: `alteri_one_web` (`apps/web/`). The listener binds loopback by default. A
+non-loopback address is an explicit, security-relevant flag, and it is refused while any
+profile with a `confirm`-classified tool is reachable without an explicit policy.
 
 **Acceptance:**
-`flutter test test/web_app_integration_test.dart` from `applications/web` exits `0` and
-checks `goal → stream → policy outcome → finish` under the chosen architecture —
-*web app preserves core control semantics*.
+`dart test test/web_bind_policy_contract_test.dart` from `apps/web` exits `0` and checks
+the loopback default, the refusal while a `confirm`-classified tool is reachable, and the
+explicit opt-in that satisfies it —
+*non-loopback binding is explicit and refused without a policy*.
+
+### 5.8 The web UI and the end-to-end browser boundary
+
+Package: `alteri_one_web` (`apps/web/`) over `alteri_one_sdk` or the public core API. The
+browser is an untrusted terminal: it receives no raw secret, creates no native capability,
+holds no authoritative storage and evaluates no policy, and it renders redacted, labelled
+results. A session lives in the server, so it survives a browser restart and
+`alterione why <traceId>` explains it as it explains a CLI run.
+
+**Acceptance:**
+`flutter test test/web_app_integration_test.dart` from `apps/web` exits `0` and
+checks `goal → stream → policy outcome → finish` driven through the browser, and that one
+transcript replayed through the web server yields the same result, the same usage and the
+same digest as the same transcript through the CLI —
+*the browser preserves core control semantics, and it is the same run*.
 
 ### Phase 5 growth curve
 
@@ -909,7 +1013,9 @@ checks `goal → stream → policy outcome → finish` under the chosen architec
    importing internal packages; two consumers justify materialising the SDK.
 2. `[automatable]` The CLI produces identical human, JSON and headless results and identical
    exit codes for one transcript.
-3. `[manual]` A UX reviewer walks an app and web session, checking reconnect, cancellation
+3. `[automatable]` A closed browser connection cancels the run, and the transcript is not
+   left truncated.
+4. `[manual]` A UX reviewer walks an app and web session, checking reconnect, cancellation
    and the clarity of policy prompts. Unavailable Tier 1 and Tier 2 capabilities are shown
    explicitly, not through a hidden fallback.
 
@@ -922,13 +1028,30 @@ precompiled Tier 2 plugins, without turning an OSS release into an unverifiable 
 
 ### 6.1 Marketplace and verifiable installation
 
-Packages: `alteri_one_cli`, `alteri_one_skills`, the internal Tier 2 host. The marketplace
-starts with Tier 0 packs; a plugin item carries tier, digest, signature and manifest,
-installs only a precompiled AOT executable, and policy is checked before start.
+Packages: `alteri_one_cli` (`apps/cli/`), `alteri_one_injection_skill` (`injections/skill/`),
+the internal Tier 2 host. The marketplace starts with Tier 0 packs; an item carries tier,
+digest, signature and manifest, and policy is checked before start. Installation lands
+where the install root expects it:
+
+| Item | Lands in | Why it needs no build |
+|---|---|---|
+| Tier 0 pack — an `Injection(tier: data)` | `~/.alterione/injections/<id>/` | Data, validated on load, digest-verified, never executed |
+| Tier 2 executable — a tool or a plugin | `~/.alterione/{tools,plugins}/<id>/` | A separate signed process, verified and sandboxed before start |
+
+**No marketplace entry can install Tier 1 Dart code.** A Tier 1 unit is linked into the AOT
+build, Dart has no class loader, so installing one is a rebuild of `alterione.aot` — the
+marketplace may therefore list Tier 1 units for discovery, but an attempt to *install* one
+is refused with a diagnostic naming `pubspec.yaml` and `alterione.yaml`, not silently
+downgraded to a Tier 0 copy of the same id. There is deliberately no
+`alterione extensions add` for compiled code; see
+[ADR-0015](../decisions/0015-extension-dependencies.md) and
+[install-and-update.md](../architecture/install-and-update.md#6-adding-extensions-to-an-installed-product).
 
 **Acceptance:**
 `melos exec --scope=alteri_one_cli -- dart test test/marketplace/install_verification_integration_test.dart`
-exits `0` and checks a Tier 0 install, refusal of a tampered Tier 2 item, and start of only
+exits `0` and checks a Tier 0 pack installed into `~/.alterione/injections/<id>/`, a Tier 2
+executable installed into `~/.alterione/{tools,plugins}/<id>/`, refusal of a Tier 1 item,
+refusal of a tampered Tier 2 item, and start of only
 a verified, policy-approved executable —
 *marketplace never installs unverified code*.
 
@@ -978,7 +1101,7 @@ the presence of a changelog entry and publishability —
 
 ### 6.6 Binaries for three operating systems
 
-Packages: `alteri_one_cli`, release pipeline. The native CLI is built and smoke-tested on
+Packages: `alteri_one_cli` (`apps/cli/`), release pipeline. The native CLI is built and smoke-tested on
 Linux, macOS and Windows; version, startup, embedded assets, checksums and a reproducible
 manifest are verified.
 
@@ -1009,7 +1132,7 @@ every publishable package and the publication manifest —
 
 ### 6.9 Startup budget gate
 
-Packages: `alteri_one_cli`, release pipeline. The p95 cold-start measurement from `0.22`
+Packages: `alteri_one_cli` (`apps/cli/`), release pipeline. The p95 cold-start measurement from `0.22`
 runs against the release AOT build and blocks the release on regression.
 
 **Acceptance:** `melos run release:startup-check` exits `0` and checks that the release

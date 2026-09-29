@@ -18,6 +18,7 @@
 /docs/security/               @dip-develop
 /docs/extensibility/plugins.md @dip-develop
 /docs/extensibility/tools.md   @dip-develop
+/docs/extensibility/injections.md @dip-develop
 /docs/decisions/risks.md      @dip-develop
 
 # Compatibility surfaces: protocol framing, config schema, error and exit codes.
@@ -25,9 +26,17 @@
 /docs/architecture/configuration.md @dip-develop
 /docs/reference/                    @dip-develop
 
-# Release, signing and automation.
+# Release, signing and automation. The install root, the launcher and the runtime
+# verification order are security-relevant: a change here decides what executes.
 /.github/workflows/   @dip-develop
 /.github/dependabot.yml @dip-develop
+/docs/architecture/install-and-update.md @dip-develop
+/docs/architecture/build-and-release.md @dip-develop
+
+# The project website. Separate from the product on purpose: it resolves its own
+# toolchain, sits outside the pub workspace, and is never part of a release.
+/site/                 @dip-develop
+/docs/website.md       @dip-develop
 
 # The lockfile is committed deliberately: one reviewer, no drive-by updates.
 /pubspec.lock         @dip-develop

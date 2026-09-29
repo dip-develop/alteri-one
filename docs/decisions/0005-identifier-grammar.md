@@ -3,6 +3,10 @@
 **Status:** Accepted
 **Date:** 2026-09-29
 **Affects:** `alteri_one_protocol`, `alteri_one_core`, `alteri_one_skills`, configuration
+**Superseded in part by:** ADR-0014 — the five-noun table becomes six: **Injection** is
+added, **Skill Pack** becomes a Tier 0 form of an injection, and a **Tool** becomes a
+distributable unit in `tools/` rather than something only a plugin can ship. The
+identifier grammar and the `requires` rule are unchanged.
 
 ## Context
 
@@ -25,7 +29,8 @@ trust, and a redaction list. They overlapped and disagreed.
 ## Decision
 
 Five nouns, each with exactly one meaning, defined in
-[concepts.md](../concepts.md):
+[concepts.md](../concepts.md). Extended to six by ADR-0014; the table below is the
+original record and reads "five" where the current tree reads "six".
 
 | Noun | Meaning |
 |---|---|

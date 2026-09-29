@@ -31,16 +31,21 @@ because it supports the target revision; `dart_mcp` is official but experimental
 **Exit criterion:** choose by test results and record the ADR. The choice is not assumed
 from the package name.
 
-## 3. Does a browser `StoragePort` exist?
+## 3. How much UI cache is worth keeping in the browser?
 
-**Phase:** 5 — task 5.1, ADR 0012.
+**Phase:** 5 — task 5.1, ADR 0019.
 
-Prototype IndexedDB with migrations, TTL, quota, multi-tab concurrency and replay. For a
-remote core, store only an explicit local cache, and only if offline behaviour is actually
-required.
+Under ADR-0019 the core is not in the browser: `StoragePort` resolves to the native
+adapter in the local server, so anything the tab holds is derived data that can be
+discarded at any moment. Measure how much of it is worth keeping at all — a session list,
+a rendered transcript, a pending policy prompt — and the eviction and staleness policy
+that follows, including what a stale cached run looks like beside a live one. Prototype a
+cache in the browser against a server that owns the record, covering a tab closed for a
+week, a browser with storage disabled, and two tabs disagreeing about the same run.
 
-**Exit criterion:** the web ADR records the choice. Until then, "one core for the future
-web" means only that the dependency boundary exists, not that the core is proven web-ready.
+**Exit criterion:** the web ADR records the eviction and staleness policy, or records that
+no browser cache ships at all. Any cache that is kept stays discardable at any moment
+without a migration, and a browser storage adapter is never the source of record.
 
 ## 4. `freezed` 4.x behaviour with records, unions and AOT
 
@@ -98,3 +103,30 @@ scenario — is not yet fixed.
 reference environment, so a regression is distinguishable from a slow machine. Until then
 the goals are aspirations with measurements attached, and the specification says so rather
 than claiming otherwise.
+
+## 9. Is pub.dev a safe default source for third-party Tier 1 extensions?
+
+**Phase:** 3.
+
+A resolved dependency is a dependency linked into `alterione.aot`, and therefore Tier 1
+code with the core's privileges. The question is not "is pub.dev safe" in general, but what
+the default source is for a package that will be compiled into a trusted binary, and what
+admitting one costs in review time. See
+[ADR-0015](0015-extension-dependencies.md) and §5.8 of
+[threat-model.md](../security/threat-model.md).
+
+Measure three things on one fixture set of candidate extensions. **A hostile-package
+fixture:** publish a package that reads a credential and posts it, and one whose manifest
+requests every capability, and observe what each resolution path admits. **Review
+throughput:** packages reviewed per hour, and the wall-clock cost of reviewing a dependency
+update rather than a diff the reviewer already understands. **Comparison:** direct
+resolution from pub.dev against resolution from a curated allowlist served by a reviewed
+mirror, on the same candidates, counting how many hostile or unwanted packages each admits
+and how long an acceptable package takes to reach a user.
+
+**Exit criterion:** the answer is recorded in an ADR **before** any third-party extension is
+admitted, and it names one default source. If the curated mirror admits meaningfully fewer
+hostile packages, or a hostile fixture survives either path, direct resolution from pub.dev
+is not the default for Tier 1 and the allowlist is. Throughput is recorded either way: a
+source that is safe but unauditable is not an acceptable answer for code that runs with the
+user's credentials, and a source that is auditable but unaordable is not an ecosystem.

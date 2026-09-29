@@ -1,0 +1,107 @@
+name: pages
+run-name: pages · ${{ github.ref_name }}
+
+# Publishes alteri.one from the Jaspr static site in site/.
+#
+# Three properties are deliberate:
+#
+#  - It deploys on a push to main and on a manual dispatch, not on every pull request. A
+#    preview deploy per PR would put unreviewed HTML on the project's own domain.
+#  - It builds with the Dart SDK only. The site is a static landing page, so it needs no
+#    Flutter, no browser and no service: `jaspr build` pre-renders every route to HTML.
+#  - static/ is copied in explicitly. Jaspr does not copy it, and the CNAME, the robots
+#    file and the favicon all have to be in the output for the site to work.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race. A cancelled older deploy must not overwrite a newer one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  DART_VERSION: "3.13.4"
+  SITE_DIR: site
+  OUTPUT: site/build/jaspr
+
+jobs:
+  build:
+    name: Build the static site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: ${{ env.DART_VERSION }}
+
+      - name: Resolve
+        working-directory: ${{ env.SITE_DIR }}
+        run: dart pub get
+
+      - name: Build
+        working-directory: ${{ env.SITE_DIR }}
+        # The sitemap is generated from the routes that were actually rendered, so it can
+        # never advertise a page the build did not produce.
+        run: |
+          dart pub global activate jaspr_cli
+          jaspr build --sitemap-domain https://alteri.one
+
+      - name: Copy static files
+        run: |
+          set -euo pipefail
+          cp -R "$SITE_DIR/static/." "$OUTPUT/"
+          test -f "$OUTPUT/CNAME"
+          test -f "$OUTPUT/index.html"
+
+      - name: Drop development output
+        # `jaspr build` leaves the whole resolved package tree in the output directory
+        # alongside the rendered HTML — tens of megabytes that the page never references.
+        # Deleting it here rather than at the source keeps the pinned Jaspr behaviour
+        # intact, and the assertion afterwards proves the deletion removed only what the
+        # page does not use.
+        run: |
+          set -euo pipefail
+          before=$(du -sh "$OUTPUT" | cut -f1)
+          rm -rf "$OUTPUT/packages"
+          after=$(du -sh "$OUTPUT" | cut -f1)
+          test -f "$OUTPUT/index.html"
+          echo "output: $before -> $after"
+
+      - name: No unresolved Flutter embedding
+        # The site is a landing page. It must not grow a dependency on the Flutter SDK, and
+        # the cheapest way to keep it that way is to fail the build when it tries.
+        working-directory: ${{ env.SITE_DIR }}
+        run: |
+          set -euo pipefail
+          if grep -Eq '^\s*flutter:\s*(embedded|plugins)\s*$' pubspec.yaml; then
+            echo "::error::site/ must not enable Flutter embedding; it is a landing page,"
+            echo "::error::not an interface to a running agent. See docs/website.md."
+            exit 1
+          fi
+          echo "no Flutter embedding"
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ env.OUTPUT }}
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

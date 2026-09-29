@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="AlteriOne">
+  <rect width="32" height="32" rx="7" fill="#14181F"/>
+  <path d="M9 23 16 8l7 15" fill="none" stroke="#7FCBA4" stroke-width="2.6"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M12.2 19.5h7.6" stroke="#7FCBA4" stroke-width="2.6" stroke-linecap="round"/>
+</svg>

@@ -17,6 +17,8 @@ Please include:
 
 - what an attacker can achieve, not just what breaks;
 - the version, commit SHA or release tag, and the platform;
+- for an install or update report: the install root, the output of `alterione which`, and
+  the digest of `manifest.json`;
 - the configuration involved: profile, declared capabilities, trust tier, provider;
 - a minimal reproduction, ideally as a fixture;
 - whether any credential, transcript or memory record was exposed.
@@ -35,8 +37,9 @@ not fall back to a public issue or a public discussion.
 | A secret crossing the plugin boundary in plaintext | Prompt injection that the documented trust model already refuses |
 | Policy bypass: a `deny` that does not deny, or `confirm` skipped in headless mode | Missing capabilities a user never granted |
 | Tampered or unsigned artifacts executing anyway | Denial of service against a single local run, unless it affects other users |
+| An installer or updater that applies an unverified `alterione.aot`, `bin/dartrantime` or `alterione.yaml`, or that leaves a half-applied installation | An unsupported platform refusing to install |
 | Transcript, log or memory content leaking a secret | Vulnerabilities in a third-party dependency with no reachable path from AlteriOne |
-| A dependency whose compromise reaches AlteriOne's trust boundary | Attacks requiring an already-compromised host |
+| A dependency — including a third-party Tier 1 extension — whose compromise reaches AlteriOne's trust boundary | Attacks requiring an already-compromised host |
 
 ## Severity and response
 
@@ -71,15 +74,26 @@ vulnerability or a misconfiguration:
   an isolate has the same process-level authority.
 - A signature proves origin and integrity. It proves nothing about behaviour.
 - Tier 0 content is untrusted data and cannot obtain a capability.
+- **An injection has no authority surface at all.** Its manifest has no field in which a
+  capability could be requested, and its output cannot raise the trust of the content it
+  transforms.
+- **A third-party dependency is inside the trust boundary.** A Tier 1 extension from
+  pub.dev is linked into `alterione.aot` and inherits everything Tier 1 has; its trust is
+  a review decision, not a version-resolution decision.
+- **The installed release is verified before it runs.** The signature covers
+  `manifest.json`, which covers `alterione.aot`, `alterione.yaml` and `bin/dartrantime`
+  by digest; a version mismatch between the snapshot and its runtime refuses rather than
+  falling back.
 - The engine cannot bypass its own deadline, budget, policy or cancellation, including from
   a tool or a subagent.
 - No telemetry is sent without an explicit opt-in.
 
 If you can demonstrate that one of these does not hold, that is a Critical or High report
 by definition. The design rationale is in
-[docs/architecture/overview.md](docs/architecture/overview.md) and
-[docs/extensibility/plugins.md](docs/extensibility/plugins.md); the full risk register is
-in [docs/decisions/risks.md](docs/decisions/risks.md).
+[docs/architecture/overview.md](docs/architecture/overview.md),
+[docs/extensibility/plugins.md](docs/extensibility/plugins.md) and
+[docs/architecture/install-and-update.md](docs/architecture/install-and-update.md); the
+full risk register is in [docs/decisions/risks.md](docs/decisions/risks.md).
 
 This document is not a legal opinion and does not replace an audit of a specific
 deployment or operating environment.

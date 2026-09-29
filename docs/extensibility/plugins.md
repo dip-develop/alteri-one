@@ -2,10 +2,25 @@
 
 **Status: Accepted**
 
-A plugin is the distributable unit that provides tools and declares the capabilities they
-need. This document covers the plugin contract, its three execution tiers, the lifecycle,
-the registry and version resolution. The tools a plugin exposes are specified separately
-in [tools.md](tools.md); MCP is a separate dialect entirely — see [mcp.md](mcp.md).
+A **plugin** is a runtime service: memory, MCP, the sandbox host, a storage backend. It
+implements `AlteriOnePlugin`, requests the ports it needs, and may additionally expose
+the tools that service requires — `memory.search` and `memory.remember` are the memory
+plugin's own surface. A plugin implementation ships inside exactly one `plugins/`
+package, and a `tools/` package is the other place a tool may live, so a tool id has
+exactly one owner and never two. This document covers the plugin contract, the three
+execution tiers and the units each applies to, the lifecycle, the registry and version
+resolution. The tool contract is in [tools.md](tools.md), the authority-free context
+transforms are in [injections.md](injections.md), and the subproject each noun lives in
+is fixed in [ADR-0014](../decisions/0014-extension-subprojects.md) and
+[workspace-layout.md](../architecture/workspace-layout.md#11-the-four-subprojects).
+
+> **What a plugin is not.** Not an app — an app is a host and ships no services and no
+> tools. Not an injection — an injection has *no* authority and a plugin may request
+> ports. Not the umbrella word: tools, injections and apps are not kinds of plugin, and
+> "plugin" is not a synonym for "extension" anywhere in this tree. A **skill pack** is
+> an `Injection(tier: data)`, not a plugin; see
+> [skill-packs.md](skill-packs.md). The six nouns and the "one unit, one authority" rule
+> are in [concepts.md](../concepts.md#12-one-unit-one-authority).
 
 ## 1. Contract
 
@@ -50,11 +65,17 @@ abstract interface class AlteriOnePlugin {
 `apiVersion`, `kind`, `name`, `moduleVersion`, the protocol range and the declared
 capabilities are validated in code before start. Unknown fields, missing required fields,
 an incompatible `apiVersion` and a semver contract violation are validation **errors**,
-never warnings.
+never warnings. The `kind` is `PluginManifest`, the schema is in
+[reference/config-schema.md](../reference/config-schema.md#3-kind-pluginmanifest), and a
+plugin manifest — like the [tool manifest](tools.md#13-the-manifest) — declares `tools[]`
+with `requires`, which are **capabilities requested, not granted**, and may declare the
+`ports:` it implements, each validated against `alterione.yaml` → `api.ports`. An
+`InjectionManifest` has neither field, and the validator rejects one.
 
 A Tier 1 plugin implements this interface locally. A Tier 2 plugin implements the same
-contract through a process adapter and is never imported into the core VM. Tier 0 does not
-implement `AlteriOnePlugin`: a skill pack remains data.
+contract through a process adapter and is never imported into the core VM. A plugin is
+never Tier 0: a Tier 0 unit is an `Injection(tier: data)` — a directory of validated data
+with no interface to implement and nothing to start.
 
 The typed parameter union is per method, resolved through the method registry in
 [protocol.md](../architecture/protocol.md#12-params-and-results-are-typed-per-method):
@@ -75,18 +96,21 @@ sealed class ModuleParams with _$ModuleParams {
 discover → validate → bind → initialize → start → serve → stop
 ```
 
-1. **Discover.** Trusted implementations come from a generated registry; Tier 0 from
-   registered skill packs; Tier 2 from a signed registry holding a digest and a reference
-   to a precompiled AOT executable.
+1. **Discover.** Tier 1 implementations come from the compiled registry, which is
+   generated from the resolved pub dependency graph; Tier 2 from a signed registry, whose
+   executables are deployed under `<install root>/{tools,plugins}/<id>/`; Tier 0 from
+   digest-verified data under `<install root>/injections/<id>/`. A skill pack is a Tier 0
+   *injection*, so it never passes through a plugin lifecycle.
 2. **Validate.** `apiVersion`, `kind`, `moduleVersion`, dependency constraints, capability
    declarations, policy intersection and permitted transport limits are checked. A
    signature verifies the provenance of an artifact; it promises nothing about behaviour.
 3. **Bind.** A tool id is bound to a concrete implementation and trust tier. A duplicate id
-   or an ambiguous resolution stops start-up.
-4. **Initialize.** For Tier 1 an object is created from the codegen registry. For Tier 2
-   the signature is checked first, then a separate process is created in an OS sandbox
-   with `includeParentEnvironment: false`, an isolated tmpfs workspace, and `core.initialize`
-   is executed. A capability is not published before `accepted: true`.
+   or an ambiguous resolution stops start-up, and so does a manifest that disagrees with
+   the compiled graph in either direction — see §4.
+4. **Initialize.** For Tier 1 an object is created from the registry generated at build
+   time. For Tier 2 the signature is checked first, then a separate process is created in
+   an OS sandbox with `includeParentEnvironment: false`, an isolated tmpfs workspace, and
+   `core.initialize` is executed. A capability is not published before `accepted: true`.
 5. **Start.** After a successful handshake the plugin receives a runtime limited to its
    declared and permitted capabilities. Tier 2 runs with a minimal environment and the
    capability broker.
@@ -96,7 +120,9 @@ discover → validate → bind → initialize → start → serve → stop
 Dart has no class loader for attaching arbitrary code to a running VM.
 `Isolate.spawnUri` remains a same-process mechanism and is not used for Tier 2. Therefore
 "dynamic import", runtime scanning of Dart files and executing code named in a manifest are
-not part of the lifecycle.
+not part of the lifecycle. A Tier 1 plugin is in the compiled registry because a package
+under `plugins/` was added to `pubspec.yaml`, declared in `alterione.yaml` and built —
+`melos run generate` reads the resolved graph, not a directory listing.
 
 ## 3. Star topology and the hub
 
@@ -106,9 +132,10 @@ is addressed by a namespaced method, and returns through the same envelope. The 
 route one capability request to another plugin but never passes a plugin an internal
 reference to storage, a provider or the policy engine.
 
-Events go on one bus carrying `traceId`; a Tier 0 subscription is limited to the context
-handed to it. A request with a side effect may be repeated only when it carries an
-`idempotencyKey`. Neither an isolate nor an IPC hop is a trust boundary.
+Events go on one bus carrying `traceId`; a Tier 0 injection is limited to the context
+handed to it, because it is handed nothing else. A request with a side effect may be
+repeated only when it carries an `idempotencyKey`. Neither an isolate nor an IPC hop is a
+trust boundary.
 
 ## 4. Registry and version resolution
 
@@ -116,13 +143,40 @@ The registry holds an immutable capability descriptor, a trust tier, a manifest 
 protocol range, transport limits and a reference to the implementation. Sources have
 different entry kinds but share one resolver.
 
-| Entry kind | Source | How it binds |
-|---|---|---|
-| Trusted capability | Generated registry | A Dart symbol known at build time |
-| Skill pack | User or project directory | A stable tool id and a data version |
-| Untrusted capability | Signed registry | A digest and a precompiled AOT path; the path is never taken from YAML |
+| Entry kind | Source | Deployed to | How it binds |
+|---|---|---|---|
+| Tier 1 — trusted | The compiled registry, generated from the resolved pub dependency graph | inside `alterione.aot` | A Dart symbol known at build time |
+| Tier 0 — data | A digest-verified directory | `<install root>/injections/<id>/` | A stable injection id and a data version |
+| Tier 2 — untrusted | A signed registry holding a digest and a precompiled AOT reference | `<install root>/{tools,plugins}/<id>/` | A digest and a precompiled AOT path; the path is never taken from YAML |
 
-The resolver:
+The install-root layout mirrors the source subprojects, so every declared extension has
+one place to live and one digest record — see
+[install-and-update.md](../architecture/install-and-update.md#2-the-install-root).
+
+### 4.1 `alterione.yaml` agreement
+
+The registry is generated; the set is *declared*. `pubspec.yaml` resolves where the code
+comes from and `alterione.yaml` → `extensions.plugins` states which of it participates,
+at which version, and with which port. Three invariants are checked at bind time, and
+disagreement in either direction is a fail-closed refusal rather than a warning:
+
+1. **Resolution agreement.** Every enabled entry resolves to a package in the compiled
+   dependency graph at a version satisfying its constraint. An entry that resolves to
+   nothing is `-32050`, not an omission.
+2. **No silent participants.** Every workspace package under `tools/`, `injections/` or
+   `plugins/` is listed in `alterione.yaml` or explicitly `enabled: false`. A
+   **compiled-but-undeclared extension is a bind-time failure**: it would otherwise be
+   reachable without appearing in any manifest a reviewer reads. A package marked
+   `enabled: false` is resolved and compiled and deliberately not bound.
+3. **API agreement.** An extension whose `apiVersion` falls outside `api.extension`, or
+   whose port version falls outside `api.ports` (`mcp: "2026-07-28"` today), is refused at
+   discovery, before any capability is bound.
+
+The full pairing, and the command that satisfies it, is in
+[workspace-layout.md](../architecture/workspace-layout.md#31-pubspecyaml-resolves-alterioneyaml-declares)
+and [ADR-0015](../decisions/0015-extension-dependencies.md).
+
+### 4.2 The resolver
 
 - matches an exact tool id first, then checks each dependency's semver constraint;
 - selects the highest compatible protocol version in range, with no implicit jump to
@@ -140,11 +194,17 @@ matter of policy, capability checks and the sandbox.
 
 ## 5. The three execution tiers
 
-| Tier | What it is | How it runs | What it sees | Boundary | Main risk |
-|---|---|---|---|---|---|
-| **Tier 0 — Skill Pack** | `SKILL.md`, prompts, schemas and resources; no code, no rights | Validated as data and passed into context as untrusted content; no process and no isolate are created | Only the explicitly passed context data; no env, no secrets, no filesystem, no network capability | A content boundary and provenance, not a sandbox | Prompt injection or tool poisoning when read by a human or a model; no executable code exists |
-| **Tier 1 — Trusted Plugin** | First-party or reviewed Dart code | Linked into the AOT binary at build time and registered by a codegen registry; an isolate is used only for fault localisation and CPU separation | Everything trusted code can reach in the process and VM, including process-level authority | Trust established at build time; an isolate is not a security boundary | A fault, `exit()`, FFI or a malfunction can affect the process |
-| **Tier 2 — Untrusted Plugin** | Arbitrary marketplace code shipped as a precompiled AOT executable | Signature and digest check → separate process → Linux `bwrap`/`nsjail`, cgroup v2 and seccomp → `core.initialize`; network off | Only a separate workspace, a minimal environment and opaque capability ids; core secrets and raw credentials are unreachable | Process + OS sandbox + capability broker; on failure, a fail-closed refusal | Sandbox escape, resource abuse, broker faults, attempted egress; refusal is safer than degradation |
+The tiers are orthogonal to the noun and stay exactly three, so each row names the units
+it applies to. A plugin is Tier 1 or Tier 2; a tool is Tier 1 or Tier 2; only an injection
+can be Tier 0. An app is never Tier 0 or Tier 2 — it is the host. See
+[ADR-0003](../decisions/0003-execution-tiers.md) and
+[ADR-0014](../decisions/0014-extension-subprojects.md).
+
+| Tier | Unit | What it is | How it runs | What it sees | Boundary | Main risk |
+|---|---|---|---|---|---|---|
+| **Tier 0 — data** | Injection (data) — a skill pack is one | `SKILL.md`, prompts, schemas and resources; no code, no rights | Validated as data and passed into context as untrusted content; no process and no isolate are created | Only the explicitly passed context data; no env, no secrets, no filesystem, no network capability | A content boundary and provenance, not a sandbox | Prompt injection or tool poisoning when read by a human or a model; no executable code exists |
+| **Tier 1 — trusted** | Tool, Injection, Plugin | First-party or reviewed Dart code | Linked into the AOT binary at build time and registered by a registry generated from the resolved dependency graph; an isolate is used only for fault localisation and CPU separation | Everything trusted code can reach in the process and VM, including process-level authority | Trust established at build time; an isolate is not a security boundary | A fault, `exit()`, FFI or a malfunction can affect the process |
+| **Tier 2 — untrusted** | Tool, Plugin | Arbitrary third-party code shipped as a precompiled AOT executable | Signature and digest check → separate process → Linux `bwrap`/`nsjail`, cgroup v2 and seccomp → `core.initialize`; network off | Only a separate workspace, a minimal environment and opaque capability ids; core secrets and raw credentials are unreachable | Process + OS sandbox + capability broker; on failure, a fail-closed refusal | Sandbox escape, resource abuse, broker faults, attempted egress; refusal is safer than degradation |
 
 Tier 0 content and external tool results receive labels at the type boundary —
 `userStated`, `modelInferred`, `toolObserved`, `webContent`, `skillContent`,
@@ -176,8 +236,8 @@ refusal. A weaker mode is never chosen automatically. A manifest declares capabi
 effective set is the intersection of manifest, profile, user policy, admin policy and
 deployment policy. `deny` always beats `confirm`, and `confirm` always beats `allow`.
 
-**Tier 0 is where the marketplace starts**: declarative skill packs need no OS sandbox, so
-its absence does not block Phase 0.
+**Tier 0 is where the marketplace starts**: declarative skill packs — `Injection(tier:
+data)` — need no OS sandbox, so its absence does not block Phase 0.
 
 ## 6. Failure modes and their codes
 
@@ -186,8 +246,9 @@ its absence does not block Phase 0.
 | Digest or signature mismatch | `-32041` | Refused before process creation |
 | Capability not granted by policy | `-32042` | Tool never bound; run continues without it |
 | Sandbox unavailable or preflight failed | `-32040` | Refused; no degraded mode |
-| Plugin process killed or violated the sandbox | `-32040` | Process group terminated, core survives |
+| Tier 2 process killed or violated the sandbox | `-32040` | Process group terminated, core survives |
 | Version incompatibility at handshake | `-32050` | `accepted: false` |
+| Compiled set and `alterione.yaml` disagree | `-32050` | Bind refused; no silent participant |
 
 The full table is in [reference/error-codes.md](../reference/error-codes.md).
 
@@ -195,15 +256,25 @@ The full table is in [reference/error-codes.md](../reference/error-codes.md).
 
 The unavoidable properties of this model, stated plainly:
 
+- A compiled extension always needs a build. A third-party extension is an **ordinary Dart
+  dependency** — hosted on pub.dev, a git repository or a path — added to `pubspec.yaml`
+  and declared in `alterione.yaml`; `dart pub get`, `melos run generate` and a rebuild put
+  it in the registry. There is no runtime `extensions add` for compiled code, and there
+  cannot be one.
 - Tier 2 on macOS and Windows is unsupported from v1. Only Tier 0 data packs and Tier 1
   trusted code are available there, and Tier 2 refuses before a process is created.
-- Dart does not load third-party code into the runtime VM. The marketplace publishes Tier 0
-  data packs and precompiled AOT executables with a manifest, digest and signature. Trusted
-  code attaches at build time through the codegen registry; "install arbitrary code" is not
-  an API.
+- Dart does not load third-party code into the runtime VM. The marketplace installs only
+  two things: Tier 0 data, which is a copy under
+  `<install root>/injections/<id>/` plus a digest record, and signed Tier 2 executables
+  under `<install root>/{tools,plugins}/<id>/`. Trusted code attaches at build time through
+  the generated registry; "install arbitrary code" is not an API.
 - Wasm components are not yet a practical plugin ABI. `dart compile wasm` does not integrate
   as a plugin runtime with Wasmtime or Wasmer; open SDK issues 53884 and 56366 remain the
   gate. Wasm is not in Phases 0–4 and no ABI is promised before a working runtime exists.
 
-The full risk register, with likelihood, impact and mitigation, is in
+The install root, the verification order and the command surface are in
+[install-and-update.md](../architecture/install-and-update.md#6-adding-extensions-to-an-installed-product);
+the subproject a plugin lives in, and what else may ship a tool, are in
+[workspace-layout.md](../architecture/workspace-layout.md#11-the-four-subprojects). The full
+risk register, with likelihood, impact and mitigation, is in
 [decisions/risks.md](../decisions/risks.md).

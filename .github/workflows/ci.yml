@@ -7,6 +7,10 @@ name: ci
 # Dart workspace and Phase 3 creates the Tier 2 suite. Jobs for phases that have not landed
 # are skipped rather than failed, and a `detect` job publishes that state as job outputs,
 # because `hashFiles` is not reliably available in a job-level `if`.
+#
+# One gate here is about naming rather than behaviour. ADR-0016 splits naming at the build
+# boundary, and the source tree is deliberately on the `alteri_one_*` side of it, so the
+# gate is aimed at the release-facing surfaces only.
 
 on:
   push:
@@ -41,7 +45,7 @@ jobs:
           set -euo pipefail
           [ -f pubspec.yaml ] && w=true || w=false
           if compgen -G "packages/alteri_one_platform/test/tier2/*" > /dev/null; then t=true; else t=false; fi
-          [ -d applications/app ] && a=true || a=false
+          [ -d apps/gui ] && a=true || a=false
           {
             echo "has_workspace=$w"
             echo "has_tier2=$t"
@@ -56,17 +60,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The documentation checker is a dependency-free Dart script under tool/, so it needs
+      # only the SDK — not `dart pub get`, which is what makes it usable in this job on a
+      # repository that has no workspace yet.
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: ${{ env.DART_VERSION }}
+
       - name: Documentation integrity
         # Links, anchors and reachability. Runs on every change, in every phase.
-        run: python3 tools/check_doc_links.py --orphans
+        run: dart tool/docs/check_doc_links.dart --orphans
 
       - name: Governance documents present
         # Task 0.3 asserts these. Cheap to check early, and it stops them going missing.
         run: |
           set -euo pipefail
           for f in SECURITY.md CONTRIBUTING.md CODE_OF_CONDUCT.md ARCHITECTURE.md \
-                   .github/CODEOWNERS docs/security/threat-model.md \
-                   docs/decisions/README.md .github/workflows/ci.yml; do
+                   TODO.md .github/CODEOWNERS docs/security/threat-model.md \
+                   docs/decisions/README.md .github/workflows/ci.yml \
+                   tool/docs/check_doc_links.dart; do
             [ -f "$f" ] || { echo "::error::missing $f"; exit 1; }
           done
           echo "governance documents present"
@@ -81,6 +93,68 @@ jobs:
             exit 1
           fi
           echo "no Cyrillic found"
+
+      - name: The installed product carries no alteri_one
+        # ADR-0016: `alteri_one_*` is the Dart convention for source packages, `alterione`
+        # is everything the user receives. The source tree keeps its spelling on purpose, so
+        # this gate is aimed at the release-facing surfaces and nowhere else. A stray
+        # `alteri_one/` under the install root is a support defect waiting to happen: the
+        # user types one word and a bug report names a different directory.
+        if: needs.detect.outputs.has_workspace == 'true'
+        run: |
+          set -euo pipefail
+
+          # Scope A: the installer templates, which are copied verbatim into the install
+          # root. Zero tolerance, no prose to read.
+          if git grep -n 'alteri_one' -- 'tool/install/**'; then
+            echo "::error::alteri_one found in an installer template."
+            echo "The installed product is alterione. See docs/decisions/0016-product-naming.md."
+            exit 1
+          fi
+
+          # _artifacts.yml builds the release; it is not shipped. It may name the source
+          # package whose closure it gates — that is the Dart-convention side of the
+          # boundary — and nothing else in it may carry the old spelling into an asset
+          # name, an installed path or a manifest payload.
+          if git grep -n 'alteri_one' -- .github/workflows/_artifacts.yml \
+            | grep -vE 'alteri_one_cli([^A-Za-z0-9_]|$)'; then
+            echo "::error::alteri_one found in the release assembly outside a source package name."
+            echo "Assets are named alterione-<target>. See docs/decisions/0016-product-naming.md."
+            exit 1
+          fi
+
+          # Scope B: the documented install root, in install-and-update.md and
+          # workspace-layout.md. These two documents deliberately describe *both* sides of
+          # the build boundary, so their prose has to be able to name the Dart-convention
+          # package names, and has to be able to state this prohibition itself. A blanket
+          # ban on the file would forbid the documents that define the ban. What must never
+          # appear is an installed path, so the check is scoped to the fenced blocks that
+          # draw the install root and looks for an alteri_one segment inside them.
+          if ! awk '
+            FNR == 1 { inblock = 0 }
+            /^```/ {
+              if (inblock) {
+                if ((index(block, "~/.alterione") || index(block, "ALTERIONE_HOME")) \
+                    && index(block, "alteri_one")) {
+                  printf "  %s:%d: the documented install root contains alteri_one\n",
+                         FILENAME, start
+                  bad = 1
+                }
+                inblock = 0
+              } else {
+                inblock = 1; start = FNR; block = ""
+              }
+              next
+            }
+            inblock { block = block $0 "\n" }
+            END { exit bad ? 1 : 0 }
+          ' docs/architecture/install-and-update.md docs/architecture/workspace-layout.md; then
+            echo "::error::the documented install root names alteri_one."
+            echo "The install root is ~/.alterione. See docs/decisions/0016-product-naming.md."
+            exit 1
+          fi
+
+          echo "installed product is free of alteri_one"
 
   workspace-contracts:
     name: Workspace and CI contract tests

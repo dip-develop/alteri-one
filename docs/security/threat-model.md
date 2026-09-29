@@ -2,7 +2,8 @@
 
 **Status: Accepted**
 
-Scope: the AlteriOne core, its CLI, and the three plugin tiers. Not in scope: the security
+Scope: the AlteriOne core, its CLI, its extensions, and the install and update path that
+puts a verified release on the disk. Not in scope: the security
 of a model provider, of the host operating system, or of a user's own account on that
 system.
 
@@ -37,6 +38,10 @@ The host is trusted. The model's output is not.
 | The host process | A compromised core is arbitrary code execution as the user |
 | The decision record | The transcript is what a user relies on to understand what happened |
 | Downstream systems | Anything reachable through an egress-allowed tool |
+| `alterione.aot` | The compiled release. Its code is the whole trusted Tier 1 closure |
+| `bin/dartrantime` | The runtime that executes the snapshot. Version-matched and digest-pinned, never borrowed from the system |
+| `alterione.yaml` | The declared product manifest: which extensions are in the release, at which API version, and which runtime may execute it |
+| `manifest.json` | Release version, per-file SHA-256 digests and the signature over them |
 
 ## 3. Adversaries and capabilities
 
@@ -49,6 +54,8 @@ The host is trusted. The model's output is not.
 | **Compromised signing key** | Mint a manifest that verifies |
 | **The model itself** | Confabulate, loop, exhaust budget, or attempt to widen its own scope through a legitimate tool |
 | **A careless user** | Grant `shell.run` broadly, then paste untrusted text |
+| **Hostile or compromised third-party extension** | Ship a pub package that is compiled into the AOT binary and therefore runs as Tier 1, with whatever capabilities the product grants |
+| **A tampered release or a compromised release host** | Serve a modified `manifest.json`, `alterione.aot` or `bin/dartrantime`, or an older, downgraded release |
 
 ## 4. Trust boundaries
 
@@ -60,6 +67,8 @@ The host is trusted. The model's output is not.
 | network ↔ egress | Broker with destination, method, redirect, size, credential and rate checks; default deny | Broker checks and connect are not separated by a rebind window |
 | credential ↔ plugin | Secret broker; credentials never in env, argv, files or frames | The broker is the only substitution point |
 | run ↔ cost and time | `Deadline`, `CostBudget`, `maxSteps`, `CancelToken` on every path | No code path bypasses them, including tools and subagents |
+| supply chain ↔ Tier 1 | `pubspec.yaml` + `alterione.yaml` cross-check, review of the resolved graph | Every third-party package in the graph has been **reviewed**, not merely resolved — see §5.8 |
+| release host ↔ install | Signed manifest, per-file SHA-256, atomic swap | The signature is genuine and the operator installs the host they named |
 
 ## 5. Attack paths and mitigations
 
@@ -133,6 +142,58 @@ and after interruption.
 
 **Residual risk: medium.** A kill between spawn and registration can orphan a process.
 
+### 5.8 Third-party extensions and the supply chain
+
+An extension is an ordinary pub dependency. That is what makes the ecosystem open
+([ADR-0015](../decisions/0015-extension-dependencies.md)) and it is also the fact this
+section is about: **the resolved pub dependency graph is part of the trusted computing base
+for Tier 1 code.** Dart has no class loader, so a dependency that is resolved is a
+dependency that is *linked into `alterione.aot`*. A hostile or compromised package is
+therefore not a separate process to be sandboxed — it is inside the binary, running with
+the core's privileges, on the credential and egress paths.
+
+The mitigations are correspondingly blunt and are all pre-merge:
+
+- A third-party package that becomes Tier 1 **is reviewed**, in the same sense and with the
+  same scrutiny as a change to `alteri_one_core`. "It resolved and its tests passed" is
+  explicitly not sufficient; version resolution is a reproducibility fact, not a trust
+  decision.
+- `pubspec.lock` is committed, so a reviewed version stays reviewed, and Dependabot
+  proposals are reviewed as code changes rather than merged as upgrades.
+- The package is declared in `alterione.yaml`, so a reviewer reads one file to know what a
+  release contains. A compiled-but-undeclared extension is a bind failure.
+- The capability intersection and `deny > confirm > allow` still apply to whatever it
+  declares, so a legitimate-looking package that requests the world is refused rather than
+  trusted.
+- The published set of accepted third-party extensions, and whether pub.dev is a safe
+  default source for it, is an open research question, not an assumption — see
+  [open-questions.md](../decisions/open-questions.md).
+
+**Residual risk: high and growing.** The open extension surface is the price of an open
+ecosystem. What this model buys is that the exposure is a *review* obligation with a named
+owner, not a runtime surprise.
+
+### 5.9 Install, update and the release host
+
+The installed product is `alterione.aot` plus a pinned `bin/dartrantime`, fetched from a
+release host. The adversary here is not the model and not a running extension: it is
+whoever controls the bytes between the host and the disk, or whoever convinces an operator
+to install an older, weaker release.
+
+| Attack | Mitigation |
+|---|---|
+| Tampered release manifest | The manifest is covered by the release signature; an unverifiable signature stops the install before a byte is written |
+| Tampered `bin/dartrantime` | SHA-256 of every staged file is verified against `manifest.json` before the swap; a mismatch deletes the staging directory and exits `9` |
+| Tampered `alterione.aot` | Same per-file verification, and the same digest is re-checked at every launch by the launcher and `doctor` |
+| Snapshot/runtime skew | `alterione.yaml` → `runtime.version` is narrowed to the snapshot's major.minor; an outside runtime is an integrity failure, never a "probably works" |
+| Release version downgrade | The requested or resolved version is recorded in `manifest.json`; `update --check` reports what a change would do, and an install never silently accepts a lower version than the one installed |
+| Compromised release host | Two independent keys: the signature proves origin, and the digests prove the files match it. A host that serves a mismatched file is caught by the digest, not by trust in the transport |
+| Partially applied install | Files are staged, verified in the staging directory and swapped atomically; a failure leaves the previous installation byte-for-byte unchanged |
+
+**Residual risk: medium**, and it reduces to the signing-key case in §5.6 plus the operator's
+choice of host. There is no fallback: a mismatch is a refusal with exit `9`, never a system
+`dart`, never JIT and never source.
+
 ## 6. Explicitly out of scope
 
 - The correctness or alignment of the model.
@@ -151,6 +212,8 @@ and after interruption.
 | Removing the provenance strip before the model view | Untrusted content could become an instruction |
 | Telemetry enabled by default | The zero-telemetry goal and the privacy model both break |
 | A dependency that could exfiltrate state | Must not sit on the credential or network path |
+| A third-party package admitted to Tier 1 without review | The supply-chain boundary in §4 stops being a boundary at all |
+| The AOT snapshot run on an unverified or version-mismatched `dartrantime` | The tier-0 property the whole model rests on is gone, silently |
 
 This model does not replace an audit of a specific implementation or deployment, and it is
 not a legal opinion.
