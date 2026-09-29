@@ -42,6 +42,10 @@ $ melos run test
       with `enabled: false` so it resolves but is deliberately not bound
 - [ ] No installed path, launcher, installer script or default configuration value contains
       `alteri_one`; the installed product is `alterione` (ADR-0016)
+- [ ] An injection still has no `tools:` and no `requires:` field, and an app still ships no
+      tools and no services (ADR-0014)
+- [ ] `site/` still builds as a landing page: no Flutter embedding, no client bundle, and it
+      starts no agent and holds no secret (ADR-0020)
 
 ## Contracts
 
@@ -58,6 +62,8 @@ $ melos run test
 - [ ] An ADR added in `docs/decisions/` if an architectural decision was made
 - [ ] `dart tool/docs/check_doc_links.dart --orphans` exits `0`
 - [ ] No user-facing string added without an l10n catalogue entry and a `DiagnosticCode`
+- [ ] This PR targets the base in the branching table in `CONTRIBUTING.md` — `develop`,
+      except a `hotfix/*` or `release/*` branch, which targets `main` as well
 
 ## Security
 

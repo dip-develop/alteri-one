@@ -36,6 +36,24 @@ Never commit or push directly to `main` or `develop`. Always open the PR against
 in the table above — `gh pr create` without `--base` defaults to the repository default
 branch, which is usually the wrong one.
 
+Both branches are protected by rulesets that enforce this rather than trusting it: a
+pull request is required, one approving review from someone other than the author is
+required, a code-owner review is required, review threads must be resolved, the history
+must be linear, and neither branch can be deleted or force-pushed. Required checks are
+listed per branch under the repository's **Settings → Rules → Rulesets**.
+
+Two consequences worth knowing before you push:
+
+- **`develop` is not the default branch.** `gh pr create` without `--base` targets `main`.
+  A PR against `main` is a release or a hotfix, and it is reviewed as one.
+- **A stale approval is discarded.** Pushing again after a review clears it, so a
+  re-reviewed change needs a second approval. That is the point: the approval applies to
+  the code that was read.
+
+The rulesets are deliberately not more aggressive than this. There is no push allowlist,
+because an org with two administrators and a placeholder-free CODEOWNERS gains little from
+one and loses the ability to recover from a bad merge.
+
 ## Before you open a PR
 
 ```bash

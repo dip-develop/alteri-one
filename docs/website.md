@@ -105,10 +105,15 @@ The website must be incapable of affecting what ships in `alterione.aot`.
 | `pages.yml` → *Copy static files* | A deployment without `CNAME` and `index.html` in the output |
 | `pages.yml` → *Drop development output* | A 28 MB deployment: `jaspr build` copies the whole resolved package tree beside the HTML, and the page references none of it |
 | The documentation checker | A broken link in `site/README.md` |
+| `melos run release:repo-settings-check` | A repository setting changed in the GitHub UI and never recorded — including a protection rule removed by accident |
 
 The Flutter gate exists because the failure is quiet and the temptation is real: Flutter
 web would give the site a look consistent with the GUI, and cost a whole SDK in a
 documentation build.
+
+Two things this site depends on cannot be recorded that way, because they are not
+repository properties: HTTPS enforcement on Pages, which waits on a certificate, and the
+DNS records for the apex domain. Both are listed under §6 and both are checked by hand.
 
 The output-size gate is a plain consequence of how the build works rather than an opinion:
 the rendered page plus `CNAME`, `favicon.svg`, `robots.txt` and `sitemap.xml` is about

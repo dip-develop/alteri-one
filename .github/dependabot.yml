@@ -1,11 +1,5 @@
-# Dependency updates.
-#
-# target-branch is set to develop on every ecosystem. The repository default branch is
-# main, and leaving the default in place is the main source of drift: updates would be
-# raised against a branch that does not receive feature work.
-
+name: dependabot
 version: 2
-
 updates:
   - package-ecosystem: github-actions
     directory: /
@@ -16,16 +10,14 @@ updates:
       time: "06:00"
       timezone: Etc/UTC
     open-pull-requests-limit: 5
-    labels:
-      - dependencies
-      - ci
+    labels: [dependencies, ci]
     commit-message:
       prefix: ci(deps)
     groups:
       actions:
         patterns: ["*"]
 
-  # Dart dependencies. Inactive until task 0.1 creates the root pubspec.yaml, at which
+  # The product workspace. Inactive until task 0.1 creates the root pubspec.yaml, at which
   # point Dependabot starts opening PRs against it.
   #
   # These are opened as PRs and never merged automatically: pub upgrades interact with the
@@ -39,9 +31,24 @@ updates:
       time: "06:00"
       timezone: Etc/UTC
     open-pull-requests-limit: 5
-    labels:
-      - dependencies
-      - dart
+    labels: [dependencies, dart]
     commit-message:
       prefix: "chore(deps):"
 
+  # The project website. It is a separate package outside the pub workspace, so it is a
+  # separate Dependabot target: the `pub` ecosystem scans a different `directory` from the
+  # product's `/`. Without this entry site/pubspec.lock never ages, and a site build breaks
+  # on a version bump the product's ecosystem would never surface. The two resolve to
+  # incompatible build_runner constraints on purpose — see ADR-0020 — so a single combined
+  # target could not represent them anyway.
+  - package-ecosystem: pub
+    directory: /site
+    target-branch: develop
+    schedule:
+      interval: monthly
+      time: "06:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 3
+    labels: [dependencies, site]
+    commit-message:
+      prefix: "chore(deps):"

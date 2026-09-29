@@ -73,6 +73,11 @@ the Dart convention `alteri_one_*`, and everything the user receives is `alterio
 documentation examples. It is **not** on the runtime search path. A test or `doctor` may
 point at a fixture explicitly; an implicit fallback to `config/` is forbidden.
 
+`tool/` holds two kinds of script, and the difference matters. The `install/` and `release/`
+scripts *do* something: they assemble an install root, verify a release, or compare the
+live repository settings against the recorded ones. They are listed in
+[tool/release/README.md](../../tool/release/README.md). The `docs/` script only reports.
+
 The workspace globs `packages/*`, `apps/*`, `tools/*`, `injections/*`, `plugins/*` and
 `sdk/*` are evaluated at `dart pub get` time. `apps/gui`, `apps/web`, `tools/*` beyond the
 Phase 0 set, `plugins/mcp`, `plugins/sandbox` and `packages/alteri_one_sdk` are created in
@@ -140,8 +145,13 @@ melos:
     # Release gates. They live in tool/release/ and run from the workspace root, so a
     # gate never needs to know which package it is inspecting. Each exits non-zero on a
     # failure that must block a release; none of them may be skipped in CI.
+    #
+    # repo_settings.sh is the one gate that configures nothing: it compares the live
+    # repository settings against repo-settings.json so a change made in the GitHub UI
+    # cannot go unrecorded. See tool/release/README.md.
     release:closure-check: dart run tool/release/closure_check.dart
     release:naming-check: dart run tool/release/naming_check.dart
+    release:repo-settings-check: bash tool/release/repo_settings.sh --check   # see tool/release/README.md
     release:install-check: dart run tool/release/install_check.dart
     release:version-check: dart run tool/release/version_check.dart
     release:artifact-check: dart run tool/release/artifact_check.dart

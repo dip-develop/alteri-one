@@ -1,42 +1,51 @@
 # CODEOWNERS
 # Paths are matched from the repository root. The last matching pattern wins.
 #
-# NOTE: the @owner values below are placeholders pointing at the organisation. Replace
-# them with real GitHub handles or teams before turning on required review. A CODEOWNERS
-# rule that matches nobody provides no protection while looking like it does.
+# `@DipDevDevelopers` is the organisation's developers team and is the owner below. It
+# resolves to real people, which is the whole point: a CODEOWNERS rule naming a handle
+# that does not exist provides no protection while looking exactly like it does. That is
+# why `@dip-develop` — the organisation login, which is not a team and not a user — is
+# gone from this file. Required code-owner review is enabled on both protected branches,
+# so these entries are load-bearing from now on.
+#
+# Rename the team and every line below has to change with it.
 
 # Default owner for anything not matched below.
-/*                       @dip-develop
+/*                       @DipDevDevelopers
 
 # Specification and architecture: changes here change the contract for every package.
-/docs/                   @dip-develop
-/ARCHITECTURE.md         @dip-develop
+/docs/                   @DipDevDevelopers
+/ARCHITECTURE.md         @DipDevDevelopers
 
-# Security-sensitive material. Treat every PR touching these as security-relevant and
-# require a reviewer other than the author.
-/SECURITY.md                  @dip-develop
-/docs/security/               @dip-develop
-/docs/extensibility/plugins.md @dip-develop
-/docs/extensibility/tools.md   @dip-develop
-/docs/extensibility/injections.md @dip-develop
-/docs/decisions/risks.md      @dip-develop
+# Security-sensitive material. Treat every PR touching these as security-relevant: a
+# reviewer other than the author is already required, and these paths are why.
+/SECURITY.md                            @DipDevDevelopers
+/docs/security/                         @DipDevDevelopers
+/docs/extensibility/plugins.md          @DipDevDevelopers
+/docs/extensibility/tools.md            @DipDevDevelopers
+/docs/extensibility/injections.md       @DipDevDevelopers
+/docs/decisions/risks.md                @DipDevDevelopers
 
 # Compatibility surfaces: protocol framing, config schema, error and exit codes.
-/docs/architecture/protocol.md      @dip-develop
-/docs/architecture/configuration.md @dip-develop
-/docs/reference/                    @dip-develop
+/docs/architecture/protocol.md          @DipDevDevelopers
+/docs/architecture/configuration.md     @DipDevDevelopers
+/docs/reference/                        @DipDevDevelopers
 
 # Release, signing and automation. The install root, the launcher and the runtime
 # verification order are security-relevant: a change here decides what executes.
-/.github/workflows/   @dip-develop
-/.github/dependabot.yml @dip-develop
-/docs/architecture/install-and-update.md @dip-develop
-/docs/architecture/build-and-release.md @dip-develop
+/.github/workflows/                     @DipDevDevelopers
+/.github/dependabot.yml                 @DipDevDevelopers
+/docs/architecture/install-and-update.md @DipDevDevelopers
+/docs/architecture/build-and-release.md @DipDevDevelopers
 
 # The project website. Separate from the product on purpose: it resolves its own
 # toolchain, sits outside the pub workspace, and is never part of a release.
-/site/                 @dip-develop
-/docs/website.md       @dip-develop
+/site/                                 @DipDevDevelopers
+/docs/website.md                       @DipDevDevelopers
 
-# The lockfile is committed deliberately: one reviewer, no drive-by updates.
-/pubspec.lock         @dip-develop
+# # The lockfile is committed deliberately: one reviewer, no drive-by updates.
+/pubspec.lock                           @DipDevDevelopers
+
+# The recorded repository settings. A change here is a change to branch protection or the
+# label set, which is why it is reviewed rather than re-recorded on a whim.
+/repo-settings.json                     @DipDevDevelopers
