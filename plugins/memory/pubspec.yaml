@@ -1,0 +1,15 @@
+name: alteri_one_memory
+publish_to: none
+resolution: workspace
+version: 0.1.0
+
+description: >-
+  Typed memory records, their repositories and the vector index, behind the storage port. It
+  owns domain records and nothing else.
+
+environment:
+  sdk: '>=3.13.0 <4.0.0'
+
+dependencies:
+  alteri_one_core: ^0.1.0
+  alteri_one_platform: ^0.1.0

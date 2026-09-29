@@ -1,0 +1,21 @@
+name: alteri_one_cli
+publish_to: none
+resolution: workspace
+version: 0.1.0
+
+description: >-
+  The native agent CLI and the composition root of the product: the one place that knows which
+  implementations are wired together.
+
+environment:
+  sdk: '>=3.13.0 <4.0.0'
+
+dependencies:
+  # The composition root sees everything public in the workspace: the three product libraries
+  # and the enabled extensions. Nothing may depend on it — an app is a host, never a library
+  # (architecture/overview.md §3).
+  alteri_one_core: ^0.1.0
+  alteri_one_injection_skill: ^0.1.0
+  alteri_one_memory: ^0.1.0
+  alteri_one_platform: ^0.1.0
+  alteri_one_protocol: ^0.1.0

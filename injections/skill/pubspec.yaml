@@ -1,0 +1,18 @@
+name: alteri_one_injection_skill
+publish_to: none
+resolution: workspace
+version: 0.1.0
+
+description: >-
+  Tier 0 and Tier 1 skill packs: a deterministic context transform that labels and applies
+  data, and holds no lever.
+
+environment:
+  sdk: '>=3.13.0 <4.0.0'
+
+dependencies:
+  # The loader and the label types, and nothing else. An injection depends on the protocol and
+  # the label types, never on the policy engine, the capability registry or a memory write
+  # path, so it cannot alter any of them even by accident (architecture/overview.md §3).
+  alteri_one_core: ^0.1.0
+  alteri_one_protocol: ^0.1.0
