@@ -171,10 +171,30 @@ jobs:
       - name: Resolve
         run: dart pub get
 
-      - run: dart test test/workspace/workspace_contract_test.dart
-      - run: dart test test/ci/quality_gates_contract_test.dart
-      - run: dart test test/ci/telemetry_allowlist_test.dart
-      - run: dart test test/governance/documentation_contract_test.dart
+      # Each contract test belongs to a task, so the set grows one file at a time. A test
+      # that has landed always runs; one whose task has not landed yet is reported and
+      # skipped, which is the same policy the jobs above follow for a phase. The loop fails
+      # if none of them exists, so this step cannot go green by finding nothing.
+      - name: Contract tests
+        run: |
+          set -euo pipefail
+          ran=0
+          for f in test/workspace/workspace_contract_test.dart \
+                   test/ci/quality_gates_contract_test.dart \
+                   test/ci/telemetry_allowlist_test.dart \
+                   test/governance/documentation_contract_test.dart; do
+            if [ ! -f "$f" ]; then
+              echo "::notice::$f has not landed yet; its task has not run."
+              continue
+            fi
+            dart test "$f"
+            ran=$((ran + 1))
+          done
+          if [ "$ran" -eq 0 ]; then
+            echo "::error::no contract test found; the workspace job is not gating anything."
+            exit 1
+          fi
+          echo "$ran contract test file(s) passed"
 
   matrix:
     name: ${{ matrix.os }} · codegen, analyse, format, test
@@ -207,7 +227,13 @@ jobs:
         run: melos run analyze
 
       - name: Format
-        run: melos run format
+        # Two commands, one gate. `format` walks each package; `format:root` covers the
+        # root package's own `test/` and `tool/` by path, because `dart format` has no
+        # exclude flag and would otherwise walk into the website — a different toolchain
+        # with its own build gate (ADR-0020).
+        run: |
+          melos run format
+          melos run format:root
 
       - name: Test
         run: melos run test
