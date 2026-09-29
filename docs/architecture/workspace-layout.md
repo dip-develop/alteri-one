@@ -35,7 +35,7 @@ alteri_one/
 │   ├── cli/                        # package: alteri_one_cli — native agent CLI and composition root, v1
 │   ├── bootstrap/                  # package: alterione — installer and updater, published on pub.dev
 │   ├── gui/                        # package: alteri_one_gui — Flutter GUI, Phase 5
-│   └── web/                        # package: alteri_one_web — Flutter web, Phase 5
+│   └── web/                        # package: alteri_one_web — local server hosting a Flutter web GUI, Phase 5
 ├── tools/                          # tools/: model-invocable operations
 │   ├── fs/                         # fs.read, fs.write, fs.edit, fs.delete, fs.list
 │   ├── shell/                      # shell.run
@@ -50,8 +50,13 @@ alteri_one/
 │   ├── mcp/                        # MCP client and server mode
 │   └── sandbox/                    # deferred to Phase 3 — OS sandbox host
 ├── tool/                           # single-package tooling, not a subproject
+│   ├── docs/                       # the documentation checker
 │   ├── install/                    # install/update scripts, launcher templates
 │   └── release/                    # release assembly: manifest, digests, signatures
+├── site/                           # the project website — NOT in the workspace globs
+│   ├── pubspec.yaml                # its own lockfile; see website.md
+│   ├── lib/                        # a single static Jaspr page
+│   └── static/                     # CNAME, favicon, robots — copied by the Pages workflow
 └── config/
     └── fixtures/                   # test and example fixtures ONLY
         ├── profiles/
@@ -73,6 +78,13 @@ The workspace globs `packages/*`, `apps/*`, `tools/*`, `injections/*`, `plugins/
 Phase 0 set, `plugins/mcp`, `plugins/sandbox` and `packages/alteri_one_sdk` are created in
 later phases and do not exist before then; task `0.1` asserts the exact workspace
 membership for its phase and task `5.1` re-asserts it once the Phase 5 packages exist.
+
+`site/` and `tool/` are **not** in any glob, and never will be. `site/` is the project
+website, whose toolchain cannot be resolved in the same graph as the product's — the
+concrete constraint is in [website.md](../website.md#5-why-it-is-outside-the-pub-workspace)
+and the decision is [ADR-0020](../decisions/0020-project-website.md). `tool/` holds
+single-package scripts with no package of their own. Both are deliberately outside
+`melos` management, and a `melos run` script for either would be a mistake.
 
 ### 1.1 The four subprojects
 
@@ -380,6 +392,13 @@ package manifests get `resolution: workspace`.
 ```bash
 dart pub global activate melos
 dart pub get
+```
+
+The website builds separately, and never through melos:
+
+```bash
+dart pub global activate jaspr_cli
+cd site && dart pub get && jaspr build --sitemap-domain https://alteri.one
 ```
 
 `melos bootstrap` may be run as a single orchestration command but is **not** a

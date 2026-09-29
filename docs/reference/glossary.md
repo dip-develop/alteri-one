@@ -16,6 +16,8 @@
 | **Tool** | A model-invocable operation with a typed argument schema and a typed outcome, in `tools/`, or the tool surface a plugin exposes. A tool id is never a capability id. |
 | **Capability** | A typed right to a specific class of operation, not access to the environment as a whole. Checked by policy or a broker before execution. |
 | **App** | A frontend or embedder of the core: CLI, SDK consumer, Flutter app, web. In `apps/`. It composes and never extends: no tools, no services. |
+| **Web target** | `apps/web` (`alteri_one_web`): a **local server** on the user's own machine that hosts a GUI written in Flutter and compiled for the web. It embeds the core natively — never a browser bundle of the core, never a thin UI against a remote host — and adds an HTTP surface to the CLI's composition root. See [ADR-0019](../decisions/0019-web-local-server.md). |
+| **Browser as untrusted terminal** | The trust rule for the web target: the tab receives no secret, creates no capability, holds no authoritative storage and evaluates no policy. It renders redacted, labelled results; `StoragePort` stays native in the server, and a closed tab cascades into `CancelToken`. |
 | **Provider** | An adapter for a model endpoint. Never provides tools. |
 | **`alterione.yaml`** | The declared product manifest, at the repository root, the install root or a project. Carries `runtime`, `api` and `extensions` (and an optional `profile`). `pubspec.yaml` resolves the code; this file declares what participates. |
 | **`enabled: false`** | An `alterione.yaml` extension entry that is resolved and compiled but deliberately **not bound** — a staged rollout, not a removal. It is also how a workspace package satisfies the "no silent participants" invariant. |

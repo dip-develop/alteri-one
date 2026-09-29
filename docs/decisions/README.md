@@ -36,6 +36,7 @@ records below exist with their required sections.
 | [0017](0017-aot-snapshot-and-runtime.md) | The release is `alterione.aot` on a pinned `bin/dartrantime` | Accepted | Phase 0 / 6 |
 | [0018](0018-bootstrap-package.md) | `alterione` on pub.dev is the second installation path | Accepted | Phase 6 |
 | [0019](0019-web-local-server.md) | The web target is a local server hosting a Flutter web GUI | Accepted | Phase 5 |
+| [0020](0020-project-website.md) | The project website is a static Jaspr site outside the pub workspace | Accepted | now |
 
 ## Format
 

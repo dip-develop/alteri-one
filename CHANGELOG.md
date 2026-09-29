@@ -43,10 +43,19 @@ the Dart workspace.
   `alterione.aot` executed on a pinned `bin/dartrantime`.
 - [ADR-0018](docs/decisions/0018-bootstrap-package.md) the `alterione` bootstrap package
   on pub.dev as the second installation path.
+- [ADR-0019](docs/decisions/0019-web-local-server.md) the web target is a local server
+  hosting a Flutter web GUI, superseding the open ADR-0012 entry.
+- [ADR-0020](docs/decisions/0020-project-website.md) the project website is a static Jaspr
+  site outside the pub workspace.
 - `docs/architecture/install-and-update.md`: the install root, the launcher, the runtime
   verification order and the atomic swap rule.
 - `docs/extensibility/injections.md`: the context-transform surface, its stages and the
   authority-free guarantee.
+- `docs/website.md`: `alteri.one`, its build, its constraints and its follow-ups.
+- `site/`: a single-page static landing page in Jaspr, deployed to GitHub Pages.
+- The documentation checker is now Dart — `tool/docs/check_doc_links.dart` — rather than
+  Python, so it runs from the same toolchain as everything else and before any package in
+  the workspace is resolved.
 - Threat model, risk register, security policy and governance documents.
 
 ### Changed
@@ -71,6 +80,9 @@ the Dart workspace.
   downloaded, digest-verified `bin/dartrantime` instead of a single self-contained
   executable. `dart build cli` remains the developer, SDK and fallback path, and the
   release dependency closure is now gated on being free of build hooks.
+- **Breaking, pre-release.** The web target is no longer an open architecture question:
+  `apps/web` is a local server that hosts a Flutter web GUI, and the core is neither
+  compiled into a browser bundle nor hosted remotely.
 - Renamed the extension unit from "module" to "plugin". `module` survives only as the
   JSON-RPC namespace field and the `core/*` method prefix.
 - Split "capability" into two distinct terms: a **capability** is a permission the host can

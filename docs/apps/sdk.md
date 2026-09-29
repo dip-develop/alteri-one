@@ -90,7 +90,7 @@ Every application lives under `apps/`, the `App` subproject of
 | `apps/cli` | `alteri_one_cli` | v1 | First consumer; composition root for the binary |
 | `apps/bootstrap` | `alterione` | v1 | Installer and updater; installs the release, never contains the core — see [ADR-0018](../decisions/0018-bootstrap-package.md) |
 | `apps/gui` | `alteri_one_gui` | 5 | Flutter GUI over the public API; DI framework chosen only there |
-| `apps/web` | `alteri_one_web` | 5 | Web target under the architecture chosen by the web ADR |
+| `apps/web` | `alteri_one_web` | 5 | A local server that starts the core natively and hosts a GUI written in Flutter and compiled for the web; the browser is its client, per [ADR-0019](../decisions/0019-web-local-server.md) |
 | Second embed consumer | — | Gate for this package | Must exist before the SDK is materialised |
 
 The app rule is the one in [concepts.md](../concepts.md#1-the-six-nouns): **an app

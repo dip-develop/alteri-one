@@ -115,18 +115,25 @@ never inherit.
 ## 3. v1 target platforms
 
 v1 ships a native CLI only, for Linux, macOS and Windows. The Flutter app with Flutter
-AOT, and Flutter web, are Phase 5 and not part of v1.
+AOT, and the web target, are Phase 5 and not part of v1.
 
 `alteri_one_core` does not import `dart:io` directly. Storage, HTTP, clock, paths,
 concurrency and process hosting are reached through `alteri_one_platform` interfaces,
 whose native and web implementations are selected by conditional imports. That preserves
-one core for a future web target without moving the v1 CLI to the web.
+one core for a future web target without moving the v1 CLI to the web — and under
+[ADR-0019](../decisions/0019-web-local-server.md) that core still runs natively, in a
+local server on the user's own machine.
 
-On the web there is no `dart:io`, no OS process and no ordinary isolates. Concurrency
-becomes web workers through `package:web` and a limited browser API; storage, HTTP, paths
-and processes become browser or remote-backend adapters. Tier 1 and Tier 2 plugin
-execution are unsupported on the web in v1. Before Phase 5 begins, web storage and the
-model/secret boundary are fixed separately, and Tier 2 is not promised for a browser.
+The web target is **not** a browser bundle of the core and is not a thin UI against a
+remote host. `apps/web` is a local server that starts the core exactly as the CLI does and
+adds an HTTP surface over which it serves a GUI compiled for the web, so `dart:io`, OS
+processes and ordinary isolates are all present there: `Concurrency` is the native
+implementation and Tier 2 runs under the OS sandbox and capability broker exactly as it
+does for the CLI, with the same explicit refusal on an unsupported platform. The
+`package:web` implementations exist because a browser client is a boundary the product
+supports, not because a core is ever expected to run in a tab; a browser-only embed, were
+one attempted, would have to declare storage, concurrency and secrets unavailable rather
+than approximate them.
 
 ## 4. Subprocesses and SDK discovery
 
@@ -304,6 +311,11 @@ chosen: the transport is built on `package:http` and distribution on `dart build
 
 Codegen runs `freezed` 4.x and `json_serializable`. Freezed 3.x under Dart 3.13 generated an
 illegal `final` parameter, so a major-version guard in CI and in the lockfile is mandatory.
+
+The project website in `site/` is a **separate closure** and appears in none of this table.
+It uses Jaspr, pins `build_runner: '>=2.15.1 <2.15.2'` where this table pins `^2.16.1`,
+and is never part of a release: a website build must not be able to fail a product release,
+nor a product release a website build. See [website.md](../website.md).
 
 ### 7.3 Required package settings
 

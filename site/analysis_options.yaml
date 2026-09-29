@@ -1,0 +1,18 @@
+include: package:lints/recommended.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+    strict-raw-types: true
+  exclude:
+    # Build output. `jaspr build` copies the entire resolved package tree next to the
+    # rendered HTML, so without this the analyzer and the formatter would walk every
+    # dependency's sources — 1,900 files — and report on code this package does not own.
+    - build/**
+    - .dart_tool/**
+
+linter:
+  rules:
+    # Every element gets a key when it is produced by a list comprehension; a site that
+    # fails to build in CI is worse than one that carries a rule it does not need.
+    - prefer_final_locals

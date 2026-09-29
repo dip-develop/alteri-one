@@ -67,13 +67,24 @@ An app has exactly one job, and there are two ways to do it:
 |---|---|---|
 | **Embed** | Instantiates the core in its own process and wires the ports | the native CLI, the bootstrap's delegated commands |
 | **Client** | Runs alongside a core it does not own and speaks the envelope protocol to it | a GUI or web front over a long-running runtime, a CI runner, a remote shell |
+| **Embed, with a client** | Embeds the core exactly as the CLI does, then adds a transport a separate front can speak to | `apps/web`: a local server hosting a GUI written in Flutter and compiled for the web |
 
-Both are in scope and neither weakens the star topology: in embed mode the app *is* the
-composition root, and in client mode every request still goes through the core the app is
-attached to. What an app may never do is become a peer of the core's internals — no
+All three are in scope and none of them weakens the star topology: in embed mode the app
+*is* the composition root, and in client mode every request still goes through the core the
+app is attached to. What an app may never do is become a peer of the core's internals — no
 internal registry, no storage handle, no direct access to a provider or a policy engine.
 The transport rules for client mode are in
 [architecture/protocol.md](architecture/protocol.md).
+
+The web target is the third row, and it is not a compromise between the first two:
+`apps/web` embeds the core natively, on the user's own machine, with the same composition
+root, the same policy, the same ports and the same single-writer state lock as the CLI, and
+the browser is that app's client. The trust boundary is therefore **the network hop to
+loopback** rather than a bundle boundary: the tab renders and displays, and receives no
+secret, creates no capability, holds no authoritative storage and evaluates no policy. The
+core is not compiled into a browser bundle and is not hosted remotely — see
+[ADR-0019](decisions/0019-web-local-server.md) and
+[apps/flutter-and-web.md](apps/flutter-and-web.md).
 
 ### 1.4 Two words that survive unchanged
 

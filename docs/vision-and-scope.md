@@ -46,7 +46,11 @@ with no JIT and no runtime reflection. Flutter and web targets are out of scope 
 
 `alteri_one_core` is pure Dart and MUST NOT import `dart:io` directly. Every file, socket,
 clock, path, process and concurrency operation goes through `alteri_one_platform`, which
-selects a `dart:io` or `package:web` implementation with conditional imports.
+selects a `dart:io` or `package:web` implementation with conditional imports. One core for
+a future web means the core runs natively inside the local server of the Phase 5 web
+target, not that it is compiled into a tab: the `package:web` implementation is a boundary
+that stays available, not a Phase 5 requirement. See
+[ADR-0019](decisions/0019-web-local-server.md).
 
 ### 1.3 Workspace
 
@@ -178,7 +182,8 @@ later document disagree, the later document is wrong.
 versioned memory with compaction and privacy controls; Tier 0 skill packs; Tier 1 trusted
 plugins; MCP client; tracing via transcripts.
 
-**Out of v1:** the Flutter app and web (Phase 5); Tier 2 untrusted plugins (Phase 3);
+**Out of v1:** the Flutter app and the local web server hosting a Flutter web GUI
+(Phase 5); Tier 2 untrusted plugins (Phase 3);
 MCP server mode (Phase 4); vector recall; OTel export; any form of telemetry by default.
 
 **Never, at any phase:** loading arbitrary code into the core VM; running Tier 2 inside an

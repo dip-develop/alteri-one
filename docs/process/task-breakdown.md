@@ -904,21 +904,26 @@ re-executing AlteriOne, and that a lint rule rejects
 ## Phase 5 — SDK and frontends
 
 **Goal:** after embed duplication is demonstrated, release the SDK, polish the native CLI
-and add a Flutter app and web without moving v1 to the web.
+and add a Flutter app and a local web server hosting a Flutter web GUI, without moving v1
+to the web.
 
 Task detail is in [apps/flutter-and-web.md](../apps/flutter-and-web.md#4-phase-5-task-map)
 and [apps/sdk.md](../apps/sdk.md).
 
-### 5.1 Web architecture decision: monolith or thin UI
+### 5.1 The local web server hosts the Flutter web GUI and preserves the envelope
 
-Packages: `alteri_one_platform`, ADR. At the start of Phase 5, a full core in the browser
-bundle is compared against a thin UI with a remote or embedded core; v1 remains a native
-CLI. The ADR must account for storage, auth, streaming, cancellation and the absence of
-native isolates and Tier 2.
+Packages: `alteri_one_web` (`apps/web/`), `alteri_one_core`, `alteri_one_platform`. The
+architecture is already decided by
+[ADR-0019](../decisions/0019-web-local-server.md), so this task verifies the decided shape
+rather than choosing between two: the server serves the compiled Flutter web GUI, starts
+the core natively with the same composition root, policy, ports and single-writer state
+lock as the CLI, and adds only an HTTP surface. The core is not compiled into a browser
+bundle and is not hosted remotely.
 
 **Acceptance:** `dart test test/architecture/frontend_decision_contract_test.dart` exits
-`0` and checks that exactly one decision is selected, with an owner and the mandatory
-trade-offs — *web ADR selects one supported architecture and records constraints*.
+`0` and checks that the server hosts the Flutter web build, runs the core in its own
+process rather than in the tab, and round-trips the envelope unchanged —
+*web server hosts the GUI and preserves the envelope*.
 
 ### 5.2 `alteri_one_sdk` materialisation gate
 
@@ -963,39 +968,44 @@ same cancellation and session boundaries as the CLI.
 and checks a scripted run, streaming UI and cancellation without a direct engine fork —
 *Flutter app renders core stream and cancellation*.
 
-### 5.6 Web `StoragePort`
+### 5.6 The web transport: the same envelope over HTTP and SSE
 
-Package: `alteri_one_platform`. The chosen web architecture gets an IndexedDB or equivalent
-browser storage adapter with a versioned schema, TTL and quota and error handling through
-`package:web`; native `dart:io` is not imported.
-
-**Acceptance:**
-`flutter test test/web_storage_contract_test.dart` from `apps/web` exits `0` and
-checks schema migration, TTL and the browser quota and error paths —
-*web storage is versioned and contains no dart:io*.
-
-### 5.7 Web workers instead of isolates
-
-Package: `alteri_one_platform`. `Concurrency` gains a worker-backed implementation with
-bounded concurrency, progress and cooperative cancellation; Tier 2 and OS sandboxing are
-declared unavailable.
+Package: `alteri_one_web` (`apps/web/`). Server-sent events carry the existing event
+stream inside the existing envelope, with the same framing, the same 8 MiB frame limit and
+the same error codes; nothing in the core changes for this. A closed connection cascades
+into `CancelToken`, so a closed tab cancels the run rather than orphaning it.
 
 **Acceptance:**
-`flutter test test/web_concurrency_contract_test.dart` from `apps/web` exits `0` and
-checks bounded workers, cancellation and an explicit Tier 2 refusal —
-*web concurrency uses workers and rejects native isolation claims*.
+`dart test test/web_transport_contract_test.dart` from `apps/web` exits `0` and checks the
+envelope round-trip, the frame-limit refusal and cancellation on disconnect —
+*the web transport is the same envelope, and a disconnect cancels the run*.
 
-### 5.8 Web UI and the end-to-end boundary
+### 5.7 Loopback-only binding, and the explicit refusal for a non-loopback bind
 
-Package: `alteri_one_web` (`apps/web/`) over `alteri_one_sdk` or the public core API. The UI
-receives no
-raw secret, creates no native capability and preserves the transcript and policy semantics
-of the chosen architecture.
+Package: `alteri_one_web` (`apps/web/`). The listener binds loopback by default. A
+non-loopback address is an explicit, security-relevant flag, and it is refused while any
+profile with a `confirm`-classified tool is reachable without an explicit policy.
+
+**Acceptance:**
+`dart test test/web_bind_policy_contract_test.dart` from `apps/web` exits `0` and checks
+the loopback default, the refusal while a `confirm`-classified tool is reachable, and the
+explicit opt-in that satisfies it —
+*non-loopback binding is explicit and refused without a policy*.
+
+### 5.8 The web UI and the end-to-end browser boundary
+
+Package: `alteri_one_web` (`apps/web/`) over `alteri_one_sdk` or the public core API. The
+browser is an untrusted terminal: it receives no raw secret, creates no native capability,
+holds no authoritative storage and evaluates no policy, and it renders redacted, labelled
+results. A session lives in the server, so it survives a browser restart and
+`alterione why <traceId>` explains it as it explains a CLI run.
 
 **Acceptance:**
 `flutter test test/web_app_integration_test.dart` from `apps/web` exits `0` and
-checks `goal → stream → policy outcome → finish` under the chosen architecture —
-*web app preserves core control semantics*.
+checks `goal → stream → policy outcome → finish` driven through the browser, and that one
+transcript replayed through the web server yields the same result, the same usage and the
+same digest as the same transcript through the CLI —
+*the browser preserves core control semantics, and it is the same run*.
 
 ### Phase 5 growth curve
 
@@ -1003,7 +1013,9 @@ checks `goal → stream → policy outcome → finish` under the chosen architec
    importing internal packages; two consumers justify materialising the SDK.
 2. `[automatable]` The CLI produces identical human, JSON and headless results and identical
    exit codes for one transcript.
-3. `[manual]` A UX reviewer walks an app and web session, checking reconnect, cancellation
+3. `[automatable]` A closed browser connection cancels the run, and the transcript is not
+   left truncated.
+4. `[manual]` A UX reviewer walks an app and web session, checking reconnect, cancellation
    and the clarity of policy prompts. Unavailable Tier 1 and Tier 2 capabilities are shown
    explicitly, not through a hidden fallback.
 

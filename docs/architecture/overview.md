@@ -75,7 +75,7 @@ spelled `alterione` throughout — see [ADR-0016](../decisions/0016-product-nami
 | `alteri_one_tracing` | OTel export needs its own seam |
 | `alteri_one_sandbox` | Phase 3 ships Tier 2; host infrastructure for the OS sandbox lives in `plugins/sandbox/` |
 | `alteri_one_hooks` | Not planned as a package: confirmations and limits belong to policy, observations to notifications |
-| `alteri_one_gui`, `alteri_one_web` | Phase 5 adds the Flutter surfaces as apps |
+| `alteri_one_gui`, `alteri_one_web` | Phase 5 adds the Flutter surfaces as apps. `alteri_one_web` is a local server that hosts the Flutter web GUI, starts the core natively as the CLI does and serves it to the browser over HTTP — the core is never compiled into a browser bundle and never hosted remotely |
 | `alteri_one_sdk` | A second independent embed consumer exists (Phase 5) |
 
 In v1 the OpenAI-compatible adapter is part of the core/composition boundary and

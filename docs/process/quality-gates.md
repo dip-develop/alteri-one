@@ -45,6 +45,12 @@ These are tests, not lint config, so that they are falsifiable and greppable.
 | **`alteri_one` in the release** | `test/install/launcher_naming_integration_test.dart` (`0.31`) | No installed path, launcher, update script, `manifest.json` payload or default configuration value contains `alteri_one`; the release assembly fails if one does |
 | Localisation contract | in `test/profile/profile_contract_test.dart` (`0.11`) | No Cyrillic literal outside fixtures; every `DiagnosticCode` has a catalogue entry |
 | Canonical serialisation | `test/transcript/canonical_serialisation_test.dart` (`0.20`) | Digest stability across clocks, paths and key orders |
+| **Site stays a landing page** | `site/` build in `.github/workflows/pages.yml` | The site renders, and `site/pubspec.yaml` carries no `flutter:` embedding key; the deployed output contains `CNAME` and `index.html` |
+| **Site output is small** | the *Drop development output* step in `pages.yml` | `jaspr build` leaves the resolved package tree beside the HTML; the workflow deletes it and the output is a few hundred kilobytes, not tens of megabytes |
+
+The site gate is the only one that runs outside the workspace, and it is separate on
+purpose: a website build must not be able to fail a product release, or the reverse. See
+[website.md](../website.md).
 
 The telemetry allowlist and the localisation contract exist because two north-star goals —
 zero telemetry, and no hard-coded user-facing strings — are otherwise unverifiable claims.

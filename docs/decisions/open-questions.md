@@ -31,16 +31,21 @@ because it supports the target revision; `dart_mcp` is official but experimental
 **Exit criterion:** choose by test results and record the ADR. The choice is not assumed
 from the package name.
 
-## 3. Does a browser `StoragePort` exist?
+## 3. How much UI cache is worth keeping in the browser?
 
-**Phase:** 5 — task 5.1, ADR 0012.
+**Phase:** 5 — task 5.1, ADR 0019.
 
-Prototype IndexedDB with migrations, TTL, quota, multi-tab concurrency and replay. For a
-remote core, store only an explicit local cache, and only if offline behaviour is actually
-required.
+Under ADR-0019 the core is not in the browser: `StoragePort` resolves to the native
+adapter in the local server, so anything the tab holds is derived data that can be
+discarded at any moment. Measure how much of it is worth keeping at all — a session list,
+a rendered transcript, a pending policy prompt — and the eviction and staleness policy
+that follows, including what a stale cached run looks like beside a live one. Prototype a
+cache in the browser against a server that owns the record, covering a tab closed for a
+week, a browser with storage disabled, and two tabs disagreeing about the same run.
 
-**Exit criterion:** the web ADR records the choice. Until then, "one core for the future
-web" means only that the dependency boundary exists, not that the core is proven web-ready.
+**Exit criterion:** the web ADR records the eviction and staleness policy, or records that
+no browser cache ships at all. Any cache that is kept stays discardable at any moment
+without a migration, and a browser storage adapter is never the source of record.
 
 ## 4. `freezed` 4.x behaviour with records, unions and AOT
 

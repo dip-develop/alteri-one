@@ -33,5 +33,10 @@
 /docs/architecture/install-and-update.md @dip-develop
 /docs/architecture/build-and-release.md @dip-develop
 
+# The project website. Separate from the product on purpose: it resolves its own
+# toolchain, sits outside the pub workspace, and is never part of a release.
+/site/                 @dip-develop
+/docs/website.md       @dip-develop
+
 # The lockfile is committed deliberately: one reviewer, no drive-by updates.
 /pubspec.lock         @dip-develop

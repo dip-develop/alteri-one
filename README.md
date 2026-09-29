@@ -53,6 +53,14 @@ Everything the user receives is named `alterione`; the Dart packages in the sour
 follow Dart convention and are named `alteri_one_*`. See
 [ADR-0016](docs/decisions/0016-product-naming.md).
 
+## Website
+
+**[alteri.one](https://alteri.one)** — a static landing page about the project, built with
+[Jaspr](https://jaspr.dev) in static mode and published to GitHub Pages. It is a landing
+page, not an application: it runs no agent, holds no secret, and is not the web target.
+See [docs/website.md](docs/website.md) and
+[ADR-0020](docs/decisions/0020-project-website.md).
+
 ## Documentation
 
 Start here: **[docs/README.md](docs/README.md)** — index, reading order and conventions.

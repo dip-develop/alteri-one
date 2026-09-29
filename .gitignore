@@ -30,6 +30,12 @@ dist/
 apps/bootstrap/.dart_tool/
 apps/bootstrap/build/
 
+# The project website. site/ is its own package with its own lockfile, deliberately
+# outside the pub workspace — see docs/decisions/0020-project-website.md.
+site/.dart_tool/
+site/build/
+site/.jaspr/
+
 # Editors
 .idea/
 .vscode/

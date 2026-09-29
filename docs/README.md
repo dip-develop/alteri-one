@@ -47,7 +47,8 @@ an ordinary Dart dependency, added or removed in `pubspec.yaml` and declared in
 Dart has no class loader. The installed product is a verified release: `alterione.aot`
 executed by a pinned `bin/dartrantime`, launched by a script named `alterione`, installed
 by a shell script or by the `alterione` bootstrap package on pub.dev. The decisions behind
-that shape are ADR-0014 through ADR-0018.
+that shape are ADR-0014 through ADR-0018, the web target is ADR-0019, and the project
+website is ADR-0020 — see [website.md](website.md).
 
 ## Architecture
 
@@ -68,6 +69,12 @@ budgets, policy and the capability registry.
 | [architecture/policy.md](architecture/policy.md) | `deny > confirm > allow`, approvals, notifications |
 | [architecture/observability.md](architecture/observability.md) | Traces, canonical serialisation, transcripts, replay, evals, `doctor` |
 | [architecture/build-and-release.md](architecture/build-and-release.md) | Toolchain, AOT packaging, signing, release |
+
+## Project
+
+| Document | Covers |
+|---|---|
+| [website.md](website.md) | `alteri.one`: the static Jaspr landing page, its build, its constraints and its follow-ups |
 
 ## Extensibility
 
