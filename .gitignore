@@ -19,8 +19,16 @@ melos_*.iml
 *.snapshot
 dist/
 
-# Local AlteriOne state — user data and generated modules must never be committed
+# Local AlteriOne state — user data and generated modules must never be committed.
+# The name is the installed product's, so a developer checkout and a user's install
+# root are ignored by the same rule. See ADR-0016.
+.alterione/
 .alteri_one/
+
+# Bootstrap CLI output. The publishable package lives in apps/bootstrap/; its build
+# output must not land in the repository.
+apps/bootstrap/.dart_tool/
+apps/bootstrap/build/
 
 # Editors
 .idea/

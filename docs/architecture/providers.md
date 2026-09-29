@@ -109,7 +109,7 @@ abstract interface class CapabilityProbeCache {
 
 | Rule | Detail |
 |---|---|
-| Location | `state/global/probe-cache.json`, shared across profiles |
+| Location | `state/global/probe-cache.json` in the install root (`~/.alterione/` by default), shared across profiles |
 | TTL | 24 h by default, configurable per provider |
 | Invalidation | A change to `baseURL`, `modelId`, credential identity or `providerImplVersion` is a different key; the old entry is not reused |
 | `--offline` | Cache only. A missing or stale entry is a typed `-32001` with an explicit message, never a silent assumption of capabilities |
@@ -229,3 +229,10 @@ subprocess — the `developer` profile runs `dart`, `git` and test commands — 
 the SDK through `package:cli_util` (`sdkPath`, `dartExecutable`) and MUST NOT derive the
 SDK location from `Platform.resolvedExecutable`. A regression test covering the
 self-exec loop is task `4.7`.
+
+The same rule applies to locating `bin/dartrantime`. The AOT runtime is a **product file**,
+not a system SDK: it is found by resolving the install root from `ALTERIONE_HOME` or
+`~/.alterione` and reading `bin/dartrantime` inside it, and it is verified against
+`manifest.json` before it is executed. It is never looked for on `PATH`, and a `dart` found
+anywhere else is never a substitute. See
+[install-and-update.md](install-and-update.md#5-verification-at-launch).

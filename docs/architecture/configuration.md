@@ -28,10 +28,80 @@ not inherit the parent environment: the capability broker passes an opaque capab
 and an authorised result only.
 
 A missing variable, a wrong name, or an attempt to read a secret from a repository
-fixture is a diagnosable error. `alteri_one doctor --validate-config` checks presence
+fixture is a diagnosable error. `alterione doctor --validate-config` checks presence
 without printing the value.
 
-## 2. Plugin manifest
+## 2. `kind: AlteriOneManifest`
+
+`alterione.yaml` is the product manifest, and it is the one document that is neither a
+profile nor an extension manifest. The same file, the same `kind` and the same schema are
+used at all three locations: the repository root, a project root, and the install root
+(`$ALTERIONE_HOME/alterione.yaml`, copied verbatim into the release).
+
+```yaml
+apiVersion: alteri.one/v1
+kind: AlteriOneManifest
+name: companion
+
+runtime:                          # what may execute the compiled release
+  name: dartrantime
+  channel: stable
+  version: ">=3.13.0 <3.14.0"     # narrowed from the workspace's ">=3.13.0 <4.0.0"
+
+api:                              # API versions used to talk to extensions
+  protocol: ">=1.0.0 <2.0.0"
+  extension: "1.0.0"
+  runtime: "1.0.0"
+  ports: { storage: "1.0.0", memory: "1.0.0", mcp: "2026-07-28" }
+
+extensions:                       # what this product depends on
+  apps:       [ { package: alteri_one_cli, enabled: true } ]
+  tools:      [ { package: alteri_one_tool_fs, version: ^1.0.0 } ]
+  injections: [ { package: alteri_one_injection_compress, version: ^1.0.0, order: 20 } ]
+  plugins:    [ { package: alteri_one_memory, version: ^1.0.0 } ]
+
+profile:                          # optional: the profile to use, with local overrides
+  name: companion
+```
+
+| Block | Answers |
+|---|---|
+| `runtime` | Which `dartrantime` may execute the compiled release, and how it is verified |
+| `api` | Which API versions the host speaks to extensions on every surface |
+| `extensions` | Which app, tool, injection and plugin packages participate, and in what order |
+| `profile` | Optional. The profile to use, plus local overrides for it |
+
+`extensions:` declares, it does not resolve. The packages themselves come from
+`pubspec.yaml` as ordinary dependencies — hosted, git or path — and the two manifests are
+cross-checked in both directions at bind time; see
+[workspace-layout.md §3](workspace-layout.md#3-alterioneyaml-the-declared-product-manifest)
+and [ADR-0015](../decisions/0015-extension-dependencies.md). An entry that resolves to
+nothing, a compiled-but-undeclared extension, and an `apiVersion` outside `api.extension`
+are each a bind failure.
+
+Field definitions and validation rules are in
+[reference/config-schema.md](../reference/config-schema.md#1-kind-alterionemanifest). A
+diagnostic names the file it came from:
+
+```text
+alterione.yaml:42:7
+  path: api.ports.memory
+  code: config.unknown_field
+  error: unknown API port "memroy"
+  hint:  known ports: storage, memory, mcp
+```
+
+## 3. Extension manifests
+
+An extension carries its own manifest, and its `kind` is what states which authority
+model it has. Three kinds ship in v1 and they are siblings of each other, not variants of
+one another:
+
+| Kind | Belongs to | Declares tools? | May request capabilities? |
+|---|---|---|---|
+| `kind: ToolManifest` | a `tools/` package | yes, `tools:` | yes, `tools[].requires` |
+| `kind: PluginManifest` | a `plugins/` package | yes, `tools:` | yes, `tools[].requires` |
+| `kind: InjectionManifest` | an `injections/` package | **no such field** | **no such field** |
 
 ```yaml
 apiVersion: alteri.one/v1
@@ -50,6 +120,13 @@ tools:
 dependencies: []
 ```
 
+An injection manifest has no `tools:` field and no `requires:` field at all, and the
+validator **rejects** either one for `kind: InjectionManifest` — there is no field in
+which an authority request could be written, which is the point. A Tier 0 injection is the
+same kind with `tier: data`: it has no `entrypoint` either, and it is validated as data
+rather than linked. See
+[extensibility/injections.md](../extensibility/injections.md#2-the-manifest).
+
 `entrypoint` is the name of a symbol registered by the codegen registry for Tier 1 — not
 a file path and not a load command. For Tier 2 the executable and its digest come from a
 signed registry; a process path in the manifest is never accepted.
@@ -63,14 +140,13 @@ enforced by the schema validator:
 | `providers[].requires` | **Model features** the endpoint must support | `tools`, `streaming`, `jsonMode`, `seed` |
 
 The pre-split specification used `requires` for both and listed tool IDs under
-`capabilities:`, which was a category error; see [concepts.md](../concepts.md#1-the-five-nouns).
+`capabilities:`, which was a category error; see [concepts.md](../concepts.md#1-the-six-nouns).
 
 `tools` describes which operations are offered; it grants nothing. Enforcement is the
-intersection of the manifest with the profile, user, admin and deployment policies. Tier 0
-uses `kind: SkillPack` and has neither `entrypoint` nor `tools`. A field not matching the
-document's `apiVersion`/`kind` is rejected by the validator.
+intersection of the manifest with the profile, user, admin and deployment policies. A
+field not matching the document's `apiVersion`/`kind` is rejected by the validator.
 
-## 3. Profile
+## 4. Profile
 
 A profile is versioned data describing persona, model, memory, policy and limits.
 `model.providers` is an ordered failover chain, not one hidden provider.
@@ -156,7 +232,7 @@ only within an already-granted capability, and `policy.default` together with
 restricts the hosts and methods the capability broker may use. All secrets are named by
 environment variable, never by value.
 
-### 3.1 The built-in default is offline-first
+### 4.1 The built-in default is offline-first
 
 The built-in default profile MUST be usable with no cloud credential. The default
 `companion` therefore resolves to a local OpenAI-compatible provider with no
@@ -164,7 +240,7 @@ The built-in default profile MUST be usable with no cloud credential. The defaul
 as the built-in default, and a chain whose first entry requires a credential only starts
 after a later entry has proven reachable.
 
-### 3.2 `apiVersion` values are permanent
+### 4.2 `apiVersion` values are permanent
 
 `alteri.one/v1` presumes ownership of the `alteri.one` domain. This string is effectively
 permanent the moment a user configuration exists, because a later change forces a
@@ -172,20 +248,26 @@ migration for every user. Before the first release the value MUST be confirmed t
 the project can actually keep; after release, changing the group requires a new major and
 a migration guide. Recorded as `ADR-0006`.
 
-## 4. Precedence and merging
+## 5. Precedence and merging
 
 Four levels resolve from 0 (built-in) to 3 (CLI flags); the higher number wins. The full
 table and the merge rules are in
-[workspace-layout.md](workspace-layout.md#3-configuration-precedence). Policy sources —
+[workspace-layout.md §4](workspace-layout.md#4-configuration-precedence). Policy sources —
 profile, user, admin, deployment — are separate inputs that only add restrictions, and the
 effective decision is their intersection.
 
-`alteri_one doctor --validate-config` runs schema validation after merging and prints
+Two blocks are never merged at all: **`extensions:` and `api:` replace wholesale**. A
+partially merged extension set or API surface is a set nobody reviewed, and a project file
+that could append one extension or one provider to a reviewed list would be a
+privilege-escalation vector.
+
+`alterione doctor --validate-config` runs schema validation after merging and prints
 `file:line:column` plus the JSON/YAML path for every error. An incompatible `apiVersion`
 is never migrated silently. The repository's `config/` directory is not on the search path
-and is used only as a fixture source.
+and is used only as a fixture source; user configuration lives under `~/.alterione/` in
+`profiles/`, `policies.d/` and `config.yaml`.
 
-## 5. Personas
+## 6. Personas
 
 | Persona | Character |
 |---|---|
@@ -198,7 +280,7 @@ namespace, policy and localised strings. Core code, the AOT binary, the protocol
 registry and plugin implementations do not switch. Three personas remain three
 configurations of one core.
 
-## 6. Internationalisation
+## 7. Internationalisation
 
 `intl` is wired in Phase 0. `persona.language` sets the persona locale and is validated
 against a registry of supported locales.

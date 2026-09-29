@@ -23,6 +23,29 @@ verified against pub.dev on 2026-09-29; a pin is re-verified at each release.
 - <https://github.com/dart-lang/sdk/issues/10530>
 - <https://github.com/dart-lang/sdk/issues/53884>
 - <https://github.com/dart-lang/sdk/issues/56366>
+- <https://dart.dev/tools/hooks>
+- <https://api.dart.dev/dart-isolate/Isolate/spawnUri.html>
+- <https://pub.dev/packages/hooks_runner>
+
+## Claims behind ADR-0014 to ADR-0018
+
+Each row is a factual claim a decision rests on, not a preference. A row marked
+**to verify** is one whose exact wording has not been confirmed against the source at the
+time of writing; it is re-checked at each release and the marker is removed when the
+source states the claim outright.
+
+| Claim | Source | Used to justify | Status |
+|---|---|---|---|
+| A Dart AOT snapshot is bound to the SDK that produced it; it is not forward compatible across minor versions, so the runtime must be pinned to `major.minor` | <https://dart.dev/tools/dart-compile#aot-snapshot> | [ADR-0017](../decisions/0017-aot-snapshot-and-runtime.md) rule 1: `runtime.version` is narrowed to `>=3.13.0 <3.14.0` and a runtime outside it is a refusal, not a warning | to verify |
+| A standalone AOT runtime distribution (`dartaotruntime`) ships separately from the SDK, so the runtime can be a digest-verified, replaceable artefact rather than part of the executable | <https://dart.dev/tools/cli-distribution> | ADR-0017: `bin/dartrantime` is downloaded and verified, and the SDK — with `pub` and the compiler — is never handed to a Tier 2 child | cited |
+| `dart compile aot-snapshot` does not run build hooks; a dependency shipping `hook/build.dart` or native assets is omitted or fails | <https://dart.dev/tools/hooks> | ADR-0017 rule 3: the release closure must be hook-free, and CI parses the resolved graph rather than trusting a human to remember | to verify |
+| `dart build cli` runs build hooks and produces a self-contained executable, so it is the path for a target whose closure is not hook-free | <https://dart.dev/tools/dart-build> | ADR-0017 rule 4: `dart build cli` is retained as the developer, SDK and fallback path rather than removed | to verify |
+| `dart compile exe` does not run build hooks either, so it cannot substitute for `dart build cli` when the closure has native assets | <https://dart.dev/tools/dart-compile#exe> | [architecture/workspace-layout.md](../architecture/workspace-layout.md) §6: `dart compile exe` is not a release command for a workspace with native assets | cited |
+| Build hooks are declared by a `hook/build.dart` in a dependency and run by the toolchain, not by the compiled program | <https://pub.dev/packages/hooks_runner> | ADR-0017 rule 3 and the `hook-free closure` definition in [reference/glossary.md](glossary.md) | cited |
+| Pub workspaces exist, a workspace root lists member globs, and every member declares `resolution: workspace` | <https://dart.dev/tools/pub/workspaces> | [architecture/workspace-layout.md](../architecture/workspace-layout.md) §2 and task `0.1`: one root manifest, `resolution: workspace` everywhere, no `melos.yaml` and no `pubspec.workspaces.yaml` | cited |
+| Dart has no class loader: extension code cannot be named by a string in a manifest and loaded at runtime | <https://github.com/dart-lang/sdk/issues/10530> | [ADR-0015](../decisions/0015-extension-dependencies.md): the dependency edge lives in `pubspec.yaml`, adding an extension is a build, and there is no `alterione extensions add` for compiled code | to verify |
+| `Isolate.spawnUri` is a same-process mechanism and is not runtime code loading from a manifest | <https://api.dart.dev/dart-isolate/Isolate/spawnUri.html> | ADR-0015: it cannot be used as the "just load the plugin" shortcut the pre-split specification implied | cited |
+| Isolates share the process: no per-CPU or memory limit, and reachable `Platform.environment`, `exit()`, FFI and VM Service | <https://dart.dev/language/concurrency#limitations-of-isolates> | ADR-0003 and the refusal of "sandbox via isolate" recorded in [reference/glossary.md](glossary.md) | cited |
 
 ## Melos and Dart packages
 

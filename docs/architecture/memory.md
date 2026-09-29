@@ -2,6 +2,38 @@
 
 **Status: Accepted**
 
+Memory is not part of the core. It is a **plugin**: `alteri_one_memory`, in
+`plugins/memory/`, resolved as an ordinary dependency in `pubspec.yaml` and declared in
+`alterione.yaml` under `extensions.plugins`.
+
+```yaml
+extensions:
+  plugins:
+    - package: alteri_one_memory
+      version: ^1.0.0
+      enabled: true
+```
+
+It is an ordinary dependency in every sense: hosted, git or path, added by editing two
+manifests and rebuilding, and there is no runtime `plugins add` because Dart has no class
+loader. See [ADR-0015](../decisions/0015-extension-dependencies.md).
+
+Disabling it is one field, and it is a supported configuration rather than a broken
+install:
+
+```yaml
+extensions:
+  plugins:
+    - package: alteri_one_memory
+      version: ^1.0.0
+      enabled: false
+```
+
+With `enabled: false` the package is still resolved and compiled but is never bound, so
+the core starts **without memory**: no repositories, no `VectorIndex`, no transcript
+store. A profile that declares a `memory:` block is then refused as a configuration error,
+not degraded into a profile that appears to remember and does not.
+
 ## 1. Storage boundary
 
 The pre-split specification contradicted itself on this point. The resolution is binding:
@@ -12,7 +44,7 @@ The pre-split specification contradicted itself on this point. The resolution is
 |---|---|---|
 | Port | `alteri_one_platform` | `StoragePort` interface, box/collection lifecycle, migrations |
 | Adapter | `alteri_one_platform` | `HiveCeStorage` — the only code importing `hive_ce` |
-| Domain | `alteri_one_memory` | `MemoryRecord` types, repositories, compaction, retention, `VectorIndex` |
+| Domain | `alteri_one_memory` | `MemoryRecord` types, repositories, retention, `VectorIndex`, the transcript store |
 
 Native storage is therefore reached only through `StoragePort` and `Paths`, and the core
 never opens Hive directly. Enforced by task `0.1`.
@@ -89,10 +121,10 @@ the run and does not become long-term merely because it contains many messages.
 **Long-term memory** is implemented on `hive_ce` with `hive_ce_generator`. Collections:
 `sessions`, `messages`, `facts`, `episodes`, `preferences`, `artifacts`.
 
-Runtime state lives under the profile root:
+Runtime state lives under the profile root, inside the install root:
 
 ```text
-~/.alteri_one/state/<profile>/
+~/.alterione/state/<profile>/
 ├── .lock
 ├── global/
 ├── projects/<project-key>/
@@ -100,6 +132,10 @@ Runtime state lives under the profile root:
     ├── index.jsonl
     └── <traceId>.jsonl
 ```
+
+`$ALTERIONE_HOME` overrides the root; there is no `.alteri_one/` directory anywhere. The
+full user tree, including `config/` and the priorities that make `state/` level 1, is in
+[workspace-layout.md §4](workspace-layout.md#4-configuration-precedence).
 
 `<profile>` and `<project-key>` are normalised and cannot escape the state root. Every
 record key includes the profile and project namespace, so an unscoped search is
@@ -131,6 +167,13 @@ without any lock existing.
 
 ## 4. Compaction by tokens
 
+The transform is not the memory plugin's. Compaction is the **Tier 1 injection
+`alteri_one_injection_compress`** in `injections/compress/`, declared with
+`stage: summarise`, and it is the injection pipeline that runs it — see
+[extensibility/injections.md](../extensibility/injections.md). It reads the transcript and
+this plugin's records, and writes back through the same typed ports. What follows is what
+the transform must preserve whichever implementation runs it.
+
 The trigger unit is tokens, not message count. `memory.compaction.triggerTokens` is
 compared against `state.contextTokens`, which is updated only from verified provider
 `usage`. Message counts, character counts and local estimates cannot substitute for
@@ -141,8 +184,9 @@ The algorithm is deterministic:
 
 1. After a model turn, normalised usage updates `state.contextTokens` and the overall
    `CostBudget`.
-2. When `contextTokens >= triggerTokens`, compaction receives the transcript in a stable
-   order, a fixed template, pinned ids and the configured `maxSummaryTokens`.
+2. When `contextTokens >= triggerTokens`, the `summarise` stage runs: the compaction
+   transform receives the transcript in a stable order, a fixed template, pinned ids and
+   the configured `maxSummaryTokens`.
 3. The last `keepLastTurns` are preserved verbatim; older context is replaced by a
    versioned summary plus references to retained records and artifacts.
 4. The compaction summary's own usage is charged to the same `CostBudget`. Compaction does
@@ -193,9 +237,9 @@ FFI and local models for recall are also out of v1.
 Export, forget and retention are product requirements, not internal conveniences:
 
 ```bash
-alteri_one memory list   --profile companion
-alteri_one memory export --profile companion --output memory.json
-alteri_one memory forget --profile companion --id mem_01f4a9c2
+alterione memory list   --profile companion
+alterione memory export --profile companion --output memory.json
+alterione memory forget --profile companion --id mem_01f4a9c2
 ```
 
 - `list` shows id, kind, provenance, sensitivity, confidence, TTL and namespace without the
@@ -218,4 +262,4 @@ Every run writes a versioned JSONL transcript; the location, canonical form and 
 rules are specified in
 [observability.md](observability.md#3-transcripts). The index at
 `transcripts/<yyyy-mm>/index.jsonl` maps `traceId` to path, digest and terminal status, and
-is what makes `alteri_one why <traceId>` a lookup rather than a directory scan.
+is what makes `alterione why <traceId>` a lookup rather than a directory scan.

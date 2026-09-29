@@ -5,9 +5,34 @@
 ## 1. Purpose
 
 AlteriOne is an open-source, MIT-licensed core for a locally executable LLM agent. The
-model, the endpoint and the set of capabilities are **not** hard-coded into the core:
-they are selected by a profile and verified by a capability probe before the first model
-turn.
+model, the endpoint and the set of capabilities are **not** hard-coded into the core: the
+model and the endpoint are selected by a profile and verified by a capability probe before
+the first model turn, and the set of extensions is not fixed either — it is declared in
+`pubspec.yaml` and in `alterione.yaml` and resolved from the dependency graph.
+
+What the user installs, types and configures is one word: `alterione`. The install root is
+`~/.alterione` (`$ALTERIONE_HOME`), the configuration file is `alterione.yaml` and the
+command is `alterione`. The source tree keeps the Dart-convention `alteri_one_*` package
+names, because that is what the tooling and pub.dev assume; see
+[ADR-0016](decisions/0016-product-naming.md).
+
+### 1.0 Four extension subprojects, six nouns
+
+The monorepo has four extension subprojects, each mapping to exactly one noun, plus the
+product libraries in `packages/` and single-package tooling in `tool/`.
+
+| Subproject | Noun | Ships |
+|---|---|---|
+| `apps/` | **App** | a frontend or embedder of the core — the CLI, the bootstrap, the GUI, the web app |
+| `tools/` | **Tool** | a model-invocable operation with a typed argument schema |
+| `injections/` | **Injection** | a deterministic transform applied to the context on the way to the model |
+| `plugins/` | **Plugin** | a runtime service: memory, MCP, a sandbox host, a storage backend |
+
+Plus **Capability** (a permission class) and **Provider** (a model-endpoint adapter), for
+six nouns in total. A skill pack is not a seventh noun: it is an `Injection(tier: data)`.
+An app composes and never extends: it ships no tools, requests no capabilities and is never
+Tier 0 or Tier 2. See [concepts.md](concepts.md) and
+[ADR-0014](decisions/0014-extension-subprojects.md).
 
 ### 1.1 Language and build
 
@@ -27,7 +52,9 @@ selects a `dart:io` or `package:web` implementation with conditional imports.
 
 Melos 8.9.0 with pub workspaces. Configuration lives in the root `pubspec.yaml` under
 the `workspace:` and `melos:` sections. `melos.yaml` and `pubspec.workspaces.yaml` are
-**not** created. `pubspec.lock` is committed.
+**not** created. `pubspec.lock` is committed. The workspace globs `packages/*`, `apps/*`,
+`tools/*`, `injections/*` and `plugins/*`; the extension set is what the resolved
+dependency graph contains, and `alterione.yaml` declares which of it participates.
 
 ### 1.4 Storage
 
@@ -57,23 +84,32 @@ negotiation and a typed sealed-union envelope. `proto` versions the envelope;
 | **Tier 1 — Trusted Plugin** | First-party or reviewed Dart code | Linked into the AOT binary at build time, registered by a codegen registry |
 | **Tier 2 — Untrusted Plugin** | Arbitrary marketplace code | A separate precompiled AOT process under an OS sandbox |
 
+An app is never Tier 0 or Tier 2: it is the host process.
+
 Dart cannot load classes from arbitrary files at runtime; there is no "dynamic import".
-Trusted plugins are registered by a build-time codegen registry. Untrusted plugins only
-ever run out-of-process. An isolate in Tier 1 localises faults and splits work but is
-**not** a security boundary. See [extensibility/plugins.md](extensibility/plugins.md).
+Trusted extensions are registered by a build-time codegen registry generated from the
+resolved dependency graph. Untrusted Tier 2 tools and plugins only ever run
+out-of-process. An isolate in Tier 1 localises faults and splits work but is
+**not** a security boundary. Adding a Tier 1 extension is therefore a build-time act, and
+the product says so rather than implying a runtime "extensions add" that would have to lie.
+See [architecture/workspace-layout.md](architecture/workspace-layout.md#31-pubspecyaml-resolves-alterioneyaml-declares)
+and [extensibility/plugins.md](extensibility/plugins.md).
 
 ### 1.8 Configuration and security
 
 Built-in defaults are Dart objects inside the binary. YAML carries `apiVersion` and
-`kind`, is validated in code, and is checked by `alteri_one doctor --validate-config`.
+`kind`, is validated in code, and is checked by `alterione doctor --validate-config`.
 Policy precedence is `deny > confirm > allow`. A manifest *declares* capabilities;
 enforcement is computed as the intersection of policies. A signature proves provenance,
 not safety.
 
 ### 1.9 v1 boundaries and compatibility
 
-v1 contains exactly six packages: `alteri_one_protocol`, `alteri_one_platform`,
-`alteri_one_core`, `alteri_one_cli`, `alteri_one_memory`, `alteri_one_skills`. MCP is
+v1 ships all four subprojects: `apps/cli` (`alteri_one_cli`) and `apps/bootstrap`
+(`alterione`), the `tools/*` set, the `injections/*` set, and `plugins/memory`
+(`alteri_one_memory`), built on `alteri_one_protocol`, `alteri_one_platform` and
+`alteri_one_core`. The `alteri_one_sdk` package is reserved and materialised in Phase 5.
+MCP is
 **not** free interoperability with the internal JSON-RPC envelope: it needs a separate
 dialect adapter. Checks are distinguished as `unit`, `contract`, `integration` and
 `eval`; the word "autotest" is not used as a substitute for any of them.

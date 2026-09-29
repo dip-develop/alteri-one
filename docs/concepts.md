@@ -59,7 +59,23 @@ Three rules that are checked, not advised:
    `pubspec.yaml` and declared in `alterione.yaml`; see
    [ADR-0015](decisions/0015-extension-dependencies.md).
 
-### 1.3 Two words that survive unchanged
+### 1.3 Two ways an app meets the core
+
+An app has exactly one job, and there are two ways to do it:
+
+| Mode | What the app does | Typical |
+|---|---|---|
+| **Embed** | Instantiates the core in its own process and wires the ports | the native CLI, the bootstrap's delegated commands |
+| **Client** | Runs alongside a core it does not own and speaks the envelope protocol to it | a GUI or web front over a long-running runtime, a CI runner, a remote shell |
+
+Both are in scope and neither weakens the star topology: in embed mode the app *is* the
+composition root, and in client mode every request still goes through the core the app is
+attached to. What an app may never do is become a peer of the core's internals — no
+internal registry, no storage handle, no direct access to a provider or a policy engine.
+The transport rules for client mode are in
+[architecture/protocol.md](architecture/protocol.md).
+
+### 1.4 Two words that survive unchanged
 
 `module` is **not** a synonym for plugin or extension. It survives in exactly two places,
 both protocol-level:

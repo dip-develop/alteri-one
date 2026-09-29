@@ -7,6 +7,10 @@ and Flutter web are Phase 5 and do not move the v1 CLI to the web.
 
 ## 1. What must be decided first
 
+The two targets are `apps/gui` and `apps/web`, both in the `apps/` subproject. Neither is
+an extension: an app composes the core, ships no tools, requests no capabilities and is
+never Tier 0 or Tier 2 — see [concepts.md](../concepts.md#1-the-six-nouns).
+
 ### 1.1 Web: monolith or thin UI
 
 The earlier "decided: monolith" position is **withdrawn**. The web architecture is chosen
@@ -45,13 +49,20 @@ rather than hiding it behind a fallback. Task `5.7`.
 
 ## 2. The Flutter app
 
+The GUI lives at `apps/gui` (package `alteri_one_gui`). It is an **app**, not an
+extension: it composes the core, ships no tools, requests no capabilities, and is never
+Tier 0 or Tier 2. See [concepts.md](../concepts.md#1-the-six-nouns).
+
 | Rule | Detail |
 |---|---|
-| Placement | `applications/app`, over the public API only |
+| Placement | `apps/gui`, over the public API only |
 | DI framework | Chosen here, and only here. A thin UI may need none at all |
 | Engine | Not duplicated. The app consumes the core's event stream and state |
 | Session semantics | The same cancellation and session boundaries as the CLI |
 | Direct engine access | Forbidden. No direct use of internal engine state |
+
+The web target lives at `apps/web` (package `alteri_one_web`) and follows the same app
+rule, subject to the unavailability of Tier 2 and OS sandboxing below.
 
 Task `5.5` asserts that the app renders a core stream, cancels correctly, and does not fork
 the engine.

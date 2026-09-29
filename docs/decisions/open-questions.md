@@ -98,3 +98,30 @@ scenario — is not yet fixed.
 reference environment, so a regression is distinguishable from a slow machine. Until then
 the goals are aspirations with measurements attached, and the specification says so rather
 than claiming otherwise.
+
+## 9. Is pub.dev a safe default source for third-party Tier 1 extensions?
+
+**Phase:** 3.
+
+A resolved dependency is a dependency linked into `alterione.aot`, and therefore Tier 1
+code with the core's privileges. The question is not "is pub.dev safe" in general, but what
+the default source is for a package that will be compiled into a trusted binary, and what
+admitting one costs in review time. See
+[ADR-0015](0015-extension-dependencies.md) and §5.8 of
+[threat-model.md](../security/threat-model.md).
+
+Measure three things on one fixture set of candidate extensions. **A hostile-package
+fixture:** publish a package that reads a credential and posts it, and one whose manifest
+requests every capability, and observe what each resolution path admits. **Review
+throughput:** packages reviewed per hour, and the wall-clock cost of reviewing a dependency
+update rather than a diff the reviewer already understands. **Comparison:** direct
+resolution from pub.dev against resolution from a curated allowlist served by a reviewed
+mirror, on the same candidates, counting how many hostile or unwanted packages each admits
+and how long an acceptable package takes to reach a user.
+
+**Exit criterion:** the answer is recorded in an ADR **before** any third-party extension is
+admitted, and it names one default source. If the curated mirror admits meaningfully fewer
+hostile packages, or a hostile fixture survives either path, direct resolution from pub.dev
+is not the default for Tier 1 and the allowlist is. Throughput is recorded either way: a
+source that is safe but unauditable is not an acceptable answer for code that runs with the
+user's credentials, and a source that is auditable but unaordable is not an ecosystem.

@@ -33,6 +33,13 @@ A test that imports `package:http` and hits the network is a bug in a test, not 
 test. Network access in the blocking chain happens only through the local fixture server
 from task `0.21`.
 
+**No test in the blocking chain may reach the network at all.** That includes the install,
+update and launcher tests: they install from the fixture release over a local `file:` URL
+and never from GitHub, so a release host outage, a rate limit or an offline runner cannot
+turn into a red build. A test that needs to prove the install path is given a release it
+can see; if verifying a real download is ever required, that check is `[manual]` and lives
+in a phase growth curve, not in the blocking chain.
+
 ## 3. Determinism doubles are mandatory
 
 No acceptance criterion about the loop, memory, policy, compaction or subagents can be
@@ -77,8 +84,37 @@ digest recorded in a `FIXTURES.md` beside them.
 | Agent Skills specification examples | 2.1, 2.8 | Pinned commit; an upstream change requires a re-review, not a silent update |
 | MCP `2026-07-28` reference scenarios | 2.5, 2.6, 4.6 | One shared fixture drives adapter selection *and* client and server tests, so selection cannot drift from implementation |
 | OpenAI-compatible request and response shapes | 0.13, 0.21 | Includes misaligned streaming deltas |
+| Fixture release under `config/fixtures/release/` | 0.30, 0.31 | A local directory served over a `file:` URL; never a download, never a real `alterione.aot` |
 
 A fixture is never fetched during a test run. Network access in tests is a defect.
+
+### 5.1 The fixture release
+
+Tasks `0.30` and `0.31` need a release to install without installing a release. The fixture
+lives under `config/fixtures/release/`, is committed, and is deliberately the *smallest*
+thing that is still a release:
+
+```text
+config/fixtures/release/
+├── manifest.json        # release version, per-file SHA-256 digests, a test signature
+├── alterione.aot        # a tiny stub snapshot — it is never executed as a real one
+├── alterione.yaml       # a valid kind: AlteriOneManifest with one declared extension
+├── bin/
+│   └── dartrantime      # a stub that reports the version alterione.yaml requires
+├── install.sh           # the generated installer for the fixture
+└── tamper/              # a copy with one byte changed, for the refusal path
+```
+
+Conventions that keep it honest:
+
+| Rule | Why |
+|---|---|
+| The fixture lives under `config/`, which is never on the runtime search path | A test must point at it explicitly, exactly as a user points at a release host. An implicit fallback would hide a search-path bug |
+| `alterione.aot` and `dartrantime` are stubs, not real artefacts | The install pipeline verifies **digests and signatures**, not behaviour. A test that genuinely needed the real snapshot would be an integration test against a built release, which is a release gate, not a unit |
+| `tamper/` is a checked-in copy with one byte changed | The refusal path must be exercised by a file that exists in the repository, so `git` state cannot change which case is tested |
+| Digests in `manifest.json` are generated from the fixture files by the test | A hand-written digest drifts the first time someone edits a fixture and then fails for the wrong reason |
+| The fixture is served over a local `file:` URL | The install path is exercised end to end — resolve, fetch, verify, stage, swap — without a network. A real download check is `[manual]` |
+| The same fixture is used on Linux, macOS and Windows | The install gate runs on all three; a per-platform fixture would let one platform's verification go unexercised |
 
 ## 6. The offline harness
 

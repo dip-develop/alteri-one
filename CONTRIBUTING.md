@@ -83,6 +83,7 @@ These are enforced by tests, not by review etiquette:
 
 - `alteri_one_core` and `alteri_one_protocol` never import `dart:io`.
 - `alteri_one_memory` never imports `hive_ce` or `dart:io`.
+- An injection never obtains a capability; an app ships no tools and no services.
 - The engine contains no UI. Approval goes through `ApprovalPort`.
 - Production code never calls `DateTime.now`, a random source or a process-global id
   directly.
@@ -91,6 +92,30 @@ These are enforced by tests, not by review etiquette:
 
 Read [docs/decisions/README.md](docs/decisions/README.md) before changing anything
 architectural. A decision made in prose is not a decision; write an ADR.
+
+## Where a change belongs
+
+The repository has four extension subprojects, and picking the wrong one is the most
+common structural mistake a new contributor makes:
+
+| Your change is… | Goes in | Declared in |
+|---|---|---|
+| a model-invocable operation | `tools/<name>/` | `pubspec.yaml` and `alterione.yaml` |
+| something that rewrites the context | `injections/<name>/` | `pubspec.yaml` and `alterione.yaml` |
+| a runtime service (storage, memory, MCP) | `plugins/<name>/` | `pubspec.yaml` and `alterione.yaml` |
+| a UI or an embedder | `apps/<name>/` | `pubspec.yaml` |
+| a library the product itself is built from | `packages/<name>/` | `pubspec.yaml` |
+
+An extension is added or removed as a dependency in `pubspec.yaml`, third-party packages
+included. There is no runtime registration and no dynamic import, because Dart has no
+class loader — a design that implies otherwise cannot ship. See
+[ADR-0015](docs/decisions/0015-extension-dependencies.md).
+
+Naming is split at the build boundary: `alteri_one_*` in the source tree, `alterione` for
+everything the user receives. An installed path, script or default configuration value
+containing `alteri_one` fails the release assembly, and a source identifier containing
+`alterione` is a review finding. See
+[ADR-0016](docs/decisions/0016-product-naming.md).
 
 ## Commit messages
 
@@ -121,8 +146,10 @@ workspace. Read in this order:
 
 1. [docs/vision-and-scope.md](docs/vision-and-scope.md)
 2. [docs/concepts.md](docs/concepts.md) — the vocabulary everything else depends on
-3. [docs/architecture/engine.md](docs/architecture/engine.md) — the invariants
-4. [docs/process/task-breakdown.md](docs/process/task-breakdown.md) — your task
+3. [docs/architecture/workspace-layout.md](docs/architecture/workspace-layout.md) — the
+   four subprojects, `pubspec.yaml` versus `alterione.yaml`
+4. [docs/architecture/engine.md](docs/architecture/engine.md) — the invariants
+5. [docs/process/task-breakdown.md](docs/process/task-breakdown.md) — your task
 
 ## License
 

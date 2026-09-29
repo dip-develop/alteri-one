@@ -40,7 +40,7 @@ alteri_one/
 │   ├── fs/                         # fs.read, fs.write, fs.edit, fs.delete, fs.list
 │   ├── shell/                      # shell.run
 │   ├── web/                        # web.search, web.fetch
-│   └── call/                       # call.http, call.grpc — a generic outbound call tool
+│   └── call/                       # call.http — the generic outbound call, brokered
 ├── injections/                     # injections/: context transforms, never authority
 │   ├── skill/                      # package: alteri_one_injection_skill — Tier 0 skill packs
 │   ├── compress/                   # token-triggered context compaction
@@ -124,6 +124,19 @@ melos:
     bench:startup: melos exec -c 1 --scope="alteri_one_cli" -- dart run tool/bench_startup.dart
     test:offline: melos exec -c 1 --scope="alteri_one_cli" -- dart test --tags offline-e2e
     install:release: melos exec -c 1 --scope="alterione" -- dart run bin/alterione.dart install
+
+    # Release gates. They live in tool/release/ and run from the workspace root, so a
+    # gate never needs to know which package it is inspecting. Each exits non-zero on a
+    # failure that must block a release; none of them may be skipped in CI.
+    release:closure-check: dart run tool/release/closure_check.dart
+    release:naming-check: dart run tool/release/naming_check.dart
+    release:install-check: dart run tool/release/install_check.dart
+    release:version-check: dart run tool/release/version_check.dart
+    release:artifact-check: dart run tool/release/artifact_check.dart
+    release:signature-check: dart run tool/release/signature_check.dart
+    release:startup-check: dart run tool/release/startup_check.dart
+    release:offline-check: dart run tool/release/offline_check.dart
+    release:publish-dry-run: dart run tool/release/publish_dry_run.dart
 ```
 
 This is the **only** definition of the Melos scripts. `melos.yaml` is not created and

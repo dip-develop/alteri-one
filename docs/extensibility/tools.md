@@ -2,9 +2,14 @@
 
 **Status: Accepted**
 
-A **tool** is an operation the model can call. This document is the contract between a
-tool and the engine. The plugin that ships the tool is specified in [plugins.md](plugins.md);
-authority to run it comes from policy, not from this document.
+A **tool** is an operation the model can call, and a first-class distributable unit in its
+own right. It ships in exactly one package under `tools/`, or inside a `plugins/` package
+when the tool is that plugin's own surface — `memory.search` and `memory.remember` are
+shipped by the memory plugin, not by a `tools/` package. Either way there is **one
+implementation per tool id, never two**, and never one inside an app. This document is the
+contract between a tool and the engine. Authority to run it comes from policy, not from
+this document; the service that ships it is specified in [plugins.md](plugins.md), and the
+authority-free context transforms are in [injections.md](injections.md).
 
 The pre-split specification used tools only as strings in policy YAML (`shell_run`) and as
 ids in a capability list (`skill:web_search`). There was no definition of a tool's schema,
@@ -63,7 +68,7 @@ tool with a `deny` rule is still denied.
 ### 1.2 Argument validation
 
 Arguments arrive as a `JsonMap` and MUST be validated against `parameters` **before** any
-plugin code runs. Validation is structural and total:
+tool code runs. Validation is structural and total:
 
 1. The value parses against the declared JSON Schema; the failing JSON path is reported.
 2. Unknown properties are rejected unless the schema sets
@@ -76,7 +81,55 @@ plugin code runs. Validation is structural and total:
    their permitted root; a schema declares this with `"x-path-root": "workspace"`.
 
 A validation failure is `-32602` naming the tool and the JSON path. It never reaches the
-plugin.
+implementation.
+
+### 1.3 The manifest
+
+A tool in a `tools/` package is described by a `ToolManifest`, whose normative schema is in
+[reference/config-schema.md](../reference/config-schema.md#31-kind-toolmanifest). A tool
+that is a plugin's own surface is declared in that plugin's `tools[]` instead; the two
+forms carry the same fields, and a tool is not in the registry until one of them does.
+
+```yaml
+apiVersion: alteri.one/v1
+kind: ToolManifest
+name: example.web_search       # ^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$
+moduleVersion: 1.0.0           # semver of THIS manifest
+tier: trusted                  # trusted (Tier 1) | untrusted (Tier 2)
+entrypoint: WebSearchTool      # a codegen-registered symbol, never a path
+protocol: ">=1.0.0 <2.0.0"     # semver constraint on meta.proto
+
+tools:                         # exactly one entry per tool id, one id per owner
+  - id: web.search
+    type: tool
+    description: "Search public pages for a given query"
+    requires: [network.egress] # CAPABILITIES requested, not granted
+    sideEffect: readOnly
+    maxResultBytes: 65536
+    parameters:                # JSON Schema, draft 2020-12
+      type: object
+      additionalProperties: false
+      required: [query]
+      properties:
+        query: { type: string, maxLength: 512 }
+        limit: { type: integer, minimum: 1, maximum: 25, default: 10 }
+```
+
+A `ToolManifest` carries no `ports:` and no `capabilities:` block, and a tool id is never a
+capability id. A tool id that already has an owner in a `plugins/` package is a
+duplicate-id bind failure, not an override.
+
+`requires` means two different things in two places, deliberately named differently:
+
+| Location | Means | Allowed values |
+|---|---|---|
+| `model.providers[].requires` | Model **features** | `tools`, `parallelTools`, `streaming`, `jsonMode`, `promptCaching`, `seed` |
+| `ToolManifest` `tools[].requires` | System **capabilities** | `file.read`, `file.write`, `process.spawn`, `network.egress`, `memory.write`, `secret.use` |
+| plugin manifest `tools[].requires` | System **capabilities** — the same list, for a tool a plugin ships | as above |
+
+The two names are never reused for each other's meaning. There is no `requires` at all in
+an `InjectionManifest`: an injection has no field in which a capability request could
+hide.
 
 ## 2. Exposure to the model
 
@@ -99,8 +152,8 @@ The selection order is deterministic and reproducible:
    capability set *and* whose policy effect is not `deny`. A denied tool is invisible to the
    model, not merely un-callable — telling the model about a denied capability invites it to
    try and produces noise.
-2. **Filter by namespace scope.** The profile's `tools:` list, plus anything a skill pack
-   activated for this run.
+2. **Filter by namespace scope.** The profile's `tools:` list, plus anything an
+   `Injection(tier: data)` skill pack activated for this run.
 3. **Rank by relevance** using host-side signals only: profile declaration order first, then
    namespace affinity with the goal text, then tool id ascending as the tie-break. No
    randomness, no model involvement.
@@ -161,7 +214,7 @@ appended to the model context or written to disk.
 
 ### 3.1 Result size
 
-`maxResultBytes` is enforced by the engine, not the plugin:
+`maxResultBytes` is enforced by the engine, not the tool:
 
 - Under the limit: the result is appended inline.
 - Over the limit: the full bytes are stored as an `ArtifactRecord` and the model receives a
@@ -169,31 +222,52 @@ appended to the model context or written to disk.
   by policy.
 
 This is the cheap barrier against context bloat described in
-[memory.md](../architecture/memory.md#41-tool-result-budgeting). A plugin that tries to
+[memory.md](../architecture/memory.md#41-tool-result-budgeting). A tool that tries to
 return an unbounded result is bounded by the engine regardless.
 
 ## 4. Built-in tools in v1
 
-v1 ships a small, deliberately boring set. Everything else arrives as a plugin.
+v1 ships a small, deliberately boring set. Each id ships in exactly one package, and the
+`tools/` subproject owns every id except the two the memory plugin needs in order to be a
+memory service at all.
 
-| Tool id | Side effect | Requires | Purpose |
-|---|---|---|---|
-| `fs.read` | readOnly | `file.read` | Read a file inside the permitted root |
-| `fs.write` | idempotentWrite | `file.write` | Write a file inside the permitted root |
-| `fs.delete` | destructive | `file.write` | Delete a file — `confirm`, `deny` under a matching rule |
-| `fs.list` | readOnly | `file.read` | List a directory |
-| `shell.run` | destructive | `process.spawn` | Run a command — `confirm` by default |
-| `memory.search` | readOnly | — | Query stored memory through `VectorIndex` or lexical retrieval |
-| `memory.remember` | idempotentWrite | `memory.write` | Propose a record; the host assigns provenance |
-| `web.search` | readOnly | `network.egress` | Search public pages, via a plugin |
+| Tool id | Ships in | Side effect | Requires | Purpose |
+|---|---|---|---|---|
+| `fs.read` | `tools/fs` | readOnly | `file.read` | Read a file inside the permitted root |
+| `fs.write` | `tools/fs` | idempotentWrite | `file.write` | Write a file inside the permitted root |
+| `fs.edit` | `tools/fs` | idempotentWrite | `file.write` | Replace an exact span of a file, matched by digest so a stale edit fails rather than clobbering |
+| `fs.delete` | `tools/fs` | destructive | `file.write` | Delete a file — `confirm`, `deny` under a matching rule |
+| `fs.list` | `tools/fs` | readOnly | `file.read` | List a directory |
+| `shell.run` | `tools/shell` | destructive | `process.spawn` | Run a command — `confirm` by default |
+| `web.search` | `tools/web` | readOnly | `network.egress` | Search public pages |
+| `web.fetch` | `tools/web` | readOnly | `network.egress` | Fetch one URL through the egress broker, labelled `webContent` |
+| `call.http` | `tools/call` | idempotentWrite | `network.egress` | Call a declared endpoint through the broker, subject to `policy.egress` |
+| `memory.search` | `plugins/memory` | readOnly | — | Query stored memory through `VectorIndex` or lexical retrieval |
+| `memory.remember` | `plugins/memory` | idempotentWrite | `memory.write` | Propose a record; the host assigns provenance |
 
-Two invariants are specific to built-ins:
+`fs.edit` and `web.fetch` are not decoration. `fs.edit` binds its replacement to the
+digest of the bytes it matched, so an edit against a file that changed underneath it is a
+failure the model can see rather than a silent overwrite; `web.fetch` is the only path by
+which a URL enters the context, and it is the reason `webContent` exists as a provenance.
+`call.http` is the generic outbound call: it reaches exactly the hosts and methods
+`policy.egress` allows, through the same broker Tier 2 uses, and it is never a way to
+sidestep `web.fetch`'s labelling.
+
+`memory.search` and `memory.remember` are the memory plugin's own surface: the rule that
+lets a plugin expose tools is what keeps them out of a `tools/` package, and it is why
+there is no second implementation of either id. The subproject layout is in
+[workspace-layout.md](../architecture/workspace-layout.md#11-the-four-subprojects).
+
+Three invariants are specific to built-ins:
 
 - `memory.remember` cannot write a trusted record. The host assigns provenance and the
   label rules in [memory.md](../architecture/memory.md#21-record-invariants) apply; the model
   supplies only key and value.
 - `shell.run` refuses to run in `--headless` without an explicit policy grant, and always
   shows the exact command, cwd and network destinations in the confirmation.
+- `call.http` reaches nothing outside `policy.egress`, carries no credential of its own and
+  returns `webContent` whatever it returns. A generic call tool that could reach any host
+  would make `policy.egress` decorative.
 
 ## 5. Idempotency
 
@@ -231,13 +305,37 @@ behaviour, and truncating it silently would mislead the model.
 
 ## 7. Adding a tool
 
-1. Implement `Tool` and a `ToolDescriptor` inside a plugin.
-2. Declare the tool and its `requires` in the plugin manifest.
-3. Register the plugin in the generated registry — there is no runtime scan.
-4. Add the tool to a profile's `tools:` list if it should be exposed there.
-5. Contract-test the schema: valid arguments decode, unknown properties are rejected, an
+A tool is an ordinary Dart package. There is no runtime registration step, and there cannot
+be one: **Dart has no class loader**, so a symbol that is not in the compiled registry does
+not exist at run time. Scaffolding writes the package, the manifest and contract tests —
+and never a dynamic import, because Dart cannot honour one.
+
+```bash
+dart run apps/cli/bin/main.dart init tool example.web_search
+```
+
+That writes the `tools/` package for that id, with a `ToolManifest` and a contract-test
+stub. The rest is the dependency edge, and it is the same one every extension uses:
+
+1. Add the dependency to `pubspec.yaml` — hosted, git or path, it resolves the same way.
+2. Declare it in `alterione.yaml` under `extensions.tools`, with the `version` constraint
+   it must satisfy; a package that is resolved and compiled but must not bind carries
+   `enabled: false`. A package under `tools/` that is listed nowhere, and not
+   `enabled: false`, is a bind-time failure.
+3. Implement `Tool` and its `ToolDescriptor`, and declare the tool and its `requires` in the
+   `ToolManifest` of §1.3 — or in the `tools[]` of a plugin manifest, if the tool is that
+   plugin's own surface.
+4. `dart pub get` and `melos run generate`: the registry is generated from the resolved
+   dependency graph, not scanned at run time.
+5. `melos run analyze`, `melos run test`, then rebuild (`melos run build:aot`). A declared
+   tool that resolves to nothing in the graph is `-32050`.
+6. Add the tool to a profile's `tools:` list if it should be exposed there.
+7. Contract-test the schema: valid arguments decode, unknown properties are rejected, an
    out-of-root path is rejected, and `sideEffect` matches observed behaviour.
 
-Steps 3 and 4 are the only places a tool becomes visible. A tool cannot appear in the
-model's tool list without passing through the registry and a profile, which is what makes
-"untrusted content cannot grant authority" structural.
+The **registry and the profile remain the only two places a tool becomes visible**. A tool
+cannot appear in the model's tool list without passing through both, which is what makes
+"untrusted content cannot grant authority" structural. Steps 1–5 are a build; step 6 is
+configuration. See
+[workspace-layout.md](../architecture/workspace-layout.md#31-pubspecyaml-resolves-alterioneyaml-declares)
+and [ADR-0015](../decisions/0015-extension-dependencies.md).

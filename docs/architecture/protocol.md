@@ -12,6 +12,11 @@ version negotiation and a typed sealed-union envelope.
 `error` follow JSON-RPC rules. `type` and `module` are AlteriOne extensions; the
 namespace is set by `module` and by the namespaced method.
 
+`module` survives in exactly two places, both protocol-level: this envelope field, which
+names the namespace a frame belongs to, and the `core/*` method prefix. It is not a synonym
+for "plugin" or "extension" anywhere else — the unit names are app, tool, injection and
+plugin. See [concepts.md](../concepts.md#14-two-words-that-survive-unchanged).
+
 Request:
 
 ```jsonc
@@ -178,9 +183,10 @@ decision.
 
 ## 4. Handshake
 
-The first request of a session is `core.initialize`: the plugin sends it to the core over
-the chosen transport and the core answers with the negotiation result. Until
-`accepted: true`, no capability is published and no ordinary method is accepted.
+The first request of a session is `core.initialize`: the peer — a Tier 2 tool or plugin,
+or a remote host adapter — sends it to the core over the chosen transport and the core
+answers with the negotiation result. Until `accepted: true`, no capability is published and
+no ordinary method is accepted.
 
 ```jsonc
 {
@@ -218,6 +224,25 @@ the chosen transport and the core answers with the negotiation result. Until
 `degradePolicy` accepts only an explicitly chosen `refuse` or `warn+degrade`; it is never
 inferred. A capability mismatch, an incompatible protocol or a security policy violation
 terminates the handshake with `accepted: false` and `-32050`.
+
+### 4.1 `core.initialize` carries the host's `api.*`
+
+The `result` of a successful handshake is not only a protocol version. It carries the
+**host's** `api.*` versions, taken from `alterione.yaml` — `api.protocol`,
+`api.extension`, `api.runtime` and `api.ports` — so a peer knows which contract it is being
+held to without reading a file it may not have.
+
+A Tier 2 child's declared `apiVersion` MUST lie inside the host's `api.extension` range and
+each of its ports inside `api.ports`. If it does not, the handshake is **refused**:
+`accepted: false` with `-32050`. There is no unnegotiated downgrade — the child is not
+started in a mode where the host speaks a version the child never agreed to, and it is not
+started on a version it guessed. The same rule refuses a Tier 1 extension at bind time,
+before any capability is published.
+
+An injection speaks no protocol at all. It has no handshake, no frames, no negotiation and
+no transport: it is a linked function the host calls on the context path, and the guarantees
+it gets come from never giving it authority rather than from a handshake. See
+[extensibility/injections.md](../extensibility/injections.md#3-authority-none-and-how-that-is-kept-true).
 
 ## 5. Versioning rules
 

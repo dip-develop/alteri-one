@@ -31,7 +31,7 @@ final class Allowed extends PolicyDecision {
 `bool` is never used. `Denied` and `NeedsApproval` carry a machine-readable reason and,
 where relevant, a redaction-aware prompt. `policy.evaluate` receives the resolved tool
 call, its arguments, origin and provenance, the profile, the declared capabilities and the
-module identity. The decision is determined before the call.
+unit identity. The decision is determined before the call.
 
 ## 2. Rules and precedence
 
@@ -55,7 +55,7 @@ notifications:
     channel: status
 ```
 
-Profile, user (`~/.alteri_one/policies.d/`), admin and deployment policies are
+Profile, user (`~/.alterione/policies.d/`), admin and deployment policies are
 **combined, not overwritten**. For all matching rules the strict precedence applies:
 
 > `deny > confirm > allow`
@@ -122,3 +122,29 @@ as Tier 2. A redirect is re-checked against the same policy and never widens the
 scope. DNS resolution results are validated per connection, not only from the configured
 hostname, so DNS rebinding cannot substitute an address between check and connect. The
 default is deny.
+
+## 6. Injections are content, never actors
+
+One binding rule, and it is the reason an injection is a separate noun rather than a plugin
+kind:
+
+> **An injection cannot request, be granted or influence a capability, and there is no
+> configuration surface through which it could.**
+
+Three consequences, all checked rather than advised:
+
+1. **No request field.** An `InjectionManifest` has no `tools:`, no `requires:` and no
+   capability field. The schema validator rejects one, and that rejection is the intended
+   first failure — there is no field in which the request could hide.
+2. **No grant path.** Policy evaluation treats an injection as **content, never as an
+   actor**. There is no rule to match against an injection, because an injection makes no
+   call: it receives a labelled context and returns a labelled context.
+3. **No influence path.** An injection holds no policy handle, no registry, no budget and no
+   raisable deadline, and its output is relabelled by the host from the ingress point, so
+   `affectsTrust: true` is refused outright. An injection that writes `capabilities:` into a
+   skill pack it applies is writing untrusted text into the context, which the model may act
+   on and the host never authorises.
+
+The guarantee is structural rather than a runtime check somebody could forget to call. The
+full mechanism table is in
+[extensibility/injections.md](../extensibility/injections.md#3-authority-none-and-how-that-is-kept-true).

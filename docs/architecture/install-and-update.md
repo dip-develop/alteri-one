@@ -84,11 +84,11 @@ It resolves its own directory, so it works from any working directory, and it ho
 step substituted. On Windows the installer writes an equivalent `alterione.cmd` wrapper
 that performs the same two checks before `exec`.
 
-## 3. `bin/dartrantime`
+## 3. The pinned Dart runtime
 
-`dartrantime` is the AOT runtime distribution that executes `alterione.aot`. It is **not**
-the Dart SDK: it carries no `pub`, no compiler and no development tooling, because those
-are exactly the capabilities a Tier 2 child must never inherit.
+The runtime binary itself is `bin/dartrantime`. It is **not** the Dart SDK: it carries no
+`pub`, no compiler and no development tooling, because those are exactly the capabilities
+a Tier 2 child must never inherit.
 
 | Property | Value |
 |---|---|

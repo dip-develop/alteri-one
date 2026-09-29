@@ -60,8 +60,9 @@ Linux, macOS and Windows" testable. Task `0.20` implements it.
 ## 3. Transcripts
 
 Every run writes a versioned JSONL transcript under
-`state/<profile>/transcripts/<yyyy-mm>/`, with an append-only `index.jsonl` mapping
-`traceId` to path, digest and terminal status. Contents:
+`state/<profile>/transcripts/<yyyy-mm>/` in the install root (`~/.alterione/` by default,
+`$ALTERIONE_HOME` otherwise), with an append-only `index.jsonl` mapping `traceId` to path,
+digest and terminal status. Contents:
 
 1. goal, profile, project and capability snapshot;
 2. the plan before the first tool call and each revision of it;
@@ -70,11 +71,19 @@ Every run writes a versioned JSONL transcript under
 4. usage, cache tokens and USD cost after each model turn;
 5. compaction, budget settlements, subagent edges and the terminal outcome.
 
+### 3.1 Injection runs are recorded
+
+Every injection run is written to the transcript: the injection id, the stage, the order it
+ran in, the input and output token counts, the duration and the failure reason where it
+failed. Order is part of the product's observable behaviour, so a run whose context changed
+is explainable without guessing which injection ran first. The injection ids that reshaped
+the context also appear in `why`.
+
 Arguments and results pass redaction. Secrets are never written, even in debug mode.
 
 ```bash
-alteri_one why <traceId>
-alteri_one replay <traceId>
+alterione why <traceId>
+alterione replay <traceId>
 ```
 
 `why` shows the causal chain: which inputs and policy decisions led to a tool call, which
@@ -143,8 +152,8 @@ evidence without re-measurement.
 ## 7. `doctor`
 
 ```bash
-alteri_one doctor --profile developer
-alteri_one doctor --profile developer --json
+alterione doctor --profile developer
+alterione doctor --profile developer --json
 ```
 
 `doctor` is read-only by default and verifies:
@@ -160,6 +169,26 @@ alteri_one doctor --profile developer --json
   prerequisites;
 - plugin lifecycle `discovered → validated → linked/loaded → registered → started`, and the
   exact reason a plugin failed to load.
+
+### 7.1 Launch-time verification
+
+The installed product is an AOT snapshot plus a separately downloaded runtime, and the
+checks that make that pair trustworthy are `doctor` checks, not installer-only assertions.
+They are stated normatively in
+[install-and-update.md](install-and-update.md#5-verification-at-launch) and repeated here
+because `doctor` is where an operator looks after something has already gone wrong.
+
+| Check | Failure |
+|---|---|
+| `bin/dartrantime` digest matches the signed manifest | exit `9`, `integrity.integrity_failed` |
+| `dartrantime` version inside `alterione.yaml` → `runtime.version` | exit `9`, `integrity.runtime_mismatch` |
+| `alterione.aot` digest matches the signed manifest | exit `9`, `integrity.integrity_failed` |
+| `alterione.yaml` parses and its `apiVersion` is known | exit `3`, `config.unknown_api_version` |
+| every enabled extension resolves in the compiled registry | exit `3`, `extension.unresolved` |
+| every extension's `apiVersion` is inside `api.extension`, and each port inside `api.ports` | exit `3`, `extension.version_incompatible` |
+
+**No check degrades.** A missing, stale or unverified runtime never falls back to a system
+`dart`, to JIT or to running from source.
 
 A network probe runs only against an explicitly configured endpoint and can be disabled by
 an offline check mode. `doctor` never edits files without an explicit `--fix`; each fix is
