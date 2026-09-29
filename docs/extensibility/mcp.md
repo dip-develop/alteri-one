@@ -20,11 +20,14 @@ implementing MCP by hand.
 
 ### 1.1 MCP is a plugin
 
-Both the client and the server mode are provided by the plugin in `plugins/mcp/`,
-`alteri_one_plugin_mcp`. It is a **plugin** — a runtime service — and not a core module:
-it declares the `mcp` port and it may expose the tools an MCP server advertises. The
-version it is spoken at is declared in `alterione.yaml` → `api.ports.mcp`, currently
-`"2026-07-28"`, and the package is declared under `extensions.plugins`:
+MCP is a **plugin** — a runtime service — and not a core module. `plugins/mcp/`,
+`alteri_one_plugin_mcp`, is where the client and the server mode live once the extraction
+criterion in [overview.md](../architecture/overview.md#23-deferred) is met; until then the
+adapter stays inside `alteri_one_core` behind exactly the same port, and the core does not
+know the difference. Either way the plugin declares the `mcp` port and may expose the tools
+an MCP server advertises. The version it is spoken at is declared in `alterione.yaml` →
+`api.ports.mcp`, currently `"2026-07-28"`, and the package is declared under
+`extensions.plugins`:
 
 ```yaml
 api:
@@ -158,6 +161,6 @@ Skills and Dart package skills is in
 | Phase | Work |
 |---|---|
 | 2.5 | Select the client adapter against a shared `2026-07-28` fixture; record an ADR |
-| 2.6 | MCP client in the `plugins/mcp/` plugin: tools, resources, prompts, correlation, cancellation, progress, frame limits, explicit version negotiation. Server mode absent |
+| 2.6 | MCP client in `alteri_one_core`: tools, resources, prompts, correlation, cancellation, progress, frame limits, explicit version negotiation. Server mode absent. The extraction into `plugins/mcp/` waits for the second-consumer criterion in [overview.md](../architecture/overview.md#23-deferred) |
 | 2.7 | Track official extensions; no implementation |
 | 4.6 | Server mode and the mapping layer, exporting only mapped, policy-checked capabilities |
