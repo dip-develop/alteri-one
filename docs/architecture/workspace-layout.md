@@ -78,11 +78,15 @@ scripts *do* something: they assemble an install root, verify a release, or comp
 live repository settings against the recorded ones. They are listed in
 [tool/release/README.md](../../tool/release/README.md). The `docs/` script only reports.
 
-The workspace globs `packages/*`, `apps/*`, `tools/*`, `injections/*`, `plugins/*` and
-`sdk/*` are evaluated at `dart pub get` time. `apps/gui`, `apps/web`, `tools/*` beyond the
-Phase 0 set, `plugins/mcp`, `plugins/sandbox` and `packages/alteri_one_sdk` are created in
-later phases and do not exist before then; task `0.1` asserts the exact workspace
-membership for its phase and task `5.1` re-asserts it once the Phase 5 packages exist.
+The workspace globs `packages/*`, `apps/*`, `injections/*` and `plugins/*` are evaluated at
+`dart pub get` time, and the list names only a subproject that already holds a package:
+`dart pub get` fails on a glob that matches nothing. `tools/*` joins the list in the commit
+that creates the first `tools/` package, which is why no Phase 0 task creates one. There is no
+`sdk/*` glob — `alteri_one_sdk` lives under `packages/`. `apps/gui`, `apps/web`, the `tools/`
+packages, `plugins/mcp`, `plugins/sandbox` and `packages/alteri_one_sdk` are created in later
+phases; task `0.1` asserts the exact workspace membership for its phase and task `5.1`
+re-asserts it once the Phase 5 packages exist. See
+[ADR-0021](../decisions/0021-workspace-glob-list.md).
 
 `site/` and `tool/` are **not** in any glob, and never will be. `site/` is the project
 website, whose toolchain cannot be resolved in the same graph as the product's — the
@@ -167,15 +171,18 @@ This is the **only** definition of the Melos scripts. `melos.yaml` is not create
 `pubspec.workspaces.yaml` does not exist. `doctor` is invoked through the CLI package,
 because `alteri_one_core` is a library with `publish_to: none` and is not executable.
 
-Four entries in that block are not obvious, and each is a consequence of a toolchain fact
-rather than a preference:
+The `workspace:` entry above is the list the tree supports **now**: `dart pub get` fails on a
+glob that matches no package, so a pattern is added by the same commit that creates the
+subproject's first package. See [ADR-0021](../decisions/0021-workspace-glob-list.md).
+
+Three further entries in the block are not obvious, and each is a consequence of a toolchain
+fact rather than a preference:
 
 | Entry | Because |
 |---|---|
-| `workspace:` lists only subprojects that hold a package | `dart pub get` fails on a glob that matches nothing, so a pattern joins the list with the commit that creates its first package. There is no `sdk/*`: `alteri_one_sdk` lives under `packages/` |
-| `test` and `yaml` are dev_dependencies | `test/` and `tool/` are the root package's own directories, so `dart test` at the root needs `test`, and the workspace contract test parses manifests with `yaml` rather than grepping for keys |
-| `useRootAsPackage: true` | The root is a package. Without the flag `melos exec` skips it and no gate ever looks at a line of `test/` or `tool/` |
-| `format` and `format:root` are one gate, and `test` carries `--dir-exists=test` | `dart format` has no exclude flag and does not read `analyzer.exclude`, so a `.` at the repository root would walk into `site/` — a different toolchain with its own build gate, whose build output is ~28 MB of resolved package source ([ADR-0020](../decisions/0020-project-website.md)) — and into the website's sources, which would couple a product PR to website formatting. `dart test` in a package with no `test/` directory is a usage error rather than a pass, and `--dir-exists=test` is what `melos test` does by definition |
+| `test` and `yaml` are dev_dependencies | `test/` and `tool/` are the root package's own directories, so `dart test` at the root needs `test`, and the workspace contract test parses manifests with `yaml` rather than grepping for keys — a grep for `resolution: workspace` also matches the sentence that says the key is mandatory |
+| `useRootAsPackage: true` | The root is a package. Without the flag `melos exec` skips it, and no gate ever looks at a line of `test/` or `tool/` |
+| `format` and `format:root` are one gate, and `test` carries `--dir-exists=test` | `dart format` has no exclude flag and does not read `analyzer.exclude`, so a `.` at the repository root would walk into `site/` — a different toolchain with its own build gate, whose build output is ~28 MB of resolved package source ([ADR-0020](../decisions/0020-project-website.md)) — and into the website's own sources, which would couple a product PR to website formatting. `dart test` in a package with no `test/` directory is a usage error rather than a pass, and `--dir-exists=test` is what `melos test` does by definition |
 
 Every workspace package begins with:
 

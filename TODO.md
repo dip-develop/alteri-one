@@ -12,6 +12,7 @@
 - [x] CI: `apps/gui` phase probe, hook-free closure gate, no-`alteri_one` release gate
 - [x] Release assembly: snapshot, pinned runtime, launcher, installers, digest manifest
 - [ ] Publish the `alterione` package name on pub.dev (`alterione` was unclaimed on 2026-09-29; a name on pub.dev is a permanent claim)
+- [ ] The v1 `tools/` set (`fs`, `shell`, `web`, `call`) has no task in the breakdown; `tools/*` joins the root manifest with the first of them — ADR-0021
 - [ ] Wire install/update gates into the release pipeline; shell installer ≡ bootstrap output
 - [ ] Fixture-release install gate: clean install, then a tampered digest must exit `9`
 - [ ] Give the manifest job per-target directories; `merge-multiple` collides on `alterione.aot`

@@ -61,6 +61,10 @@ Dart is pinned to **3.13.4** in every workflow. Do not bump it casually: the sit
 
 ## Gotchas that will be guessed wrong
 
+- **A `workspace:` glob that matches no package makes `dart pub get` fail.** Not a warning and
+  not an empty result — resolution stops. The root manifest lists only the subprojects that
+  hold a package, and a pattern is added by the same commit that creates the subproject's first
+  package. There is no `sdk/*` glob; `alteri_one_sdk` lives under `packages/`. See ADR-0021.
 - **`main` is the default branch, `develop` is not.** `gh pr create` without `--base`
   targets `main`, and a PR against `main` is reviewed as a release or hotfix. Always pass
   `--base develop`.
