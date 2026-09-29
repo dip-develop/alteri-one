@@ -6,17 +6,19 @@ what an agent would otherwise get wrong.
 
 ## The state of the tree: the workspace exists, the product does not
 
-Task `0.1` has landed in two steps. There is a root `pubspec.yaml` carrying `workspace:` and
-`melos:`, a root `analysis_options.yaml`, a committed `pubspec.lock`, the three product
-libraries under `packages/`, and `test/workspace/workspace_contract_test.dart`. There is still
-**no `alterione.yaml`**, no app, tool, injection or plugin package, and no product code: the
-packages carry their boundary and nothing else, and each declaration arrives with the task
-that specifies it.
+Task `0.1` has landed. There is a root `pubspec.yaml` carrying `workspace:` and `melos:`, a
+root `analysis_options.yaml`, a committed `pubspec.lock`, the three product libraries under
+`packages/`, the default v1 extension set (`apps/cli`, `apps/bootstrap`, `plugins/memory`,
+`injections/skill`) and `test/workspace/workspace_contract_test.dart`. There is still
+**no `alterione.yaml`**, no `tools/` package, and no product code: every package carries its
+boundary and nothing else, and each declaration arrives with the task that specifies it.
 
 Consequence: `melos run generate` is a no-op (`--depends-on="^build"` matches no package until
 codegen exists), and `melos run test` runs the root package's contract tests only — the
-product packages have no `test/` directory yet, which is why the `test` script carries
-`--dir-exists=test`. That is expected, not a failure.
+packages have no `test/` directory yet, which is why the `test` script carries
+`--dir-exists=test`. That is expected, not a failure. Likewise `bin/main.dart` and
+`bin/alterione.dart` do not exist, so `doctor`, `build:aot` and `install:release` fail rather
+than pretend to work; they land with `0.17` and `0.30`.
 
 The `detect` job in [ci.yml](.github/workflows/ci.yml) now sets `has_workspace=true`, so the
 `workspace-contracts` and `matrix` jobs run. `workspace-contracts` runs each contract test
@@ -61,10 +63,6 @@ Dart is pinned to **3.13.4** in every workflow. Do not bump it casually: the sit
 
 ## Gotchas that will be guessed wrong
 
-- **A `workspace:` glob that matches no package makes `dart pub get` fail.** Not a warning and
-  not an empty result — resolution stops. The root manifest lists only the subprojects that
-  hold a package, and a pattern is added by the same commit that creates the subproject's first
-  package. There is no `sdk/*` glob; `alteri_one_sdk` lives under `packages/`. See ADR-0021.
 - **`main` is the default branch, `develop` is not.** `gh pr create` without `--base`
   targets `main`, and a PR against `main` is reviewed as a release or hotfix. Always pass
   `--base develop`.
@@ -98,11 +96,12 @@ Dart is pinned to **3.13.4** in every workflow. Do not bump it casually: the sit
 - **A `workspace:` glob that matches no package makes `dart pub get` fail** — not a warning,
   not an empty result. The root manifest lists only the subprojects that hold a package, and
   a pattern is added by the same commit that creates its first package. There is no `sdk/*`
-  glob: `alteri_one_sdk` lives under `packages/`.
+  glob: `alteri_one_sdk` lives under `packages/`. See ADR-0021.
 - **Adding a package means editing the workspace contract test too.**
-  `test/workspace/workspace_contract_test.dart` holds a hard-coded membership list and the
-  allowed-dependency table from `overview.md` §3. That is intentional: a layout change is
-  reviewed as a change to a contract, not discovered by a glob.
+  `test/workspace/workspace_contract_test.dart` holds a hard-coded membership list, the
+  allowed-dependency table from `overview.md` §3, and the noun each subproject's package names
+  have to state. That is intentional: a layout change is reviewed as a change to a contract,
+  not discovered by a glob.
 - **`dart format` ignores `analyzer.exclude`.** It has no exclude flag, so a `.` at the
   repository root walks into `site/` and its 28 MB of resolved package source. Hence
   `format` (per package) and `format:root` (`test` and `tool`, by path). Do not merge them

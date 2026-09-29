@@ -140,20 +140,61 @@ void main() {
   group('the dependency rules of overview.md §3', () {
     test('every in-repository dependency is one the table allows', () {
       for (final member in workspace.members.entries) {
-        final allowed = _allowedDependencies[member.value.name];
         expect(
-          allowed,
-          isNotNull,
+          _allowedDependencies.containsKey(member.value.name),
+          isTrue,
           reason:
               '${member.key} is not in the dependency table; add it to '
               'architecture/overview.md §3 and to this test together',
         );
+        final allowed = _allowedDependencies[member.value.name];
+        if (allowed == null)
+          continue; // `apps/*` may compose everything public.
         expect(
-          member.value.workspaceDependencies.toSet().difference(allowed!),
+          member.value.workspaceDependencies.toSet().difference(allowed),
           isEmpty,
           reason:
               '${member.key} depends on a package the table does not allow it to '
               'depend on',
+        );
+      }
+    });
+
+    test('a package name states the noun its subproject is', () {
+      // The subproject is the taxonomy, and the name is the cheapest place to notice a
+      // package that does not fit it. ADR-0014.
+      for (final member in workspace.members.values) {
+        final root = member.path.split('/').first;
+        final prefixes = _nounInTheName[root];
+        if (prefixes == null) continue;
+        expect(
+          prefixes.any(member.name.startsWith),
+          isTrue,
+          reason:
+              '${member.path} is a $root/ package, so its name must start with '
+              '${prefixes.join(' or ')}',
+        );
+      }
+    });
+
+    test('no source identifier uses the product spelling', () {
+      // Inside the source tree Dart convention applies; `alterione` names the artefact a user
+      // installs. The one exception is the bootstrap package itself, whose pub.dev name is
+      // part of the decision. ADR-0016.
+      for (final member in workspace.members.values) {
+        if (member.path == 'apps/bootstrap') continue;
+        final offenders = <String>[
+          for (final file in _filesIn(Directory(member.path)))
+            if (!file.path.endsWith('.g.dart') &&
+                file.readAsStringSync().contains('alterione'))
+              _normalise(file.path),
+        ];
+        expect(
+          offenders,
+          isEmpty,
+          reason:
+              '${member.path} spells the product name in a source identifier; the product '
+              'spelling belongs to the release (ADR-0016)',
         );
       }
     });
@@ -228,17 +269,22 @@ void main() {
 /// The members task 0.1 asserts. A later phase appends to this list, and appending to it is
 /// part of creating a package: the membership is reviewed, not discovered.
 const _expectedMembers = <String>[
+  'apps/bootstrap',
+  'apps/cli',
+  'injections/skill',
   'packages/alteri_one_core',
   'packages/alteri_one_platform',
   'packages/alteri_one_protocol',
+  'plugins/memory',
 ];
 
 /// The allowed *in-repository* direct dependencies, from architecture/overview.md §3.
 ///
-/// `null` would mean "not in the table", which is a finding rather than a permission, so the
-/// map is exhaustive by construction: a new package must be added here and to the document
-/// in the same change.
-const _allowedDependencies = <String, Set<String>>{
+/// A `null` value means the document puts no limit on the package: `apps/*` may depend on
+/// everything public in the workspace, because the composition root is what composes. An
+/// absent key is a finding, not a permission — a new package must be added here and to the
+/// document in the same change.
+const _allowedDependencies = <String, Set<String>?>{
   'alteri_one_protocol': <String>{},
   'alteri_one_platform': <String>{'alteri_one_protocol'},
   'alteri_one_core': <String>{'alteri_one_protocol', 'alteri_one_platform'},
@@ -247,8 +293,22 @@ const _allowedDependencies = <String, Set<String>>{
     'alteri_one_core',
     'alteri_one_protocol',
   },
-  'alteri_one_cli': <String>{},
+  'alteri_one_cli': null,
   'alterione': <String>{},
+};
+
+/// The noun a package's name has to state, per subproject, from ADR-0014 and ADR-0016.
+///
+/// The subproject is the taxonomy: `tools/` is the Tool noun and nothing else, so a package
+/// that lives there and does not say so in its name is a package in the wrong place, or a
+/// package that wants to be two nouns. `alteri_one_memory` is the documented exception — the
+/// memory plugin predates the convention and is named for what it stores, not for its noun.
+/// `apps/` is exempt: an app is named for the app, and `alterione` is the one package the
+/// product spelling is allowed in (ADR-0016).
+const _nounInTheName = <String, List<String>>{
+  'injections': <String>['alteri_one_injection_'],
+  'plugins': <String>['alteri_one_plugin_', 'alteri_one_memory'],
+  'tools': <String>['alteri_one_tool_'],
 };
 
 /// Directories that may hold a `pubspec.yaml` without being a workspace member.
@@ -514,17 +574,24 @@ List<String> _packagesUnder(String glob) {
     ..sort();
 }
 
-List<File> _dartFilesIn(Directory directory) {
+/// Every file in a package directory, sorted, skipping the tool's own output.
+List<File> _filesIn(Directory directory) {
   if (!directory.existsSync()) return const <File>[];
   final files = <File>[];
   for (final entity in directory.listSync(
     recursive: true,
     followLinks: false,
   )) {
-    if (entity is File && entity.path.endsWith('.dart')) files.add(entity);
+    if (entity is! File) continue;
+    final path = entity.path.replaceAll(r'\', '/');
+    if (path.contains('/.dart_tool/') || path.contains('/build/')) continue;
+    files.add(entity);
   }
   return files..sort((a, b) => a.path.compareTo(b.path));
 }
+
+List<File> _dartFilesIn(Directory directory) =>
+    _filesIn(directory).where((file) => file.path.endsWith('.dart')).toList();
 
 /// Repository-relative, forward slashes, no `./` prefix — the same shape on every platform.
 String _normalise(String path) =>

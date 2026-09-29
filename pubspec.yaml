@@ -19,10 +19,13 @@ environment:
   sdk: '>=3.13.0 <4.0.0'
 
 workspace:
-  # Only the subprojects that hold a package today. `apps/*`, `injections/*` and `plugins/*`
-  # join in the commit that creates their first package, because a glob that matches nothing
-  # is a resolution error, not an empty result.
+  # Only the subprojects that hold a package today. `tools/*` joins in the commit that creates
+  # its first package, because a glob that matches nothing is a resolution error, not an empty
+  # result.
   - packages/*
+  - apps/*
+  - injections/*
+  - plugins/*
 
 dev_dependencies:
   melos: ^8.9.0
@@ -60,7 +63,7 @@ melos:
     build:cli: melos exec -c 1 --scope="alteri_one_cli" -- dart build cli
     doctor: melos exec -c 1 --scope="alteri_one_cli" -- dart run bin/main.dart doctor
     bench:startup: melos exec -c 1 --scope="alteri_one_cli" -- dart run tool/bench_startup.dart
-    test:offline: melos exec -c 1 --scope="alteri_one_cli" -- dart test --tags offline-e2e
+    test:offline: melos exec -c 1 --dir-exists=test --scope="alteri_one_cli" -- dart test --tags offline-e2e
     install:release: melos exec -c 1 --scope="alterione" -- dart run bin/alterione.dart install
 
     # Release gates. They live in tool/release/ and run from the workspace root, so a

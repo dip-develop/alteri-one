@@ -1,0 +1,19 @@
+name: alterione
+publish_to: none
+resolution: workspace
+version: 0.1.0
+
+description: >-
+  The installer and updater for AlteriOne. Resolves, verifies and plans an install; it never
+  runs the product it installs.
+
+environment:
+  sdk: '>=3.13.0 <4.0.0'
+
+# No dependencies, and none will be added. This is the one package a user may install without
+# ever running the product, so it must be able to do that from a machine where AlteriOne is
+# not present: it depends on Dart SDK packages only — HTTP, crypto, YAML, CLI parsing — and
+# on no other AlteriOne package. ADR-0018, architecture/overview.md §4.
+#
+# `publish_to: none` holds until the pub.dev name is claimed (Phase 6). The name is a
+# permanent claim, so it is not made by a CI run.
