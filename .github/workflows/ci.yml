@@ -239,7 +239,12 @@ jobs:
         run: melos run test
 
       - name: Offline end-to-end
-        run: melos exec -c 1 --scope="alteri_one_cli" -- dart test --tags offline-e2e
+        # --dir-exists=test, for the same reason the `test` script carries it: `dart test`
+        # in a package with no test/ directory is a usage error, not a pass. The harness
+        # itself arrives with task 0.21, so until then this step runs in zero packages —
+        # a Melos scope that matches nothing exits 0 without doing anything. From 0.21 it
+        # runs the fixture server with egress denied.
+        run: melos exec -c 1 --dir-exists=test --scope="alteri_one_cli" -- dart test --tags offline-e2e
 
       - name: Tier 2 sandbox suite
         # Linux only. macOS and Windows have a separate job below that asserts refusal.

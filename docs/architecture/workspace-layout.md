@@ -145,7 +145,7 @@ melos:
     build:cli: melos exec -c 1 --scope="alteri_one_cli" -- dart build cli
     doctor: melos exec -c 1 --scope="alteri_one_cli" -- dart run bin/main.dart doctor
     bench:startup: melos exec -c 1 --scope="alteri_one_cli" -- dart run tool/bench_startup.dart
-    test:offline: melos exec -c 1 --scope="alteri_one_cli" -- dart test --tags offline-e2e
+    test:offline: melos exec -c 1 --dir-exists=test --scope="alteri_one_cli" -- dart test --tags offline-e2e
     install:release: melos exec -c 1 --scope="alterione" -- dart run bin/alterione.dart install
 
     # Release gates. They live in tool/release/ and run from the workspace root, so a
@@ -182,7 +182,7 @@ fact rather than a preference:
 |---|---|
 | `test` and `yaml` are dev_dependencies | `test/` and `tool/` are the root package's own directories, so `dart test` at the root needs `test`, and the workspace contract test parses manifests with `yaml` rather than grepping for keys — a grep for `resolution: workspace` also matches the sentence that says the key is mandatory |
 | `useRootAsPackage: true` | The root is a package. Without the flag `melos exec` skips it, and no gate ever looks at a line of `test/` or `tool/` |
-| `format` and `format:root` are one gate, and `test` carries `--dir-exists=test` | `dart format` has no exclude flag and does not read `analyzer.exclude`, so a `.` at the repository root would walk into `site/` — a different toolchain with its own build gate, whose build output is ~28 MB of resolved package source ([ADR-0020](../decisions/0020-project-website.md)) — and into the website's own sources, which would couple a product PR to website formatting. `dart test` in a package with no `test/` directory is a usage error rather than a pass, and `--dir-exists=test` is what `melos test` does by definition |
+| `format` and `format:root` are one gate, and `test` and `test:offline` carry `--dir-exists=test` | `dart format` has no exclude flag and does not read `analyzer.exclude`, so a `.` at the repository root would walk into `site/` — a different toolchain with its own build gate, whose build output is ~28 MB of resolved package source ([ADR-0020](../decisions/0020-project-website.md)) — and into the website's own sources, which would couple a product PR to website formatting. `dart test` in a package with no `test/` directory is a usage error rather than a pass, and `--dir-exists=test` is what `melos test` does by definition |
 
 Every workspace package begins with:
 
