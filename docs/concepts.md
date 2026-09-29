@@ -5,43 +5,70 @@
 Read this document before any other. The rest of the specification depends on these
 terms being used in exactly one sense.
 
-## 1. The five nouns
+## 1. The six nouns
 
-AlteriOne has five extension-related nouns. They are routinely confused, so the
-distinctions are stated as a type-level rule, not as advice.
+AlteriOne has six nouns that describe what extends the core. They are routinely confused,
+so the distinctions are stated as a type-level rule, not as advice. Each extension noun
+has exactly one subproject it lives in — see
+[ADR-0014](decisions/0014-extension-subprojects.md).
 
 | Noun | One-line definition | Has authority? | Has code? | Lives in |
 |---|---|---|---|---|
 | **Capability** | A permission class, e.g. `network.egress` | It *is* the authority | No | [architecture/policy.md](architecture/policy.md) |
-| **Tool** | A model-invocable operation with a typed argument schema | No — borrows from the plugin's capabilities | Yes | [extensibility/tools.md](extensibility/tools.md) |
-| **Plugin** | The distributable unit that *provides* tools | Declares capabilities, receives the intersection | Tier 1 and 2 only | [extensibility/plugins.md](extensibility/plugins.md) |
-| **Skill Pack** | A Tier 0 plugin: data, prompts and resources | No | No | [extensibility/skill-packs.md](extensibility/skill-packs.md) |
-| **App** | A frontend or embedder of the core | No | Optional | [apps/](apps/cli.md) |
+| **Tool** | A model-invocable operation with a typed argument schema | No — borrows from the unit that ships it | Yes | `tools/` — [extensibility/tools.md](extensibility/tools.md) |
+| **Injection** | A deterministic transform applied to the context on the way to the model | **Never** | Tier 0 no, Tier 1 yes | `injections/` — [extensibility/injections.md](extensibility/injections.md) |
+| **Plugin** | A runtime service: memory, MCP, a sandbox host, a storage backend | No — declares, receives the intersection | Yes | `plugins/` — [extensibility/plugins.md](extensibility/plugins.md) |
+| **App** | A frontend or embedder of the core | No | Optional | `apps/` — [apps/](apps/cli.md) |
+| **Provider** | An adapter for a model endpoint; never provides tools | No | Yes | [architecture/providers.md](architecture/providers.md) |
 
-**Provider** is a sixth noun and is orthogonal to the five above: it adapts a model
-endpoint. A provider never provides tools.
+A **Skill Pack** is not a seventh noun. It is an `Injection(tier: data)`: `SKILL.md`,
+prompts, schemas and resources, validated as data and applied as `skillContent/untrusted`
+content. The format is specified in
+[extensibility/skill-packs.md](extensibility/skill-packs.md), which is part of the
+injection surface.
 
 ### 1.1 The type-level rule
 
 > A **tool** is something the model can *call**.
 > A **capability** is something the host can *refuse*.
-> A **plugin** is the thing that *ships* both the tool and the declared capabilities.
+> An **injection** is something that rewrites *context* and can do nothing else.
+> A **plugin** is a *runtime service* the core needs to operate.
+> An **app** is a *place a person meets* the core.
 
 A tool ID is never a capability ID. `web.search` is a tool. `network.egress` is a
 capability. Writing `skill:web_search` in a `capabilities:` list — as the pre-split
 version of this specification did — is a category error and is rejected by the schema
 validator.
 
-### 1.2 Two words that survive unchanged
+The same rule applies to injections: `compress.context` is a tool-shaped name for
+something that is not a tool. An injection manifest carries no `tools:` list, no
+`requires:` list and no capability request, because there is no field in which one could
+hide.
 
-`module` is **not** a synonym for plugin. It survives in exactly two places, both
-protocol-level:
+### 1.2 One unit, one authority
+
+Three rules that are checked, not advised:
+
+1. **An injection never receives authority.** It is handed a context and returns a
+   context. It cannot request a capability, register a tool, alter policy or budget, or
+   write to trusted memory.
+2. **An app ships no tools and no services.** It composes. A tool implementation ships
+   inside exactly one `tools/` package or one `plugins/` package — never two, so every
+   tool id has one implementation and one namespace owner.
+3. **Everything except an app is a dependency.** An extension is added or removed in
+   `pubspec.yaml` and declared in `alterione.yaml`; see
+   [ADR-0015](decisions/0015-extension-dependencies.md).
+
+### 1.3 Two words that survive unchanged
+
+`module` is **not** a synonym for plugin or extension. It survives in exactly two places,
+both protocol-level:
 
 - the envelope field `"module": "core"`, which names the namespace a frame belongs to;
 - the `core/*` method prefix.
 
-Everywhere else, "plugin" is used. `docs/reference/glossary.md` lists the residue
-explicitly.
+Everywhere else, the unit names in ADR-0014 are used: app, tool, injection, plugin.
+`docs/reference/glossary.md` lists the residue explicitly.
 
 ## 2. Identifier grammar
 
@@ -52,7 +79,8 @@ a configuration error, never a warning.
 |---|---|---|---|
 | Tool ID | `^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$` | `web.search` | 64 chars |
 | Capability ID | `^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$` | `network.egress` | 64 chars |
-| Plugin ID | `^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$` | `example.web_search` | 128 chars |
+| Unit ID (app, tool, injection, plugin) | `^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$` | `example.web_search` | 128 chars |
+| Injection ID | `^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$` | `example.weekly_report` | 128 chars |
 | Profile name | `^[a-z][a-z0-9_]*$` | `companion` | 32 chars |
 | Event topic | `^[a-z][a-z0-9_]*(\/[a-z][a-z0-9_]*)+$` | `core/step_completed` | 64 chars |
 | Record ID | `^(mem|trace|req|span|art|evt)_[0-9a-f]{8,32}$` | `mem_01f4a9c2` | — |
@@ -70,7 +98,8 @@ failure. See [architecture/overview.md](architecture/overview.md#5-dispatch).
 | `$/` (method) | Protocol control methods: `$/cancelRequest`, `$/progress` | `alteri_one_protocol` |
 | `trace_`, `req_`, `span_`, `evt_`, `mem_`, `art_` | Runtime identifiers | `IdGenerator` |
 
-A plugin MUST NOT declare a tool or an event topic in a reserved namespace.
+A tool, an injection or a plugin MUST NOT declare a tool or an event topic in a reserved
+namespace.
 
 ### 2.2 Identifier and version migration from the pre-split specification
 
@@ -183,9 +212,12 @@ excess calls are rejected with `-32602` and returned to the model as
 |---|---|
 | Capability enforcement and precedence | [architecture/policy.md](architecture/policy.md) |
 | Tool contract, schemas, exposure | [extensibility/tools.md](extensibility/tools.md) |
+| Injection contract, context pipeline, ordering | [extensibility/injections.md](extensibility/injections.md) |
 | Plugin contract, tiers, lifecycle, registry | [extensibility/plugins.md](extensibility/plugins.md) |
-| Skill pack format | [extensibility/skill-packs.md](extensibility/skill-packs.md) |
+| Skill pack format, as a Tier 0 injection | [extensibility/skill-packs.md](extensibility/skill-packs.md) |
 | MCP dialect, consent, security | [extensibility/mcp.md](extensibility/mcp.md) |
-| CLI surface and exit codes | [apps/cli.md](apps/cli.md) |
+| Subprojects, dependencies, `alterione.yaml` | [architecture/workspace-layout.md](architecture/workspace-layout.md) |
+| Installation, update, release layout | [architecture/install-and-update.md](architecture/install-and-update.md) |
+| App surfaces and exit codes | [apps/cli.md](apps/cli.md) |
 | Engine loop and control primitives | [architecture/engine.md](architecture/engine.md) |
 | Memory records and labels in storage | [architecture/memory.md](architecture/memory.md) |

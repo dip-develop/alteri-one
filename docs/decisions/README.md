@@ -30,6 +30,11 @@ records below exist with their required sections.
 | 0011 | Vector index: `local_hnsw` versus `sqlite-vec` | Open — measurement required | After v1 |
 | 0012 | Web architecture: full core in browser versus thin UI | Open — Phase 5 | Phase 5 |
 | [0013](0013-transcript-first-tracing.md) | Transcript-first tracing, OTel deferred | Accepted | Phase 0 |
+| [0014](0014-extension-subprojects.md) | Four subprojects — `apps`, `tools`, `injections`, `plugins` — and six nouns | Accepted | Phase 0 |
+| [0015](0015-extension-dependencies.md) | Extensions are pub dependencies; `alterione.yaml` declares them | Accepted | Phase 0 |
+| [0016](0016-product-naming.md) | `alterione` names the installed product; `alteri_one_*` names source | Accepted | Phase 0 |
+| [0017](0017-aot-snapshot-and-runtime.md) | The release is `alterione.aot` on a pinned `bin/dartrantime` | Accepted | Phase 0 / 6 |
+| [0018](0018-bootstrap-package.md) | `alterione` on pub.dev is the second installation path | Accepted | Phase 6 |
 
 ## Format
 

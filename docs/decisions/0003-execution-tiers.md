@@ -3,6 +3,9 @@
 **Status:** Accepted
 **Date:** 2026-09-29
 **Affects:** `alteri_one_core`, `alteri_one_platform`, `alteri_one_cli`
+**Extended by:** ADR-0014 — the tiers are unchanged and remain three. What a tier can
+apply to is now stated: injections may be Tier 0 or Tier 1, tools and plugins Tier 1 or
+Tier 2, apps never Tier 0 or Tier 2. A Skill Pack is an `Injection(tier: data)`.
 
 ## Context
 
@@ -20,9 +23,9 @@ Replace the isolate model with three explicitly different tiers:
 
 | Tier | Unit | Execution | Boundary |
 |---|---|---|---|
-| 0 | Skill Pack | Data only; no process, no isolate | A content and provenance boundary |
-| 1 | Trusted Plugin | Linked into the AOT binary; an isolate may localise faults | Trust established at build time |
-| 2 | Untrusted Plugin | Separate precompiled AOT process under an OS sandbox | Process + OS sandbox + capability broker |
+| 0 | Injection (data) | Data only; no process, no isolate | A content and provenance boundary |
+| 1 | Tool, Injection, Plugin | Linked into the AOT binary; an isolate may localise faults | Trust established at build time |
+| 2 | Tool, Plugin | Separate precompiled AOT process under an OS sandbox | Process + OS sandbox + capability broker |
 
 Additional binding rules:
 
