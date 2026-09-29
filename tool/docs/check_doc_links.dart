@@ -99,11 +99,6 @@ final class _Options {
     required this.unknown,
   });
 
-  final String root;
-  final bool orphans;
-  final bool help;
-  final String? unknown;
-
   factory _Options.parse(List<String> arguments) {
     var root = '.';
     var orphans = false;
@@ -140,6 +135,11 @@ final class _Options {
       unknown: unknown,
     );
   }
+
+  final String root;
+  final bool orphans;
+  final bool help;
+  final String? unknown;
 }
 
 List<String> _findMarkdown(String root) {

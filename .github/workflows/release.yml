@@ -88,7 +88,11 @@ jobs:
       - run: dart pub get
       - run: melos run generate
       - run: melos run analyze
+      # One gate, two commands: `format` walks every package, `format:root` covers the root
+      # package's own `test/` and `tool/`, which `dart format` cannot reach from `.` without
+      # also walking into the website. Same order as the ci chain.
       - run: melos run format
+      - run: melos run format:root
       - run: melos run test
 
   artifacts:

@@ -60,11 +60,14 @@ one and loses the ability to recover from a bad merge.
 melos run generate
 melos run analyze
 melos run format
+melos run format:root
 melos run test
 ```
 
-All four must be clean. `analyze` uses `--fatal-infos`: an info-level diagnostic fails the
-build, on purpose.
+All of them must be clean. `analyze` uses `--fatal-infos`: an info-level diagnostic fails the
+build, on purpose. `format` and `format:root` are one gate: the first covers every package, the
+second covers the root package's own `test/` and `tool/`, which `dart format` cannot reach
+without also walking into `site/`.
 
 CI runs the same chain on Linux, macOS and Windows. A Tier 2 job on macOS or Windows is
 expected to **refuse**, and that refusal is a pass — see

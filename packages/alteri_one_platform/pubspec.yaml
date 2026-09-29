@@ -1,0 +1,11 @@
+name: alteri_one_platform
+publish_to: none
+resolution: workspace
+version: 0.1.0
+
+description: >-
+  The ports the engine is written against — clock, paths, storage, HTTP, concurrency and
+  process hosting — with the native and web implementations behind them.
+
+environment:
+  sdk: '>=3.13.0 <4.0.0'

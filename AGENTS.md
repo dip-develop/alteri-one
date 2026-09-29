@@ -4,17 +4,23 @@ Agent notes for the AlteriOne specification repository. Read
 [docs/README.md](docs/README.md) for the specification itself; this file records only
 what an agent would otherwise get wrong.
 
-## The state of the tree: specification-first, no workspace yet
+## The state of the tree: the workspace exists, the product does not
 
-Task `0.1` has **not** landed. There is no root `pubspec.yaml`, no `melos.yaml`, no
-`packages/`, `apps/`, `tools/`, `injections/`, `plugins/`, no `alterione.yaml`, and no
-`test/`. The only real Dart package in the tree is `site/` (the Jaspr landing page).
+Task `0.1` has landed in two steps. There is a root `pubspec.yaml` carrying `workspace:` and
+`melos:`, a root `analysis_options.yaml`, a committed `pubspec.lock`, the three product
+libraries under `packages/`, and `test/workspace/workspace_contract_test.dart`. There is still
+**no `alterione.yaml`**, no app, tool, injection or plugin package, and no product code: the
+packages carry their boundary and nothing else, and each declaration arrives with the task
+that specifies it.
 
-Consequence: **the `melos run generate / analyze / format / test` chain in
-[CONTRIBUTING.md](CONTRIBUTING.md), [quality-gates.md](docs/process/quality-gates.md) and
-the PR template cannot run yet.** Do not attempt it, and do not report its absence as a
-failure. The `detect` job in [ci.yml](.github/workflows/ci.yml) sets `has_workspace=false`
-and every workspace job is skipped on purpose.
+Consequence: `melos run generate` is a no-op (`--depends-on="^build"` matches no package until
+codegen exists), and `melos run test` runs the root package's contract tests only — the
+product packages have no `test/` directory yet, which is why the `test` script carries
+`--dir-exists=test`. That is expected, not a failure.
+
+The `detect` job in [ci.yml](.github/workflows/ci.yml) now sets `has_workspace=true`, so the
+`workspace-contracts` and `matrix` jobs run. `workspace-contracts` runs each contract test
+file that exists and reports the ones whose task has not run yet, and it fails if none exists.
 
 Per [repo-settings.json](repo-settings.json), the **only required status checks** on
 `main` and `develop` are `Detect repository phase` and `Documentation and governance`.
@@ -23,10 +29,23 @@ Those two jobs are what currently block a PR.
 ## What actually runs today
 
 ```bash
-# The one local gate. Dependency-free, needs no `pub get`, covers every markdown file.
+dart pub global activate melos 8.9.0
+dart pub get
+
+# The gate chain, in order. `format` and `format:root` are one gate with two commands.
+melos run generate
+melos run analyze
+melos run format
+melos run format:root
+melos run test
+
+# The task 0.1 acceptance criterion.
+dart test test/workspace/workspace_contract_test.dart
+
+# The documentation gate. Dependency-free, needs no `pub get`, covers every markdown file.
 dart tool/docs/check_doc_links.dart --orphans
 
-# The site.
+# The site. Deliberately outside the workspace: its own lockfile, its own gate.
 dart pub global activate jaspr_cli
 cd site
 dart pub get
@@ -38,7 +57,6 @@ Dart is pinned to **3.13.4** in every workflow. Do not bump it casually: the sit
 `build_runner` pin and the product's `^2.16.1` are coupled to this resolution
 (see *Site* below).
 
-Once `0.1` lands, the gate order is `generate → analyze → format → test`, and
 `analyze` runs `dart analyze --fatal-infos` — an **info-level diagnostic fails the build**.
 
 ## Gotchas that will be guessed wrong
@@ -75,6 +93,18 @@ Once `0.1` lands, the gate order is `generate → analyze → format → test`, 
   section is the single source of truth — there is no `melos.yaml` and there must not
   be one. `melos bootstrap` is not a prerequisite; pub workspaces resolve local
   dependencies directly.
+- **A `workspace:` glob that matches no package makes `dart pub get` fail** — not a warning,
+  not an empty result. The root manifest lists only the subprojects that hold a package, and
+  a pattern is added by the same commit that creates its first package. There is no `sdk/*`
+  glob: `alteri_one_sdk` lives under `packages/`.
+- **Adding a package means editing the workspace contract test too.**
+  `test/workspace/workspace_contract_test.dart` holds a hard-coded membership list and the
+  allowed-dependency table from `overview.md` §3. That is intentional: a layout change is
+  reviewed as a change to a contract, not discovered by a glob.
+- **`dart format` ignores `analyzer.exclude`.** It has no exclude flag, so a `.` at the
+  repository root walks into `site/` and its 28 MB of resolved package source. Hence
+  `format` (per package) and `format:root` (`test` and `tool`, by path). Do not merge them
+  back into one command.
 
 ## `site/` — the website
 
@@ -238,15 +268,20 @@ ADR file that is not indexed fails the documentation checker as an orphan.
 
 Trust the executable sources over prose:
 
-- `README.md` says "No packages exist yet" — accurate for the product, but `site/` is a
-  real, buildable package.
-- [quality-gates.md](docs/process/quality-gates.md) lists most gates as active; only the
-  documentation, governance, Cyrillic and naming gates run today, and several
-  `test/**` contract files it names do not exist yet.
+- `README.md` says "No packages exist yet" — true of the product's own packages, which carry
+  a manifest and a boundary and no declaration. `site/` is a real, buildable package.
+- [quality-gates.md](docs/process/quality-gates.md) lists most gates as active. The
+  documentation, governance, Cyrillic, naming, workspace-contract and melos chain gates run
+  today; `test/ci/quality_gates_contract_test.dart`, `test/ci/telemetry_allowlist_test.dart`
+  and `test/governance/documentation_contract_test.dart` are named but not created, and
+  `workspace-contracts` reports each one rather than pretending it passed.
 - [tool/release/README.md](tool/release/README.md) lists nine `*.dart` gate scripts; only
   `repo_settings.sh` is present.
 - `melos run release:*` scripts, `test/install/`, `config/fixtures/release/` and
-  `tool/install/` are all specified but not created.
+  `tool/install/` are all specified but not created. The `build:*`, `doctor`, `bench:startup`,
+  `test:offline` and `install:release` scripts are declared and will fail until the packages
+  they scope to exist; a Melos script whose scope matches no package exits `0` without doing
+  anything, so their presence proves nothing yet.
 
 ## Where to start reading
 

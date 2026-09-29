@@ -1,0 +1,42 @@
+# Analysis options for the workspace root. Every package inherits this file: there is one
+# options file per workspace, not one per package, so a rule cannot be tightened in a corner
+# of the tree and missed in review.
+#
+# No `include: package:lints/recommended.yaml`. The root's dev_dependencies are melos,
+# build_runner and test (workspace-layout.md §2), so a lints package would enter the
+# resolution of the whole workspace to carry configuration. The rules that matter here are
+# written out, each with the reason it is on.
+#
+# `--fatal-infos` is the gate (quality-gates.md §1), so an enabled rule that fires is a build
+# failure. Every rule below has been turned on deliberately.
+
+analyzer:
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
+  exclude:
+    # The website. Its toolchain cannot be resolved in the same graph as the product's —
+    # ADR-0020 — so analysing it from the workspace reports a package graph that exists in
+    # neither place. It has its own options file and its own build gate in pages.yml.
+    - site/**
+    # Generated and downloaded trees. `dart format` and `dart analyze` walk both otherwise,
+    # and neither owns the code inside them.
+    - "**/build/**"
+    - "**/.dart_tool/**"
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"
+
+linter:
+  rules:
+    # The engine must be testable without a real clock, a real id or a real process, so a
+    # production call to any of them is a defect the analyzer can catch.
+    - avoid_dynamic_calls
+    # An unawaited future in an engine that cancels and drains is a lost shutdown.
+    - unawaited_futures
+    # Public API without documentation is not API; the protocol is read by third parties.
+    - public_member_api_docs
+    - prefer_final_locals
+    - prefer_single_quotes
+    - require_trailing_commas
+    - sort_constructors_first

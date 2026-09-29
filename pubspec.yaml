@@ -1,0 +1,82 @@
+# The workspace root. It is a package, not a directory of convenience: `test/` and `tool/`
+# below it are its own, and they own the workspace-level contract tests and the repository's
+# scripts.
+#
+# This file is the single definition of the Melos configuration. `melos.yaml` is not created
+# and `pubspec.workspaces.yaml` does not exist — ADR-0001. The `workspace:` entry lists only
+# the subprojects that hold a package, because `dart pub get` fails on a glob that matches
+# nothing. The scripts are specified in docs/architecture/workspace-layout.md §2; keep the two
+# in step.
+
+name: alteri_one_workspace
+publish_to: none
+
+description: >-
+  Workspace root for AlteriOne. Resolves every package in the repository through one lockfile
+  and owns the workspace-level contract tests. It ships no library.
+
+environment:
+  sdk: '>=3.13.0 <4.0.0'
+
+workspace:
+  # Only the subprojects that hold a package today. `apps/*`, `injections/*` and `plugins/*`
+  # join in the commit that creates their first package, because a glob that matches nothing
+  # is a resolution error, not an empty result.
+  - packages/*
+
+dev_dependencies:
+  melos: ^8.9.0
+  build_runner: ^2.16.1
+  test: ^1.32.0
+  # The workspace contract test reads every manifest in the tree, so it parses YAML rather
+  # than grepping for keys. `yaml` is already in the resolution through melos; it is declared
+  # here because a test may not use a transitive dependency.
+  yaml: ^3.1.4
+
+melos:
+  # The root is a package, not a directory of convenience: `test/` and `tool/` below it are
+  # part of the resolution and must be part of the gates, so Melos needs to know that the
+  # repository root is a member. Without this flag `melos exec` skips it and `melos run
+  # analyze`, `format` and `test` never look at a line of the workspace-level contract tests.
+  useRootAsPackage: true
+  command:
+    version:
+      versionPrivatePackages: true
+  scripts:
+    generate: melos exec --depends-on="^build" -- dart run build_runner build
+    analyze: melos exec -c 1 -- dart analyze --fatal-infos
+    # `dart format` has no exclude flag and does not read `analyzer.exclude`, so a `.` at the
+    # repository root would walk into site/ — a different toolchain, with its own resolution
+    # and its own gate (ADR-0020) — and into the ~1,900 dependency files a `jaspr build`
+    # leaves under site/build. The root is therefore formatted by path and the packages keep
+    # the `.`. The two are one gate and CI runs both.
+    format: melos exec -c 1 --ignore=alteri_one_workspace -- dart format --output=none --set-exit-if-changed .
+    format:root: melos exec -c 1 --scope=alteri_one_workspace -- dart format --output=none --set-exit-if-changed test tool
+    # --dir-exists=test, because `dart test` in a package with no test/ directory is a usage
+    # error rather than a pass. It is also what `melos test` does by definition: it runs in
+    # the packages that have a test/ directory.
+    test: melos exec -c 1 --dir-exists=test --fail-fast -- dart test
+    build:aot: melos exec -c 1 --scope="alteri_one_cli" -- dart compile aot-snapshot bin/main.dart -o dist/alterione.aot
+    build:cli: melos exec -c 1 --scope="alteri_one_cli" -- dart build cli
+    doctor: melos exec -c 1 --scope="alteri_one_cli" -- dart run bin/main.dart doctor
+    bench:startup: melos exec -c 1 --scope="alteri_one_cli" -- dart run tool/bench_startup.dart
+    test:offline: melos exec -c 1 --scope="alteri_one_cli" -- dart test --tags offline-e2e
+    install:release: melos exec -c 1 --scope="alterione" -- dart run bin/alterione.dart install
+
+    # Release gates. They live in tool/release/ and run from the workspace root, so a
+    # gate never needs to know which package it is inspecting. Each exits non-zero on a
+    # failure that must block a release; none of them may be skipped in CI.
+    #
+    # repo_settings.sh is the one gate that configures nothing: it compares the live
+    # repository settings against repo-settings.json so a change made in the GitHub UI
+    # cannot go unrecorded. See tool/release/README.md.
+    release:closure-check: dart run tool/release/closure_check.dart
+    release:naming-check: dart run tool/release/naming_check.dart
+    release:repo-settings-check: bash tool/release/repo_settings.sh --check   # see tool/release/README.md
+    release:install-check: dart run tool/release/install_check.dart
+    release:version-check: dart run tool/release/version_check.dart
+    release:artifact-check: dart run tool/release/artifact_check.dart
+    release:signature-check: dart run tool/release/signature_check.dart
+    release:startup-check: dart run tool/release/startup_check.dart
+    release:offline-check: dart run tool/release/offline_check.dart
+    release:publish-dry-run: dart run tool/release/publish_dry_run.dart

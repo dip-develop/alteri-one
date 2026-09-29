@@ -1,0 +1,11 @@
+name: alteri_one_protocol
+publish_to: none
+resolution: workspace
+version: 0.1.0
+
+description: >-
+  The versioned envelope, its framing, the codec and the error taxonomy spoken between the
+  core and an extension. Pure Dart, and it stays that way.
+
+environment:
+  sdk: '>=3.13.0 <4.0.0'

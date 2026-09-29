@@ -10,10 +10,11 @@ not an excused one.
 Run in this order. All must be clean.
 
 ```bash
-melos run generate    # codegen
-melos run analyze     # dart analyze --fatal-infos, every package
-melos run format      # dart format --output=none --set-exit-if-changed .
-melos run test        # dart test, every package
+melos run generate     # codegen
+melos run analyze      # dart analyze --fatal-infos, every package
+melos run format       # dart format --output=none --set-exit-if-changed . , per package
+melos run format:root  # the root package's test/ and tool/, by path
+melos run test         # dart test, every package that has a test/ directory
 ```
 
 | Gate | Command | Fails on |
@@ -22,6 +23,11 @@ melos run test        # dart test, every package
 | Analysis | `dart analyze --fatal-infos` | Any error, warning or info |
 | Format | `dart format --output=none --set-exit-if-changed .` | Any formatting difference |
 | Tests | `dart test` | Any failure |
+
+`format` and `format:root` are one gate with two commands. `dart format` has no exclude flag
+and does not read `analyzer.exclude`, so the `.` at the repository root would walk into `site/`
+— a different toolchain, with its own lockfile, its own gate, and ~28 MB of resolved package
+source left behind by a build. The root is therefore formatted by path, and CI runs both.
 
 `--fatal-infos` is deliberate. Under `--fatal-infos`, an info-level diagnostic is a build
 failure, which is what keeps the analysis surface from creeping upward one "harmless" hint
