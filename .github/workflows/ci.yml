@@ -272,3 +272,50 @@ jobs:
       - run: dart pub global activate melos
       - run: dart pub get
       - run: melos exec -c 1 --scope="alteri_one_platform" -- dart test test/tier2/platform_policy_contract_test.dart
+
+  coverage:
+    name: Coverage (reported, not gated)
+    needs: [detect, documentation]
+    # Coverage is configured and reported, never gated at a percentage in v1
+    # (quality-gates.md §4): a percentage that generated code can meet is worse than no gate,
+    # and a required status check is a gate whatever this job is called. Linux only, because
+    # one honest number beats three that disagree by runner.
+    if: needs.detect.outputs.has_workspace == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: ${{ env.DART_VERSION }}
+
+      - name: Install Melos
+        run: dart pub global activate melos
+
+      - run: dart pub get
+
+      - name: Codegen, so the report is not full of generated files
+        run: melos run generate
+
+      - name: Collect and format
+        # `--coverage` writes VM coverage as JSON; `format_coverage` turns it into lcov, which
+        # is what a reporter or a local `genhtml` can read. No threshold, no fail.
+        run: |
+          melos exec -c 1 --dir-exists=test -- dart test --coverage=coverage
+          dart pub global activate coverage
+          dart run coverage:format_coverage \
+            --lcov --in=coverage --out=coverage/lcov.info \
+            --report-on=lib --packages=.dart_tool/package_config.json
+
+      - name: Summarise
+        # Reported, not gated: the step cannot fail the build, and it says so in the log.
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -f coverage/lcov.info ]; then
+            files=$(grep -c '^SF:' coverage/lcov.info || true)
+            echo "coverage: $files files instrumented"
+            echo "The report is an artefact of this run, not a gate. See quality-gates.md §4."
+          else
+            echo "::notice::no coverage/lcov.info was produced."
+          fi
