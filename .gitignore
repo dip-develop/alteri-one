@@ -47,3 +47,5 @@ site/.jaspr/
 # OS
 .DS_Store
 Thumbs.db
+
+**.lock
