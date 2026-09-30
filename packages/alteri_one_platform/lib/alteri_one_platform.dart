@@ -12,12 +12,26 @@
 /// |---|---|
 /// | task `0.1` | The package and its boundary |
 /// | task `0.9` | The six ports, five native adapters, the browser refusal surface |
+/// | task `0.10` | `IdGenerator` with its seeded and random sources, and `FakeClock` |
 ///
 /// Nothing is declared before the task that specifies it, so that no declaration is written twice
-/// or written against a spec that moved. In particular there is **no shipped fake** here and no
-/// `HiveCeStorage`: the determinism doubles are task `0.10`'s, and the Hive adapter is task
-/// `1.1`'s. So `StoragePort` is the one port in this package with no implementation behind it yet,
-/// which is why its adapter is the only one the browser surface does not have to mirror.
+/// or written against a spec that moved. In particular there is **no `StoragePort` implementation**
+/// and no `HiveCeStorage`: the Hive adapter is task `1.1`'s. So `StoragePort` is the one port in
+/// this package with no implementation behind it yet, which is why its adapter is the only one the
+/// browser surface does not have to mirror.
+///
+/// ## The determinism doubles are shipped, and that is a decision
+///
+/// `src/fakes/clock.dart` is library code rather than a test helper, and the reason is
+/// reachability. The doubles are for *other packages' tests*: [apps/sdk.md] §3 has an embedder
+/// supplying its own clock, [apps/cli.md] §5 has the REPL scripted with a provider double, and
+/// [architecture/memory.md] §4 requires memory's own determinism test to replay a script. A double
+/// in `test/fakes/` cannot be imported by any of them — a `test/` directory is not on another
+/// package's resolution path — so the alternative was one copy per package, each drifting.
+///
+/// The cost is that a double is in the AOT snapshot. It is kilobytes against a snapshot measured
+/// in tens of megabytes, it is reachable only by a caller who names it, and the cost of the
+/// alternative is not measured at all.
 ///
 /// ## The arrangement, and what it buys
 ///
@@ -70,12 +84,23 @@
 ///
 /// [architecture/overview.md]: ../../../../docs/architecture/overview.md
 /// [architecture/providers.md]: ../../../../docs/architecture/providers.md
+/// [architecture/memory.md]: ../../../../docs/architecture/memory.md
+/// [apps/sdk.md]: ../../../../docs/apps/sdk.md
+/// [apps/cli.md]: ../../../../docs/apps/cli.md
 library;
 
 export 'src/clock.dart' show AlteriOneClock;
 export 'src/concurrency.dart' show Computation, Concurrency, ConcurrencyPeer;
+export 'src/fakes/clock.dart' show FakeClock;
 export 'src/http.dart'
     show HttpClientPort, HttpRequestSpec, HttpResponse, TransportFailure;
+export 'src/ids.dart'
+    show
+        IdGenerator,
+        IdKind,
+        RandomIdGenerator,
+        SeededIdGenerator,
+        identityBlock;
 export 'src/paths.dart' show Paths, hasUriScheme, isBeneath, resolveBeneath;
 export 'src/process.dart'
     show

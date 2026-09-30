@@ -269,16 +269,20 @@ ADR file that is not indexed fails the documentation checker as an orphan.
 
 Trust the executable sources over prose:
 
-- `README.md` says "No packages exist yet" — no longer true of `alteri_one_protocol` or
-  `alteri_one_platform`, which carry the envelope, framing, both transports and the six platform
-  ports. It is still true of `alteri_one_core`, which carries a boundary and nothing else. `site/`
-  is a real, buildable package.
+- `README.md` says "No packages exist yet" — no longer true of `alteri_one_protocol`,
+  `alteri_one_platform` or `alteri_one_core`, which carry the envelope, framing, both transports,
+  the six platform ports and the provider port. `site/` is a real, buildable package.
 - `alteri_one_platform` has **no `StoragePort` implementation yet**: `HiveCeStorage` is task `1.1`'s
   (ADR-0004), so the port is declared, the contract test satisfies it with a local double, and the
-  browser surface does not mirror it. Likewise no shipped *fakes* — the determinism doubles are
-  task `0.10`'s — which is why the contract test's fakes are local to `ports_contract_test.dart`.
-  The two tasks in that sentence are the reason neither thing was written early: a declaration
-  written before the task that specifies it is written twice.
+  browser surface does not mirror it. The contract test's *own* fakes are still local to
+  `ports_contract_test.dart`; the shipped ones (`FakeClock`, task `0.10`) are separate from those
+  and live in `lib/src/fakes/`.
+- **`AlteriOneProvider.chat` has no `deadline` and no `cancel`.** `providers.md` §1 names both and
+  `providers.md` §3 forbids retrofitting streaming after clients exist — but `Deadline` and
+  `CancelToken` are task `0.14`'s, and a required parameter typed against a type that does not
+  exist yet is the declaration-written-twice failure this repository is built to avoid. §3's
+  concern is retrofitting after *clients* exist; there are none. **Task `0.14` adds both** — two
+  required named parameters against two in-tree implementations, which is the cheap direction.
 - [quality-gates.md](docs/process/quality-gates.md) lists most gates as active. The
   documentation, governance, Cyrillic, naming, workspace-contract, quality-gate-contract,
   coverage and melos chain gates run today; `test/ci/telemetry_allowlist_test.dart` is named
@@ -412,6 +416,72 @@ Trust the executable sources over prose:
   `install-and-update.md` §2 **require** `alteri_one_platform` to contain. `_codeOnly` in the
   workspace contract test strips comments and string literals first, and it has its own test: a
   governance gate whose machinery is untested is a gate that can stop working with nothing turning red.
+- **The id's identity block is CRC-32, and it was FNV-1a first.** The reason is arithmetic, not
+  reputation: FNV-1a's step is `(hash ^ byte) * 0x01000193`, whose intermediate reaches about
+  7.2 × 10¹⁶ — above 2⁵³, where an integer compiled to JavaScript stops being exact. A web build
+  would compute a *different* identity block from the same seed, and the only symptom would be a
+  transcript digest that matches on the VM and not in a browser. CRC-32's step is a shift and an
+  exclusive-or, both under 2³², so it is exact on every target. **32 bits is the widest identity
+  block that is exact on the VM and in a web build at once** — a Dart `int` is a signed 64-bit
+  value on the VM and a double everywhere else, so any wider accumulator is exact on one target
+  and not the others. The same argument rules out `hashCode` (not stable across versions) and a
+  64-bit PRNG. `identityBlock` is exported *only* so a test can pin it against the published
+  CRC-32 vector `CRC-32("123456789") == 0xCBF43926`; a second implementation in the test is what
+  makes that a check rather than a tautology.
+- **The two id blocks have no separator, and that is forced rather than chosen.**
+  `concepts.md` §2's grammar is `_(hex)+` and admits nothing else, so `trace_9f2c41ab_00000007`
+  would be a record id the grammar *rejects* — and one it rejects is one a validating profile or
+  an exported transcript cannot carry. Sixteen hex characters in two 8-character blocks, the second
+  being a per-kind counter. A doc comment that shows the underscore is wrong, and the contract
+  test's first job is to catch exactly that.
+- **The counter is per kind, and that is the whole reason the id is stable under concurrency.**
+  A shared counter would make every request id depend on how many span ids the run happened to draw,
+  so two runs differing only in instrumentation would produce different ids for the same logical
+  event and the transcript digest would differ for a reason that has nothing to do with the run.
+  What per-kind counters do *not* fix is draw order between callers sharing one generator, so
+  **a generator is owned by one logical actor** (a run, a trace, a subagent) and two interleaved
+  actors are two seeded generators. The contract test interleaves two of them for real and compares
+  each against the sequence it produces alone.
+- **`FakeClock.delay` completes immediately *and* advances the clock, and both halves matter.** A
+  fake that waited would make the suite take as long as the run it stands in for; one that completed
+  without moving anything would make every retry-backoff assertion read `0 ms` — a test that passes
+  and proves nothing. A caller that must stop waiting races the future and abandons the loser, which
+  is the rule `AlteriOneClock.delay` states.
+- **A fake clock's default instant is the Unix epoch, not `DateTime.now()`.** A default of "now"
+  would make every test that forgot to pass an instant depend on the wall clock — the defect this
+  package exists to prevent, introduced by the package that prevents it.
+- **The determinism doubles are library code, not `test/fakes/`.** They are for *other* packages'
+  tests (`memory.md` §4 replays a `FakeProvider` script; `cli.md` §5 scripts the REPL with one), and
+  a `test/` directory is not on another package's resolution path — so the alternative is one copy
+  per package, each drifting, and a drift between a double and the port it doubles is invisible
+  until a test passes for the wrong reason. The cost is kilobytes in the AOT snapshot. Note this
+  leaves `test/fakes/` holding the *determinism contract test* rather than the doubles, which is
+  the one place `testing-strategy.md` §2's layout is not followed literally; the TODO item says so.
+- **`ScriptedTurn` checks its last chunk in the constructor, not in a getter.** `providers.md` §3.2
+  makes the final chunk mandatory — it is the only one carrying `usage` — and a script that does not
+  end in a result is a *script* that is wrong. A lazy check would be a getter that throws on first
+  use, which is the same discovery three frames deeper into a stream subscription.
+- **An unscripted step throws rather than answering with an empty turn.** A model that said nothing
+  would leave most assertions still holding, so a typo in a script would be invisible. This is the
+  fail-closed rule applied to the double itself, and `withDefault` is a *separate constructor*
+  rather than a flag precisely so a reader can see whether a typo would be caught.
+- **`AlteriOneUsage.totalTokens` is derived and never stored.** A stored total is a fourth number
+  that can disagree with the three it summarises, and the disagreement is undetectable — an engine
+  that trusts it and a test that asserts it would both be describing the same wrong number. Cached
+  tokens are a *subset* of input, not an addition, which is why the derived total is `input +
+  output` and not the sum of all three.
+- **There is no `SocketOverrides` on the pinned SDK 3.13.4, and `IOOverrides` does not cover the
+  network.** An `HttpOverrides`-denial test therefore checks the HTTP door and nothing else; a raw
+  `Socket.connect` is covered only structurally, by reflecting over the fake's fields and
+  constructor parameters. Neither alone covers the claim, which is why both exist. The full answer
+  is task `0.21`'s deny-all egress harness.
+- **`dart:mirrors` on this SDK has no `isSealed`, no `FieldMirror` and no `declaredMembers`.** A
+  class's members come from `declarations`, a `Map<Symbol, DeclarationMirror>`; a field is
+  identified by its runtime type name (`_VariableMirror`) and its type by
+  `mirror.getField(symbol).type`; `reflectedType(Foo).declaredFields` does not exist. **Sealedness
+  has no reflection check at all**, so the only way to assert it is a `switch` with no `default`
+  that the compiler accepts — a fourth chunk subclass then breaks compilation, which is the
+  strongest available form. Know that before writing a test that tries to test for `sealed`.
 - **A transport never decodes a frame, not even to write a diagnostic.** The close-time loss
   message names a *byte count* rather than a request id for this reason, and the contract test
   asserts it: naming the id would mean decoding, which is the one thing §7.1 forbids.
