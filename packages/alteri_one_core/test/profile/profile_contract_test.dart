@@ -2003,7 +2003,23 @@ model:
             if (entity is! File || !entity.path.endsWith('.dart')) continue;
             scanned++;
             if (cyrillic.hasMatch(entity.readAsStringSync())) {
-              offenders.add(entity.path.replaceFirst('${root.path}/', ''));
+              // **Normalise the separator before relativising, and this was a Windows failure.**
+              // `File.path` is whatever the platform spells, so on Windows the path of a
+              // package is backslash-separated and `replaceFirst('${root.path}/', '')` matched
+              // nothing: the whole backslash path went into [offenders], which is compared
+              // against a forward-slash constant. The gate then reported the catalogue as an
+              // offender *on the file it exempts*, which is the shape of a green test that only
+              // ever ran on Linux. The same class of defect as the governance test's CRLF split,
+              // and the same fix: normalise, then compare.
+              //
+              // Done by hand rather than with `package:path`, which is a *root* dev_dependency and
+              // would have to be added to this package's pubspec to be imported from here — a
+              // manifest change and a resolution change for one `replaceAll`.
+              offenders.add(
+                entity.path
+                    .replaceAll('\\', '/')
+                    .replaceFirst('${root.path.replaceAll('\\', '/')}/', ''),
+              );
             }
           }
         }
