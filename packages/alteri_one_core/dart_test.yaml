@@ -1,0 +1,27 @@
+# Test timeouts for alteri_one_core.
+#
+# `dart_test.yaml` does not inherit between packages, so this file is not optional: a package
+# that gains a test/ directory without one gets the package:test default by accident rather
+# than by decision, and the quality-gate contract test fails on exactly that
+# (test/ci/quality_gates_contract_test.dart, quality-gates.md §4).
+#
+# The default is 30 s and it is generous. Everything in this package's contract test constructs
+# values and calls a scripted provider: no process is spawned, no socket is bound, and the
+# package never imports `dart:io` in `lib/`, which is the rule architecture/overview.md §3
+# exists to hold. A future test that does wait has room before anyone shortens this to make a
+# suite pass.
+#
+# The `integration` and `offline-e2e` tags are declared even though nothing carries them yet,
+# and that is deliberate: a filter that matches nothing exits 0, so a tag without a timeout
+# fails nobody until the first test that needs it is written — which is exactly how the tags
+# would arrive. Both are declared for the same reason the quality-gate contract test checks for
+# them: the file is a declaration of what this package's tests may cost, and a tag that has no
+# entry here has no budget.
+
+timeout: 30s
+
+tags:
+  integration:
+    timeout: 2m
+  offline-e2e:
+    timeout: 5m

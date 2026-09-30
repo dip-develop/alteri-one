@@ -6,10 +6,16 @@
 
 - [ ] One install-root layout, not two: `install-and-update.md` §2 and `workspace-layout.md` §4
       disagree and the difference is where a user's memory lives — issue #18
+- [x] Task `0.10`: `IdGenerator` with a counter-based seeded mode and a real CRC-32 identity block,
+      `FakeClock`, the provider port, and `FakeProvider` with its read-only script and transcript
+- [ ] `AlteriOneProvider.chat` takes no `deadline` or `cancel` yet; task `0.14` adds both when it
+      owns `Deadline` and `CancelToken`, per `providers.md` §1 — stated at the port's declaration
 - [ ] CI compiles the browser surface (`dart compile js`); `alteri_one_platform`'s central claim is
       that a web build resolves the refusal surface, and nothing keeps that true but this AGENTS.md note
 - [ ] `test/` directory layout: `testing-strategy.md` §2 says `unit/`, `contract/`, `integration/`,
-      `fakes/`; the two packages that have tests use `protocol/` and `transport/` (and `platform/`)
+      `fakes/`; the packages with tests use `protocol/`, `transport/`, `platform/` and `fakes/`.
+      Note `fakes/` now holds the *determinism contract test*, not the doubles — the doubles are
+      library code, because a `test/` directory is not importable from another package
 - [x] Task `0.9`: the six platform ports, five native adapters, and a browser surface that
       refuses rather than approximating
 - [ ] Publish the `alterione` package name on pub.dev (`alterione` was unclaimed on 2026-09-29; a name on pub.dev is a permanent claim)

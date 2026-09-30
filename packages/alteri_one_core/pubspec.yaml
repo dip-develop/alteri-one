@@ -13,3 +13,10 @@ environment:
 dependencies:
   alteri_one_platform: ^0.1.0
   alteri_one_protocol: ^0.1.0
+
+# `test` is a dev_dependency, not a dependency, for the same reason it is in
+# `alteri_one_platform`: task 0.10's acceptance command is
+# `melos exec --scope=alteri_one_core -- dart test`, and the workspace contract test requires a
+# package with a test/ directory to declare the runner, precisely so that command resolves.
+dev_dependencies:
+  test: ^1.32.0
