@@ -285,6 +285,13 @@ Trust the executable sources over prose:
   `test:offline` and `install:release` scripts are declared and will fail until the packages
   they scope to exist; a Melos script whose scope matches no package exits `0` without doing
   anything, so their presence proves nothing yet.
+- `alteri_one_protocol` carries the envelope (task `0.4`): the four variants, the codec, the
+  version types and the error taxonomy. Two SDK facts are baked into its shapes and will bite
+  anyone rewriting them — **`sealed interface` does not parse on the pinned 3.13.4**, so
+  `ErrorCode` is a `sealed class`; and an **`extension type` has one constructor and may not
+  override an `Object` member**, so `ProtoMajor` and `FrameId` are final classes. Also: a
+  `JsonMap` is a wrapper, so `jsonEncode` cannot see through it — use `encodeFrame`, not
+  `jsonEncode(frame.toJson())`.
 
 ## Where to start reading
 
