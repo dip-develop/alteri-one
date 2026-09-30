@@ -42,7 +42,7 @@ These are tests, not lint config, so that they are falsifiable and greppable.
 | Workspace contract | `test/workspace/workspace_contract_test.dart` (`0.1`) | Exact package membership, `resolution: workspace`, committed lockfile, no legacy Melos config, dependency rules |
 | Extension subproject layout | `test/workspace/extension_subprojects_test.dart` (`0.28`) | The four workspace globs; every package under `tools/`, `injections/` and `plugins/` declared in `alterione.yaml` or `enabled: false`; no `alteri_one_*` package depends on an app |
 | Quality-gate contract | `test/ci/quality_gates_contract_test.dart` (`0.2`) | Every gate command exists and carries its flag; every job that runs the chain is a three-OS matrix and runs the chain in order; every package with tests declares its timeouts; coverage is collected and is not a required check |
-| Documentation contract | `test/governance/documentation_contract_test.dart` (`0.3`) | Required documents and ADR sections; Tier 2 without fail-closed is prohibited |
+| Documentation contract | `test/governance/documentation_contract_test.dart` (`0.3`) | Required records exist, are reachable and carry their required sections; the vulnerability reporting channel is private and named; every ADR is indexed and has its four sections with a rejected alternative; CODEOWNERS has no org login and no stale pattern; Tier 2 without fail-closed is prohibited |
 | Manifest contract | `test/config/manifest_contract_test.dart` (`0.29`) | `alterione.yaml` parses; an `apiVersion`/`kind` mismatch is refused; the three bind-time invariants hold against the resolved dependency graph |
 | Telemetry allowlist | `test/ci/telemetry_allowlist_test.dart` (`0.23`) | No analytics, crash-reporting or telemetry package in the resolved graph |
 | **Hook-free closure** | `test/ci/hook_free_closure_test.dart` (`0.30`) | No package in the resolved closure of `alteri_one_cli` ships `hook/build.dart` or a native asset |
@@ -81,6 +81,18 @@ and would otherwise lose silently:
   the user-visible name is the one the user types, the one a bug report quotes and the one
   that ends up in a support thread. See
   [ADR-0016](../decisions/0016-product-naming.md).
+
+The documentation contract is not in that list because it protects no *implementation*
+property — it protects the records the other gates are described by. It exists for the same
+reason the `check_doc_links` gate exists and is separate from it: the link checker proves
+that a path resolves, and neither it nor a reviewer notices that the sentence behind the
+link has stopped saying what it said. Its lists are hard-coded, so a contributor who
+deletes `SECURITY.md` or an ADR proposes a change to a contract rather than performing a
+cleanup that leaves the tree quietly less governed.
+
+`test/governance/mutation_check.sh` is the harness for that file, and it is deliberately not
+part of the gate: it rewrites the tree to prove the contract goes red, which is not something
+a blocking chain should do. Run it when the contract changes.
 
 ## 3. Platform matrix
 

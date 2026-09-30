@@ -21,6 +21,7 @@
 - [x] The documentation checker is Dart (`tool/docs/check_doc_links.dart`), not Python; the Python one is gone
 - [x] The web target is a locally running server hosting a Flutter web GUI — ADR-0019
 - [x] `site/`: a single-page static Jaspr landing page, deployed to alteri.one — ADR-0020
+- [x] Task `0.3`: the documentation contract — required records, ADR format, fail-closed
 - [ ] Site: install, extensions and documentation-index pages
 - [ ] Site: render `docs/` with `jaspr_content` rather than summarising it
 - [ ] Site: dark theme — `css.media` in the pinned Jaspr has no `prefers-color-scheme`
