@@ -1,0 +1,20 @@
+# Test timeouts for alteri_one_protocol.
+#
+# `dart_test.yaml` does not inherit between packages, so this file is not optional: a package
+# that gains a test/ directory without one gets the package:test default by accident rather
+# than by decision, and the quality-gate contract test fails on exactly that
+# (test/ci/quality_gates_contract_test.dart, quality-gates.md §4).
+#
+# The envelope tests read files and construct values. None of them starts a process, binds a
+# socket or reaches the network, because this package never imports `dart:io` and the tests run
+# in the blocking chain on three operating systems. 30 s is therefore generous, and it is the
+# number rather than a shorter one so that a future test that does wait has room before anyone
+# shortens it to make a suite pass.
+
+timeout: 30s
+
+tags:
+  integration:
+    timeout: 2m
+  offline-e2e:
+    timeout: 5m

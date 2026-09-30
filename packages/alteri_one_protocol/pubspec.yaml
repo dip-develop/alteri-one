@@ -9,3 +9,16 @@ description: >-
 
 environment:
   sdk: '>=3.13.0 <4.0.0'
+
+# No runtime dependencies, and that is the rule rather than the accident it looks like.
+# architecture/overview.md §3 allows "dart:core and Dart-3-compatible pure-Dart libraries"
+# here, and the version types in lib/src/version.dart deliberately parse a semver themselves
+# rather than take `pub_semver`: a wire-compatibility number is a compatibility promise about
+# this protocol, and the envelope needs to read three integers and compare them, not evaluate
+# a range — which is the handshake's job and arrives with it.
+#
+# `test` is the only entry, and it is a dev_dependency. The workspace contract checks this
+# package's *runtime* graph against the table, which is why a test runner does not have to be
+# added there.
+dev_dependencies:
+  test: ^1.32.0
