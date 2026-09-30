@@ -9,3 +9,21 @@ description: >-
 
 environment:
   sdk: '>=3.13.0 <4.0.0'
+
+# `alteri_one_protocol` is the one workspace dependency, and `Concurrency.channel` is why: §7.1 of
+# architecture/protocol.md requires this package's concurrency port to *produce* a TransportChannel,
+# so the return type is protocol's, and that is the dependency being used for exactly one symbol.
+# There is no reverse edge — protocol knows nothing about the platform — and the workspace contract
+# test checks the direction.
+#
+# No runtime dependency outside the workspace, and none is planned for v1. `hive_ce` arrives with
+# task 1.1, `package:http` with task 0.13's provider, and neither is here: the point of the ports is
+# that a call site names an interface, so the package behind it is not this file's business.
+dependencies:
+  alteri_one_protocol: ^0.1.0
+
+# `test` is a dev_dependency, not a dependency, and it is here because task 0.9's acceptance command
+# is `melos exec --scope=alteri_one_platform -- dart test`. The workspace contract test requires a
+# package with a test/ directory to declare the runner, precisely so that command resolves.
+dev_dependencies:
+  test: ^1.32.0
