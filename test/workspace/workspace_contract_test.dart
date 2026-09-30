@@ -16,8 +16,10 @@
 // The greppable acceptance string for the task is the description of the first test below:
 // "workspace uses pub workspaces and melos 8 configuration".
 
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:yaml/yaml.dart';
 
@@ -189,6 +191,132 @@ void main() {
               'deciding that a package enters the resolution',
         );
       }
+    });
+
+    test('a runtime dependency outside this workspace is on the allowlist', () {
+      // The gap ADR-0022 opened, and it was open before this test noticed it. Neither list above
+      // can see a third-party *runtime* dependency: `_allowedDependencies` is a table of
+      // workspace members, and `_toolchain` only inspects `dev_dependencies`. So before task
+      // `0.11` a real runtime dependency on a package from pub.dev would have entered the
+      // resolution, into the AOT snapshot and into the browser bundle, with nothing to stop it —
+      // `architecture/overview.md` §3's rule is a table a human reads.
+      //
+      // `_runtimeThirdParty` is that table. It is separate from `_toolchain` on purpose even
+      // though `yaml` is in both: a package can be a build tool for one package and a shipped
+      // dependency of another, and collapsing the two lists would make the *less* dangerous use
+      // the one that authorises the more dangerous one.
+      for (final member in workspace.members.values) {
+        expect(
+          member.externalRuntimeDependencies.where(
+            (name) =>
+                !_runtimeThirdParty.containsKey(member.name) ||
+                !_runtimeThirdParty[member.name]!.contains(name),
+          ),
+          isEmpty,
+          reason:
+              '${member.path} depends at runtime on a third-party package the allowlist does '
+              'not name. Every entry here is a package that reaches the shipped artefact, so '
+              'adding one is a decision: add it to this list, to architecture/overview.md §3 '
+              'and to docs/decisions/ in the same change',
+        );
+      }
+    });
+
+    test('the runtime allowlist names only packages that are actually used', () {
+      // The other direction, and the one that stops the list becoming a place where names go to
+      // be forgotten. A list that is only ever added to is a list that ends up naming a package
+      // no longer in the resolution, at which point it authorises a re-introduction nobody
+      // notices. The allowlist has to be a *description* of the tree, not a wish list.
+      for (final entry in _runtimeThirdParty.entries) {
+        final member = workspace.memberNamed(entry.key);
+        if (member == null)
+          continue; // the package is not in the workspace for this phase
+        expect(
+          member.externalRuntimeDependencies,
+          containsAll(entry.value),
+          reason:
+              '${entry.key} is allowed these third-party runtime dependencies: '
+              '${entry.value.join(', ')}. At least one is not among the ones it declares, so '
+              'the allowlist is stale — remove it or add the dependency back',
+        );
+      }
+    });
+
+    test('every product library resolves for a web build', () {
+      // The closure check, and the reason ADR-0022 is not satisfied by `intl` *not importing*
+      // `dart:io` on its own. `intl` has two libraries that do — `intl_standalone.dart`, which
+      // discovers the system locale, and `date_symbol_data_file.dart`, which loads symbols from a
+      // file — and neither is reachable from `intl.dart`. That is the property that keeps
+      // `architecture/overview.md` §3's "no `dart:io` in protocol or core" a property of a
+      // **build**: `dart compile js` resolves the same imports this walk resolves, so a browser
+      // build fails if anything in the closure reaches one.
+      //
+      // Two things this has to get right, and both have bitten this repository before:
+      //
+      // - **Conditional exports are resolved, not ignored.** `alteri_one_platform` puts every
+      //   `dart:io` adapter behind `if (dart.library.js_interop)`, so a walk that followed both
+      //   branches would report a web build that works. Following only the branch the web build
+      //   takes is what makes the one package that *may* import `dart:io` checkable at all
+      //   without an exemption — and the platform's own contract test already pins the
+      //   native-first ordering, so this is the same property asserted from the other end.
+      // - **A third-party package is walked, not trusted.** The check above it reads only a
+      //   package's *own* imports, so a dependency that never writes `dart:io` itself can still
+      //   make its caller uncompilable for the web, and the only way to know is to walk.
+      final offenders = <String>[];
+      for (final member in workspace.members.values) {
+        if (member.isExtension)
+          continue; // Tier 0/1 extensions are not the browser surface
+        final reached = webClosureOf(member);
+        if (reached == null) {
+          offenders.add('${member.path} → (unresolvable)');
+          continue;
+        }
+        if (reached.dartUris.contains('dart:io')) {
+          offenders.add('${member.path} → ${reached.via.join(', ')}');
+        }
+      }
+      expect(
+        offenders,
+        isEmpty,
+        reason:
+            'a product library reaches dart:io when resolved for a web build, so '
+            '`dart compile js` of it would not compile. architecture/overview.md §3 makes the '
+            'absence of dart:io a property of a build and this is the check that keeps it one: '
+            'a conditional export, a smaller dependency, or an ADR',
+      );
+    });
+
+    test('the web-closure walk actually walked something', () {
+      // The guard on the guard. A closure check that resolved no libraries would report "no
+      // offenders" for the same reason a workspace glob matching nothing does — which
+      // `dart pub get` refuses for, and which this repository treats as a defect rather than an
+      // empty result. So the premise is asserted: the member under test must resolve to a real
+      // library and reach a real package, or the check above is vacuously green on a machine
+      // where `.dart_tool/package_config.json` is missing or stale.
+      final core = workspace.memberNamed('alteri_one_core')!;
+      final reached = webClosureOf(core);
+      expect(
+        reached,
+        isNotNull,
+        reason:
+            'alteri_one_core did not resolve for a web build. The walk reads '
+            '.dart_tool/package_config.json, so run `dart pub get` first — a check that walked '
+            'nothing cannot fail',
+      );
+      expect(
+        reached!.dartUris,
+        isNotEmpty,
+        reason:
+            'alteri_one_core resolved to no dart: library at all, which means the walk '
+            'found no import to start from',
+      );
+      expect(
+        reached.via,
+        isNotEmpty,
+        reason:
+            'alteri_one_core reached no package outside this workspace. It declares intl, '
+            'source_span and yaml, so an empty list means the closure did not follow them',
+      );
     });
 
     test('a package with tests declares the runner', () {
@@ -494,6 +622,14 @@ const _expectedMembers = <String>[
 /// being added to.
 final workspaceNames = <String>{};
 
+/// The workspace members, keyed by package name rather than by path.
+///
+/// The closure walk needs to go from an import to a member's `lib/`, and the discovered map is
+/// keyed by path. Kept as a second index rather than by searching [workspaceNames] and
+/// re-reading every manifest, because the walk runs once per import and a linear scan per scan
+/// is the kind of thing that makes a "fast" gate slow on a large tree.
+final workspaceNamesByPath = <String, _Member>{};
+
 /// Development dependencies that are build or test tools rather than something a package links
 /// against.
 ///
@@ -502,6 +638,10 @@ final workspaceNames = <String>{};
 /// runner, or a codegen tool. `yaml` is here because the contract tests parse manifests with
 /// it — a test may not use a transitive dependency, and promoting it to an explicit
 /// dev_dependency is how that is done without it entering any runtime graph.
+///
+/// It is **not** the same list as [_runtimeThirdParty], even though `yaml` appears in both.
+/// A package can be a build tool for one package and a shipped dependency of another, and one
+/// list would make the harmless use authorise the load-bearing one.
 const _toolchain = <String>{
   'test',
   'test_api',
@@ -509,6 +649,290 @@ const _toolchain = <String>{
   'build_runner',
   'yaml',
 };
+
+/// Third-party **runtime** dependencies, per package, from ADR-0022.
+///
+/// A separate table from [_allowedDependencies] because that one is a table of *workspace
+/// members* and this one is of everything else. Before task `0.11` no product library had a
+/// third-party runtime dependency at all, so neither the §3 table nor [_toolchain] had anything
+/// to say about one: a real dependency on a package from pub.dev would have reached the AOT
+/// snapshot and the browser bundle with no gate in its way.
+///
+/// A package absent as a key is a package that may have **no** third-party runtime dependency,
+/// which is the state every package but `alteri_one_core` is in and is the state worth
+/// protecting. Adding an entry is a decision and belongs with an ADR, because every name here
+/// ships.
+const _runtimeThirdParty = <String, Set<String>>{
+  'alteri_one_core': <String>{
+    // The profile parser. Pure Dart, so it does not make a web build impossible.
+    'yaml',
+    // `yaml`'s span type, named directly rather than reached through `yaml`'s internals.
+    'source_span',
+    // The l10n catalogue and locale-aware number formatting.
+    'intl',
+  },
+};
+
+/// The `dart:` libraries [member] reaches when it is resolved the way a **web build** resolves
+/// it, and the non-workspace packages walked to get there.
+///
+/// Returns null when the member's own entry point does not resolve, which the caller reports as
+/// a finding rather than as "nothing reached" — a member whose `lib/<name>.dart` is missing is a
+/// member the check above it would otherwise pass silently, and the premise test turns the same
+/// condition red when it is the member under test.
+///
+/// Every workspace sibling is resolved from its own `lib/` through the same package config, so
+/// `alteri_one_core` is checked with `alteri_one_platform`'s real conditional export applied
+/// rather than assumed away.
+_WebClosure? webClosureOf(_Member member) {
+  final config = _packageConfig;
+  if (config == null) return null;
+  final entry = File('${member.path}/lib/${member.name}.dart');
+  if (!entry.existsSync()) return null;
+
+  final closure = _WebClosure(<String>{}, <String>{});
+  _resolveForWeb(entry, config, closure, <String>{});
+  return closure;
+}
+
+/// One web-resolution: the `dart:` libraries reached and the out-of-workspace packages walked.
+///
+/// Mutated in place through a walk because the walk is recursive and a result object per frame
+/// would allocate one set per library; a file read is the expensive part, not the set.
+final class _WebClosure {
+  _WebClosure(this.dartUris, this.via);
+
+  /// Every `dart:` URI resolved. `dart:io` appearing here is the finding.
+  final Set<String> dartUris;
+
+  /// Every package outside this workspace that was walked, for the failure message.
+  ///
+  /// A message saying "alteri_one_core → intl → dart:io" is one a reader can act on; one
+  /// saying only "alteri_one_core → dart:io" sends them looking in the wrong package.
+  final Set<String> via;
+}
+
+/// Records what [file] reaches, following [dartUris] and `package:` URIs for the **web** target.
+///
+/// **The conditional resolution is the point, and it is why this is not a grep.** A directive
+/// guarded by `if (dart.library.io)` is not resolved by `dart compile js`, so a library behind
+/// one contributes nothing — which is exactly how `alteri_one_platform` is allowed to ship
+/// `dart:io` adapters at all. Ignoring the guard would report a web build that works; treating
+/// every branch as reachable would forbid the arrangement the whole browser surface depends on.
+///
+/// The condition grammar understood is the one this repository uses and the one the Dart
+/// specification defines for `import`/`export`: `if (<boolean-value>) '<uri>'`, where a
+/// boolean value is a dotted identifier, optionally `== "true"` or `== "false"`. A condition
+/// mentioning `dart.library.io` is **not** satisfiable on the web unless it explicitly asks for
+/// it to be false. A condition the walker does not understand is treated as satisfied, which is
+/// the conservative direction: it can only produce a false positive, and a false positive is
+/// reviewable while a false negative is a browser build that does not compile.
+void _resolveForWeb(
+  File file,
+  _PackageConfig config,
+  _WebClosure closure,
+  Set<String> visited,
+) {
+  // **Canonicalised before the visited check, and that is load-bearing.** A relative import may
+  // legally carry `..`: `package:clock`'s own barrel does `export 'src/../clock.dart'`, so a
+  // naive walk reaches `clock.dart`, then `src/../clock.dart`, then `src/../src/../clock.dart`,
+  // each a different *string* naming the same file. The visited set never matches and the walk
+  // recurses until the stack gives out — which is exactly what happened the first time this
+  // ran, and it is why a governance gate that walks a graph must not compare paths as written.
+  //
+  // `canonicalize` rather than `normalize` because the second reason is symlinks: on macOS
+  // `/tmp` is a link to `/private/tmp`, and a set keyed on the un-canonical spelling reports two
+  // files where there is one, which is the same class of bug in a different place.
+  final path = p.canonicalize(file.path);
+  if (!visited.add(path))
+    return; // a cycle, or a second route to a library already walked
+  if (!File(path).existsSync()) return;
+
+  for (final directive in _directivesIn(File(path).readAsStringSync())) {
+    final chosen = _branchForWeb(directive);
+    if (chosen == null) continue;
+    final uri = chosen;
+    if (uri.startsWith('dart:')) {
+      closure.dartUris.add(uri);
+      continue;
+    }
+    if (uri.startsWith('package:')) {
+      final resolved = config.fileFor(uri);
+      if (resolved == null) continue;
+      final name = uri.substring('package:'.length).split('/').first;
+      if (!workspaceNames.contains(name)) closure.via.add(name);
+      _resolveForWeb(resolved, config, closure, visited);
+      continue;
+    }
+    _resolveForWeb(
+      File(p.join(p.dirname(path), uri)),
+      config,
+      closure,
+      visited,
+    );
+  }
+}
+
+/// The URI a web build resolves [directive] to.
+///
+/// **A conditional directive is a choice, and the default is the *fallback*.**
+/// `export 'a.dart' if (C) 'b.dart';` means a build that satisfies `C` uses `b.dart` and every
+/// other build uses `a.dart` — never both, and `a.dart` is not a branch in its own right. Two
+/// readings of that line are both wrong in a way this repository has already paid for:
+///
+/// - Following the default unconditionally makes `alteri_one_platform`'s `src/native.dart` look
+///   reachable from a web build, and the platform package may ship `dart:io` adapters *only*
+///   because a web build does not resolve that file.
+/// - Following every branch reaches both files and reports the same false failure.
+///
+/// So the whole line is parsed into one default plus its ordered `if` clauses, and the first
+/// clause the web satisfies wins. The order matters and is the order they appear in, which is
+/// the resolution order the Dart specification defines. With no clause satisfied, the default is
+/// the answer — and with no clauses at all, the default is the only candidate, so one shape
+/// covers an unconditional directive too.
+String? _branchForWeb(_Directive directive) {
+  for (final branch in directive.branches) {
+    if (_satisfiableOnWeb(branch.condition)) return branch.uri;
+  }
+  return directive.fallback;
+}
+
+/// Whether [condition] can hold on the web.
+///
+/// Only `dart.library.io` is treated as VM-only, because it is the one this repository's
+/// conditional exports are written against and the one that decides whether a `dart:io` import
+/// is reachable. `dart.library.js_interop` is the *web* condition and is therefore always
+/// satisfiable — treating it as VM-only would select the wrong branch and hide the refusal
+/// surface `alteri_one_platform` exists to provide.
+///
+/// A condition naming neither is treated as satisfiable, which is the conservative direction: it
+/// can only produce a false positive, and a false positive is reviewable while a false negative
+/// is a browser build that does not compile.
+bool _satisfiableOnWeb(String condition) {
+  final wantsIo = RegExp(r'dart\.library\.io\s*(?:==\s*"true")?')
+      .hasMatch(condition);
+  final explicitlyFalse = condition.contains('== "false"');
+  return !wantsIo || explicitlyFalse;
+}
+
+/// One `if (condition) 'uri'` clause of a directive.
+final class _Branch {
+  const _Branch(this.condition, this.uri);
+
+  final String condition;
+  final String uri;
+}
+
+/// One `import`, `export` or `part` directive: its default URI and its ordered `if` clauses.
+final class _Directive {
+  const _Directive(this.fallback, this.branches);
+
+  /// The URI a build that satisfies none of [branches] resolves to.
+  final String fallback;
+
+  /// The `if` clauses, in the order they appear.
+  final List<_Branch> branches;
+}
+
+/// The `import`, `export` and `part` directives in [source], in order.
+///
+/// A single pass over the lines rather than a global regular expression, because the default
+/// branch and its `if` clauses are on the **same line** and the pairing is the whole job: a
+/// global match finds both and loses which condition belongs to which. `part of` is excluded
+/// because it declares membership rather than naming a URI to follow, and `part 'x.dart'` is
+/// followed — the same rule [Member.imports] uses, and deliberately the same one so the two
+/// checks cannot disagree about what an import is.
+Iterable<_Directive> _directivesIn(String source) sync* {
+  for (final line in const LineSplitter().convert(source)) {
+    if (line.trimLeft().startsWith('part of')) continue;
+    final fallback = _defaultBranch.firstMatch(line);
+    if (fallback == null) continue;
+    final branches = <_Branch>[
+      for (final branch in _conditionalBranch.allMatches(line))
+        _Branch(branch.group(1)!.trim(), branch.group(2)!),
+    ];
+    yield _Directive(fallback.group(1)!, branches);
+  }
+}
+
+/// The default URI of a directive: a quoted string straight after the verb.
+final _defaultBranch = RegExp(
+  r'''^\s*(?:import|export|part)\s+['"]([^'"]+)['"]''',
+);
+
+/// One `if (<condition>) '<uri>';` clause, wherever it sits on the line.
+final _conditionalBranch = RegExp(r'''if\s*\(([^)]*)\)\s*['"]([^'"]+)['"]''');
+
+/// The resolved package graph, read from `.dart_tool/package_config.json`.
+///
+/// A top-level final so the file is read once and every walk reuses it; Dart initialises it
+/// lazily, so a run that never reaches the closure test does not pay for the read.
+final _packageConfig = _readPackageConfig();
+
+/// The `package_config.json` at the repository root, or null when it is not there.
+_PackageConfig? _readPackageConfig() {
+  final file = File('.dart_tool/package_config.json');
+  if (!file.existsSync()) return null;
+  final Object? decoded;
+  try {
+    decoded = jsonDecode(file.readAsStringSync());
+  } on FormatException {
+    return null; // half-written by an interrupted `pub get`
+  }
+  if (decoded is! Map<String, Object?>) return null;
+  final packages = decoded['packages'];
+  if (packages is! List<Object?>) return null;
+  return _PackageConfig(packages);
+}
+
+/// The resolved packages, and how to turn a `package:` URI into a file.
+final class _PackageConfig {
+  _PackageConfig(List<Object?> entries) {
+    for (final entry in entries) {
+      if (entry is! Map<String, Object?>) continue;
+      final name = entry['name'];
+      final rootUri = entry['rootUri'];
+      if (name is! String || rootUri is! String) continue;
+      final packageUri = entry['packageUri'];
+      _roots[name] = (
+        root: _resolveRootUri(rootUri),
+        lib: packageUri is String ? packageUri : 'lib/',
+      );
+    }
+  }
+
+  final Map<String, ({String root, String lib})> _roots = {};
+
+  /// The file a `package:` [uri] names, or null when it does not resolve.
+  ///
+  /// Split on the **first** colon only. `Uri.parse` would be the general answer and is wrong
+  /// here: a `package:` URI's path may itself contain a colon, and `split(':')` would then
+  /// produce three parts and look up a package that does not exist. The prefix is a known,
+  /// fixed-length scheme, so a substring is both correct and cheaper.
+  File? fileFor(String uri) {
+    const scheme = 'package:';
+    if (!uri.startsWith(scheme)) return null;
+    final rest = uri.substring(scheme.length);
+    final slash = rest.indexOf('/');
+    if (slash <= 0) return null;
+    final entry = _roots[rest.substring(0, slash)];
+    if (entry == null) return null;
+    final base = entry.root.endsWith('/') ? entry.root : '${entry.root}/';
+    final file = File('$base${entry.lib}${rest.substring(slash + 1)}');
+    return file.existsSync() ? file : null;
+  }
+
+  /// Resolves a `package_config.json` `rootUri` to a path relative to the repository root.
+  ///
+  /// The two forms are both present in the file and both are documented to be relative to the
+  /// configuration file's own directory, which is `.dart_tool/`. A `file:` URI is absolute and a
+  /// bare path is relative, and getting this wrong resolves every package to a path one
+  /// directory too high — which produces a walk that reads nothing and reports no offenders.
+  static String _resolveRootUri(String rootUri) {
+    if (rootUri.startsWith('file:')) return Uri.parse(rootUri).toFilePath();
+    return rootUri.startsWith('../') ? rootUri : '../$rootUri';
+  }
+}
 
 const _allowedDependencies = <String, Set<String>?>{
   'alteri_one_protocol': <String>{},
@@ -587,6 +1011,22 @@ final class _Member {
       ...?_stringKeys(pubspec['dependencies']),
       ...?_stringKeys(pubspec['dev_dependencies']),
     };
+    return declared
+        .where((name) => name != this.name && !workspaceNames.contains(name))
+        .toList()
+      ..sort();
+  }
+
+  /// Third-party dependencies on the **runtime** path, sorted.
+  ///
+  /// The half of [externalDependencies] that reaches a shipped artefact, and the reason
+  /// [_runtimeThirdParty] exists: a `dev_dependency` on a package from pub.dev cannot end up in
+  /// the AOT snapshot and a runtime one always does, so the two need different tables even when
+  /// they name the same package. A package with no `dependencies:` section has none, which is
+  /// the common case and the one the allowlist's absent keys are asserting.
+  List<String> get externalRuntimeDependencies {
+    final declared = _stringKeys(pubspec['dependencies']);
+    if (declared == null) return const [];
     return declared
         .where((name) => name != this.name && !workspaceNames.contains(name))
         .toList()
@@ -763,6 +1203,9 @@ final class _Workspace {
         // Recorded as it is found, so a manifest read later can tell a workspace sibling from
         // a third-party package without going through the map that is still being built.
         workspaceNames.add(member.name);
+        // The second index, by name rather than by path: the closure walk starts from an import
+        // and needs the member's `lib/`, and the map being built here is keyed by path.
+        workspaceNamesByPath[member.name] = member;
       }
     }
 

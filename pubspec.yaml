@@ -35,6 +35,14 @@ dev_dependencies:
   # than grepping for keys. `yaml` is already in the resolution through melos; it is declared
   # here because a test may not use a transitive dependency.
   yaml: ^3.1.4
+  # Also for the workspace contract test, and for a specific reason worth recording: it walks
+  # each product library's resolved import closure to decide whether a *web build* of it would
+  # compile, and it has to canonicalise the paths it visits. A relative import may legally carry
+  # `..` — `package:clock`'s own barrel does `export 'src/../clock.dart'` — and two spellings of
+  # one file defeat a "have I been here" set, so the walk recurses forever. Collapsing `..` by
+  # hand is a dozen lines of path arithmetic in a governance gate, which is the wrong place for
+  # it; `path` also resolves symlinks, which is what makes the set correct on macOS.
+  path: ^1.9.1
 
 melos:
   # The root is a package, not a directory of convenience: `test/` and `tool/` below it are
