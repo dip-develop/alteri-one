@@ -156,6 +156,62 @@ These are hard defaults. `core.initialize` may negotiate **lower** values; it ma
 negotiate above a hard cap. A sender rate-limits reads and writes when the bounded queue
 fills. The frame limit does not substitute for the process memory limits of Tier 2.
 
+### 2.1 What a receiver accepts
+
+The block above states the layout; this states the rules a receiver applies to it, which
+`alteri_one_protocol`'s `framing.dart` implements and its contract test pins. These are
+decisions, not restatements, and each one is a case a peer can get wrong.
+
+- **The terminator is `\r\n\r\n` and nothing else.** A bare `\n` does not end a line and a
+  bare `\r` does not either. A peer sending `\n`-delimited input is sending NDJSON, which
+  ADR-0002 calls a protocol error rather than a compatibility mode.
+- **Header names are case-insensitive**, and must be a token with no whitespace before the
+  colon. `Content-Length : 5` is a header *named* `Content-Length `, and RFC 7230 §3.2.4
+  exists to say so: tolerating the space is how two readers of one stream end up disagreeing
+  about a frame's length.
+- **`Content-Length` is required, at most once, and decimal digits.** A second one is
+  refused rather than resolved by taking the last, because two lengths is the
+  request-smuggling primitive. No sign, no radix prefix, no unit.
+- **`Content-Type` is optional.** When present the media type is
+  `application/vscode-jsonrpc` and a `charset`, if given, is `utf-8`. Other *parameters*
+  are ignored — a parameter that cannot change how the frame is read cannot make it
+  ambiguous, which is the opposite of a second header.
+- **Any other header is refused.** A header this version does not define would be dropped,
+  and a silently dropped header is how two peers disagree about what was sent. The cost is
+  real: HTTP's extension model means a well-meaning peer can add a header and be
+  disconnected. It is paid deliberately, in exchange for a receiver that never guesses, and
+  relaxing it is a protocol change rather than a bug fix.
+- **The header block is ASCII.** A byte sequence that is not valid UTF-8 is a framing error
+  rather than a header whose name happens to be something else.
+
+The codes are as [reference/error-codes.md](../reference/error-codes.md) §1 defines them, and
+the split is deliberate: a breach of a **published limit** is `-32043`, whose summary is
+"Peer limit exceeded", and a header block that is **not this framing at all** is `-32600`.
+Reporting an oversize frame as a malformed one would send an operator looking for a peer
+speaking the wrong protocol when the peer spoke it correctly and merely lied about a size.
+
+A receiver refuses an oversize frame from its **header alone**, before buffering any of the
+payload it claims. A receiver that checked the limit only while counting arrived bytes would
+still be a denial of service: the peer would get to make it allocate 8 MiB before anything
+objected. For the same reason a receiver's buffer never exceeds one frame's worth of bytes,
+whatever it is fed.
+
+### 2.2 Backpressure is a bound in bytes
+
+The queue in §2's table is bounded in **depth** (256 frames), and depth alone does not bound
+memory: 256 frames of 8 MiB is 2 GiB. So the outbound queue is bounded in bytes as well, and
+that is the bound that does the work — the depth is a second guard on the session rather than
+on the heap.
+
+A write refused for space is **backpressure, not an error**: no code, no exception, and
+nothing discarded. The caller still holds the frame, stops reading from the peer, and offers
+it again once the queue drains. Dropping it instead would lose a response the peer is waiting
+on by id, and the peer would wait for it for ever. The specification fixes a frame size and a
+queue depth but no byte budget, so the byte budget is a **local policy number** a transport
+chooses, and it must be at least one maximum-size frame — a queue that cannot hold a frame the
+encoder just produced is a connection that has stopped making progress rather than one applying
+backpressure.
+
 ## 3. Cancellation and progress
 
 Cancellation is the notification `$/cancelRequest`, carrying the original request id and a
