@@ -4,8 +4,11 @@ Open-source (MIT) core for a locally executable LLM agent. Model, endpoint and c
 set are not hard-coded into the core; they are selected by a profile and verified by a
 capability probe.
 
-> **Status: specification only.** No packages exist yet. The first implementation task is
-> `0.1` in the [task breakdown](docs/process/task-breakdown.md).
+> **Status: walking skeleton, tasks `0.1`–`0.12` landed.** `alteri_one_core`,
+> `alteri_one_protocol` and `alteri_one_platform` carry the implementation; `alteri_one_cli`,
+> `alterione`, `alteri_one_memory` and `alteri_one_injection_skill` are declared-but-empty
+> boundaries. Nothing is released and every package is `publish_to: none`. The next task is
+> `0.13` in the [task breakdown](docs/process/task-breakdown.md).
 
 ## The shape
 
@@ -32,6 +35,10 @@ and Tier 2 signed executables, and nothing else.
 
 The product is a verified release: an AOT snapshot on a pinned runtime, with a launcher
 you put on `PATH`.
+
+> This is the target shape. **Nothing is released yet, so neither command below works today** —
+> there is no `install.sh` in the tree and `alterione` is not on pub.dev. Both arrive with
+> tasks `0.30` and `0.31`.
 
 ```bash
 sh install.sh                                   # no toolchain required
@@ -72,7 +79,7 @@ Start here: **[docs/README.md](docs/README.md)** — index, reading order and co
 | See the four subprojects and `alterione.yaml` | [docs/architecture/workspace-layout.md](docs/architecture/workspace-layout.md) |
 | Understand the engine and its invariants | [docs/architecture/engine.md](docs/architecture/engine.md) |
 | Write or review code | [docs/process/task-breakdown.md](docs/process/task-breakdown.md) |
-| Extend AlteriOne | [docs/extensibility/](docs/extensibility/plugins.md) |
+| Extend AlteriOne | [docs/extensibility/plugins.md](docs/extensibility/plugins.md) |
 | Install, update or verify the release | [docs/architecture/install-and-update.md](docs/architecture/install-and-update.md) |
 | Use the CLI | [docs/apps/cli.md](docs/apps/cli.md) |
 | Look something up | [docs/reference/glossary.md](docs/reference/glossary.md) |

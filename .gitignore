@@ -5,6 +5,8 @@ build/
 doc/api/
 .flutter-plugins
 .flutter-plugins-dependencies
+# `dart test --coverage=coverage` writes this into each package directory.
+coverage/
 
 # Melos / workspace
 .melos_tool/

@@ -20,3 +20,8 @@ tags:
 
 # `eval` is not in the blocking chain, so it is excluded from it by name rather than by
 # discipline: quality-gates.md §4.
+#
+# NOT YET IMPLEMENTED. Nothing excludes `eval` by name today: there is no `presets:` block and
+# no `exclude_tags:`, here or in any package. No `eval` test exists either — they arrive with
+# task 0.16 — so the exclusion has nothing to exclude yet. Both land together, or the first
+# `eval` test lands in `melos run test`, which is the blocking chain.

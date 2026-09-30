@@ -10,8 +10,9 @@ indent_style = space
 indent_size = 2
 
 [*.md]
-# No hard line breaks via trailing spaces anywhere in this repository: CI fails on trailing
-# whitespace in Markdown, and every break is explicit with a blank line.
+# No hard line breaks via trailing spaces anywhere in this repository. This file is the only
+# thing that enforces that — no CI step checks trailing whitespace — so your editor must.
+# Every break is explicit with a blank line.
 trim_trailing_whitespace = true
 
 [*.{dart,yaml,yml}]
