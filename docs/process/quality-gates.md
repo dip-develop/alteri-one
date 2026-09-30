@@ -161,7 +161,10 @@ result. The job asserts the refusal rather than skipping, so a silent regression
   fails if `coverage` ever appears in [repo-settings.json](../../repo-settings.json). A
   percentage gate that is met by generated code is worse than no gate, and a required check is
   a gate whatever the job is called.
-- Eval tests are tagged `eval` and are excluded from the blocking CI chain.
+- Eval tests are tagged `eval` and are intended to be excluded from the blocking CI chain.
+  **Not yet implemented:** no `dart_test.yaml` declares an `eval` tag or an `exclude_tags:`
+  entry, and no `eval` test exists either — they arrive with task `0.16`. Both land together,
+  or the first `eval` test runs inside `melos run test`, which is the blocking chain.
 
 ## 5. Before a release
 
