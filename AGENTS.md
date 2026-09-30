@@ -273,9 +273,8 @@ Trust the executable sources over prose:
   a manifest and a boundary and no declaration. `site/` is a real, buildable package.
 - [quality-gates.md](docs/process/quality-gates.md) lists most gates as active. The
   documentation, governance, Cyrillic, naming, workspace-contract, quality-gate-contract,
-  coverage and melos chain gates run today; `test/ci/telemetry_allowlist_test.dart` and
-  `test/governance/documentation_contract_test.dart` are named but not created, and
-  `workspace-contracts` reports each one rather than pretending it passed.
+  coverage and melos chain gates run today; `test/ci/telemetry_allowlist_test.dart` is named
+  but not created, and `workspace-contracts` reports it rather than pretending it passed.
 - The `coverage` job in `ci.yml` reports; it is not a required check, and the quality-gate
   contract test fails if `coverage` is ever added to `repo-settings.json`. Do not add a
   threshold to it — quality-gates.md §4.
