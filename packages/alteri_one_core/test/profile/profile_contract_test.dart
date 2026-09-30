@@ -1836,10 +1836,17 @@ model:
       // `ru` is not a compile error — it is a Russian operator reading an English sentence at
       // 3am, and the runtime fallback to English is *correct*, which is why the defect survives.
       expect(allDiagnosticCodes, isNotEmpty);
+      // **Derived, not a literal.** This was `35` and it failed the day task `0.12` added
+      // `engine.observer_failed` — which is the right *outcome* and the wrong *mechanism*. A
+      // hard-coded count is a tripwire for "was that meant?", and it fires identically on a code
+      // added deliberately. The tripwire is already in this group and it is a real one: the
+      // comparison against `error-codes.md` §3's table below fails a code added to the enum
+      // without the document, and fails a document row with no code. So the count adds nothing
+      // that those two do not, and only a churn signal besides.
       expect(
+        englishMessages.length,
         allDiagnosticCodes.length,
-        35,
-        reason: 'a new code is a new entry in both maps',
+        reason: 'one catalogue entry per code, in `en`',
       );
       for (final code in allDiagnosticCodes) {
         expect(
@@ -2033,6 +2040,14 @@ model:
       // render as `[redacted]`. They are deliberately absent from every message today, which is
       // what makes the redaction chokepoint currently unreachable — see the finding in the
       // report; the constants are asserted here so that adding a user of them is a visible change.
+      //
+      // The vocabulary is a **contract with every producer**, not only the profile validator.
+      // `eventType` joined it in task `0.12` for `engine.observer_failed`, and it is the one
+      // name no validator supplies: the event bus is the other producer. It could not be `{field}`
+      // (that is the offending key, and an event type is not a key) or `{name}` (the set
+      // documents that as an identifier a *thing* is called, which an event type is not). A
+      // placeholder name that quietly means one thing and then two is how two catalogues stop
+      // agreeing, so the new one is named for what it carries.
       final allowed = <String>{
         'field',
         'expected',
@@ -2046,6 +2061,7 @@ model:
         'count',
         'value',
         'reason',
+        'eventType',
       };
       expect(secretPlaceholders, <String>{'value', 'reason'});
       expect(
