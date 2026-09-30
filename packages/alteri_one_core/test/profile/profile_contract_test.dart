@@ -445,6 +445,64 @@ void main() {
       expect(typo.values['expected'], isNot(contains('a different list')));
     });
 
+    test(
+      'promptCaching is refused in requires, because no probe can conclude it',
+      () {
+        // The dead end `providers.md` §2 does not close on its own. `promptCaching` is a
+        // *response-side* observation: nothing in a request makes an endpoint report
+        // `usage.prompt_tokens_details.cached_tokens`, so a probe cannot conclude it. A `requires`
+        // that named it would be checked before the first model turn, refuse the pair, so no turn
+        // would run, so nothing would ever observe a cached count, so the flag would never become
+        // true — a refusal with no operator action available, which is the one failure mode
+        // `probe.dart` is written to prevent.
+        //
+        // Checked **here** as well as in the provider's constructor, because this is the layer an
+        // operator actually hits: a `ProviderRef` built in code by a composition root is the rarer
+        // path, and a rule that lived only in the provider would leave a bad profile validating
+        // cleanly.
+        final diagnostic = _only(
+          _diagnose(
+            _replacing(
+              'requires: [tools, streaming]',
+              'requires: [promptCaching]',
+            ),
+          ),
+          'model.providers[1].requires[0]',
+        );
+        expect(diagnostic.code.code, 'config.invalid_schema');
+        expect(diagnostic.values['field'], 'promptCaching');
+        // The message carries the **list** and not a sentence about the exception —
+        // `configuration.md` §7.2, because `{expected}` is interpolated by a translator and an
+        // English explanation here would ship half-translated.
+        expect(
+          diagnostic.values['expected'],
+          requireableModelFeatures.map((f) => f.wireName).join(', '),
+        );
+        expect(diagnostic.values['expected'], isNot(contains('promptCaching')));
+      },
+    );
+
+    test('requireableModelFeatures is every feature except promptCaching, and stays that way', () {
+      // The list's own documentation claims to be exhaustive, and a claim nothing pins is a
+      // claim that decays: a seventh `ModelFeature` would land in the *unknown-value* message
+      // above (which enumerates `ModelFeature.values` and is pinned) and be silently requireable
+      // and unprobeable — re-creating exactly the dead end the list exists to prevent, with two
+      // lists for one field disagreeing and a test on one of them.
+      expect(
+        requireableModelFeatures.toSet(),
+        ModelFeature.values.toSet().difference(<ModelFeature>{
+          ModelFeature.promptCaching,
+        }),
+      );
+      expect(
+        requireableModelFeatures,
+        isNot(contains(ModelFeature.promptCaching)),
+        reason:
+            'and the exclusion is the whole point: a feature no probe can check must not be '
+            'a member of the list of features a probe can check',
+      );
+    });
+
     test('a cost budget with no price table is refused rather than silently inert', () {
       // `validator.dart` names the reason and it is the reason this is worth a test: a limit that
       // never fires is worse than no limit, because `doctor` reports the budget as set.
@@ -1945,7 +2003,23 @@ model:
             if (entity is! File || !entity.path.endsWith('.dart')) continue;
             scanned++;
             if (cyrillic.hasMatch(entity.readAsStringSync())) {
-              offenders.add(entity.path.replaceFirst('${root.path}/', ''));
+              // **Normalise the separator before relativising, and this was a Windows failure.**
+              // `File.path` is whatever the platform spells, so on Windows the path of a
+              // package is backslash-separated and `replaceFirst('${root.path}/', '')` matched
+              // nothing: the whole backslash path went into [offenders], which is compared
+              // against a forward-slash constant. The gate then reported the catalogue as an
+              // offender *on the file it exempts*, which is the shape of a green test that only
+              // ever ran on Linux. The same class of defect as the governance test's CRLF split,
+              // and the same fix: normalise, then compare.
+              //
+              // Done by hand rather than with `package:path`, which is a *root* dev_dependency and
+              // would have to be added to this package's pubspec to be imported from here — a
+              // manifest change and a resolution change for one `replaceAll`.
+              offenders.add(
+                entity.path
+                    .replaceAll('\\', '/')
+                    .replaceFirst('${root.path.replaceAll('\\', '/')}/', ''),
+              );
             }
           }
         }

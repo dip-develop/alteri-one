@@ -134,6 +134,7 @@ export 'src/profile/validator.dart'
         providerIdGrammar,
         knownApiVersions,
         knownKinds,
+        requireableModelFeatures,
         tokenCeiling,
         toolCallsPerStepCap,
         turnCeiling,

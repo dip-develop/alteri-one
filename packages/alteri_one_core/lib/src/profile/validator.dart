@@ -479,6 +479,37 @@ final class _ValidationContext {
       }
       final feature = ModelFeature.forWireName(value);
       if (feature != null) {
+        // **`promptCaching` is a legal member of the list and an illegal thing to require.**
+        // It is a *response-side* observation: nothing in a request can make an endpoint report
+        // `prompt_tokens_details.cached_tokens`, so no probe can conclude it. Requiring it would
+        // be a dead end with no operator action — the pre-turn check refuses the pair, so no turn
+        // runs, so nothing ever observes a cached count, so the flag never becomes true. The
+        // product's rule is that a capability which cannot be established is refused rather than
+        // degraded into, and the refusal has to happen *here*, where a profile is read, rather
+        // than at a provider where the message is about an endpoint.
+        //
+        // `providers.md` §2's own sentence is the authority: *"If the local server lacks tools,
+        // JSON mode or seed, that is a rejection of one `provider + model` pair"* — three
+        // features, and `promptCaching` is not among them. It is declared on the matrix and
+        // observed from real turns; it is not a `requires` member.
+        if (feature == ModelFeature.promptCaching) {
+          _error(
+            ConfigDiagnosticCode.configInvalidSchema,
+            fieldPath,
+            field: value,
+            // The list and nothing else: `configuration.md` §7.2 says a diagnostic carries
+            // placeholder *values* and the catalogue writes the sentence, and this entry's
+            // `{expected}` is interpolated by a translator — so an English explanation here would
+            // arrive in the `ru` catalogue half-translated. That a comment may not even *name*
+            // such a sentence is `configuration.md` §7.4's rule about non-catalogue sources, and
+            // the profile contract test enforces it. Why `promptCaching` is absent from the list
+            // is in [ModelFeature.promptCaching] and in [requireableModelFeatures].
+            expected: requireableModelFeatures
+                .map((f) => f.wireName)
+                .join(', '),
+          );
+          continue;
+        }
         features.add(feature);
         continue;
       }
@@ -1241,6 +1272,22 @@ const int tokenCeiling = 10000000;
 /// is a smell; it is here because the schema's number and the engine's number must agree and a
 /// contract test is what makes them, rather than one of them being a literal nobody re-checks.
 const int toolCallsPerStepCap = 16;
+
+/// The model features a profile may put in `model.providers[].requires`.
+///
+/// Every [ModelFeature] **except** [ModelFeature.promptCaching], and the exclusion is the point:
+/// the list is a declaration of what the *probe* will check before the first model turn, and
+/// nothing in a request can make an endpoint report cached tokens. A `requires` that named it
+/// would refuse the pair on every run and never be satisfiable, so the list is named here and the
+/// validator's message enumerates it — a diagnostic that names the acceptable values cannot drift
+/// from them, which is the same reason `toolCallsPerStepCap` is a constant.
+const requireableModelFeatures = <ModelFeature>[
+  ModelFeature.tools,
+  ModelFeature.parallelTools,
+  ModelFeature.streaming,
+  ModelFeature.jsonMode,
+  ModelFeature.seed,
+];
 
 /// The identifier grammar, from `concepts.md` §2.1 as applied in `config-schema.md` §2.
 ///

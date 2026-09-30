@@ -10,6 +10,59 @@
       and the shipped `initializeMethod` is dotted (`core.initialize`). Task `0.12` resolves a
       namespace as the **leading segment** so all three route, which works around an ambiguity
       rather than deciding it. Picking one separator changes a documented contract
+- [ ] `alteri_one_platform`'s `ports_contract_test.dart` **fails on Windows** for the same reason
+      the core's l10n gate did: path separators. Two tests, both pre-existing and both red on
+      `develop` as well — `the install layout resolve refuses an absolute input instead of silently
+      replacing the root` expects a path ending in `state/default` and gets
+      `/srv/install/state/default`, and the ports test fails alongside it. Found while
+      verifying task `0.13`, which is why it is here rather than in the commit that fixes it:
+      `alteri_one_platform` is not this branch's package. Same fix — normalise the separator
+      before comparing, or assert on a `Uri`/`Path` rather than on a `String` — and the second is
+      the one that stops it recurring
+- [ ] A **401 or 403 has no error code of its own.** `providers.md` §1 says HTTP errors are mapped
+      into the taxonomy, and the taxonomy has no code for "the credential was rejected", so task
+      `0.13` maps it to `-32001` `Provider unavailable`. That is right for §5's *failover* and
+      wrong for §6's *retry*: `-32001` carries `retry: withBackoff`, and re-attempting a rejected
+      key with backoff is not a thing to do. The chain moving on is the behaviour the taxonomy
+      already gets right; the circuit breaker that stops it re-trying the *same* entry is §5's
+      and is a later task. `error-codes.md` §1.1 says a variant of an existing failure mode is a
+      **diagnostic** and not a number, so the candidate is a `provider.unauthorized`-style
+      diagnostic; the operator decides
+- [ ] `contextWindow` and `promptCaching` are the two flags the probe does **not** conclude, and
+      `config-schema.md` §2's provider entry has no field to set either from:
+      - `contextWindow` is a declared number, validated as positive per `providers.md` §2 ("is
+        validated as a positive number"). `ChatExchange(contextWindow: …)` is the per-pair place
+        to set it and defaults to `ChatExchange.defaultContextWindow` (4096), so the gap is
+        narrower than it looks: **no profile field reaches it.** `config-schema.md` §2's
+        provider entry has no `contextWindow`, and a composition root has to supply the number
+        itself. Measuring it would cost a request with an N-token prompt for every N
+      - `promptCaching` is a *response-side* observation: nothing in a request makes an endpoint
+        report `prompt_tokens_details.cached_tokens`, so the first turn that reports a non-zero
+        count sets it. **It is consequently not a legal `requires` member** and both the profile
+        validator and the provider's constructor refuse it, because requiring it would refuse the
+        pair on every run with no operator action. `config-schema.md` §2's table does not say so
+- [ ] `melos run format:root` prints `No file or directory found at "tool"` for every package,
+      because no product package has a `tool/` directory (only the root one does). **It still
+      passes** — `dart format` formats the path it found and exits `0` — so this is noise, not a
+      failure, but noise a reader can mistake for one. Either scope the script per package or drop
+      `tool` from it until a product package has one
+- [ ] A **404 or 405 during a probe is recorded as an absent capability**, which is arguable and is
+      left for a decision. The probe treats `invalidParams` (−32602) as the only "the endpoint said
+      no", and `_codeFor` puts 404 and 405 in that group because `error-codes.md` §1 is the
+      table. A **wrong `baseURL` path** — the most common profile mistake, and the thing
+      `ChatExchange.checkBaseUrl` exists to catch — answers 404 on every ladder step, so the pair
+      is recorded as permanently incompatible rather than as unreachable. Two readings: the
+      taxonomy is the authority and following it is consistent; or a 404/405 is a *routing* answer
+      and not an answer to "do you accept this field". Fixing it in `_codeFor` changes what a code
+      means and is ADR-gated; fixing it in the probe forks the taxonomy, which task `0.13` avoids
+      deliberately
+- [ ] §3.1's **tool-definition** mapping (`ToolDescriptor` → `tools[].function.*`) is not built,
+      because `ToolDescriptor` is `tools.md` §1 and arrives with the tool contract. Task `0.13`
+      sends a request with **no** `tools` member, and the *probe* declares a tool of its own —
+      `alterione_capability_probe`, deliberately **not** a legal tool id, since `toolIdGrammar`
+      requires a dot and a probe declaration carrying a real id would put one in the model's
+      vocabulary that the registry has no owner for. `AlteriOneRequest` gains the `tools` field
+      with the tool contract, not before
 - [ ] An event's `provenance`: `engine.md` §4 says `host | user | model | tool | plugin`, and
       `concepts.md` §3 says there is **one** label system with seven values. Task `0.12` uses
       `concepts.md`'s seven and maps the five coarsely onto them, with `plugin` having no distinct
@@ -23,6 +76,8 @@
       registry, the four-level precedence merge with origins, the `Paths`-backed locator, and the
       l10n catalogue with `en` and `ru` — ADR-0022
 - [x] Task `0.12`: the extension registry, the event bus and the prefix dispatcher
+- [x] Task `0.13`: the OpenAI-compatible provider — the wire request, an incremental SSE reader,
+      §3.2's five assembly rules, the batch adapter, and §2's capability probe
 - [ ] `intl_translation` and generated l10n accessors: `configuration.md` §7.1 says user-facing text
       comes "through generated accessors" and the catalogue is hand-written. ADR-0022 defers this to
       `0.17`, which is the first task with user-facing prose; the catalogue is already shaped so

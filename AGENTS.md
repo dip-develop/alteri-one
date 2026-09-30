@@ -6,13 +6,14 @@ source (most are), this file links there instead of restating it.
 
 ## State of the tree
 
-Tasks `0.3`–`0.12` have landed. The next task is **`0.13`, the OpenAI-compatible provider inside
-`alteri_one_core`**. [task-breakdown.md](docs/process/task-breakdown.md) is the source of truth for
-what is next; `TODO.md` is the short-lived list of what is in flight.
+Tasks `0.3`–`0.13` have landed. The next task is **`0.14`, the engine control primitives**
+(`Deadline`, `CancelToken`, `CostBudget`, `maxSteps`, the stagnation detector).
+[task-breakdown.md](docs/process/task-breakdown.md) is the source of truth for what is next;
+`TODO.md` is the short-lived list of what is in flight.
 
 | Package | State |
 |---|---|
-| `alteri_one_core` | real — registry, dispatcher, event bus, profile subsystem, `AlteriOneProvider` port, `FakeProvider` (~9.0k lib / 5.5k test) |
+| `alteri_one_core` | real — registry, dispatcher, event bus, profile subsystem, the OpenAI-compatible provider and its port, `FakeProvider` (~13k lib / 8k test) |
 | `alteri_one_protocol` | real — envelope, codec, error taxonomy, framing, control plane, in-process + stdio transports (~7.2k / 8.0k) |
 | `alteri_one_platform` | real — six ports, five native adapters, browser surface, `FakeClock` (~3.7k / 2.5k) |
 | `alteri_one_cli`, `alterione`, `alteri_one_memory`, `alteri_one_injection_skill` | **boundary only** — one file, a doc comment and `library;`, no `test/` |
@@ -120,6 +121,15 @@ of use; the list is here so it is known before the build fails.
   call as the `group(int)` overload. Use positional groups and name the index in a comment.
 - **A class whose only member is `const C(this.a, this.b);` is rejected**
   (`initializing_formal_for_non_existent_field`). Declare the fields explicitly.
+- **A const constructor's `assert` must be a potentially-constant expression, and `list.isEmpty` is
+  not one** — it is a getter with a body, so `assert(x.isEmpty || …)` is an `invalid_constant`
+  error rather than a skipped check. The workaround, `identical(x, const [])`, passes for `const []`
+  and **fails for the `[]` any non-const caller writes**. `AlteriOneMessage` is non-const for this
+  reason, which is why an `AlteriOneRequest` holding real messages cannot be `const`.
+- **A `switch` *statement* needs no `break` and a fall-through is a build error.** A comment here
+  once claimed the opposite and was wrong; it was found by printing the dispatch. Prefer the form
+  the compiler proves over a test that re-checks it — the same argument the `sealed` bullet
+  makes.
 - The SDK constraint is written `>=3.13.0 <4.0.0`, **never `^3.13.0`** — `freezed` 4.x needs the
   explicit upper bound. This is a contract-test assertion, not a style preference.
 
@@ -153,6 +163,15 @@ of use; the list is here so it is known before the build fails.
   change and say why in the commit.
 - The required status checks are job **names**: `Detect repository phase` and `Documentation and
   governance`. Renaming either job in `ci.yml` silently unblocks the branch.
+- **A `dart` or `gh` that aborts with a core dump is usually out of PIDs, not broken.** The first
+  line is `Could not start thread DartWorker: 11 (Resource temporarily unavailable)` and a frame
+  like `VmInteropHandler.setEnvironmentVariable` further down is a *symptom* — it is wherever the
+  process happened to be, not the cause. Check `cat /sys/fs/cgroup/pids.current` against `pids.max`
+  and `for f in /proc/[0-9]*/status; do awk '/^State:/{print $2}' "$f"; done | sort | uniq -c`
+  before believing a stack. A container capped at 512 with a few hundred `Z` cannot start a Dart VM
+  at all, and reaping is pid 1's job — so a `dart test` that dumps makes the next one worse. Two
+  ways out: `git -c pack.threads=1 -c core.preloadIndex=false push` (git needs few threads), and
+  `GOMAXPROCS=1 GOGC=off gh …` (`gh` is Go and sizes its GC workers from the core count).
 
 ## Documentation rules
 
@@ -244,6 +263,35 @@ Each is explained at the point of use; these are the ones that cost the most tim
   so a test can pin it against `CRC-32("123456789") == 0xCBF43926`.
   The two blocks have no separator (`concepts.md` §2's grammar admits nothing else), and counters are
   **per kind** so instrumentation does not change a logical event's id.
+- **A wire is a port, not a package import.** The OpenAI provider reaches the network through
+  `HttpClientPort`, not `package:http` — and the reason is
+  [install-and-update.md §1](docs/architecture/install-and-update.md)'s deny-all egress proof,
+  which works by swapping the port, plus the fact that `package:http`'s barrel reaches `dart:io` on
+  the VM — which the workspace contract test's web-resolution walk would catch.
+  `providers.md` §1's "built on `package:http`" is about the *wire format*, and the repository
+  already decided the layer.
+- **A streaming reader's two traps, the same two `FrameDecoder` has.** A `\r\n\r\n` block terminator
+  splits into **two** empty lines, and it is the *non-empty* dispatch guard that saves you, not the
+  line-ending handling. And a chunk boundary inside a multi-byte character must go through a
+  streaming `Utf8Decoder`; decoding each chunk alone raises on the first half and — in a reader
+  that swallows it — drops a byte. `sse.dart` has both, with the reasons.
+- **A sentinel is not a frame.** `[DONE]` ends the *reading*; a `return` from an `async*` ends the
+  *stream*, so a reader that returns on it drops the mandatory result chunk and the symptom is a
+  caller waiting for a chunk that never comes. A flag, and finish the turn at the other end.
+- **A batch response is not a stream, so it emits one chunk.** `providers.md` §3's adapter emits
+  a single final chunk, and a delta is a claim that the endpoint sent something *then* — which a
+  batch response did not. Its `tool_calls` also carry **no `index`** (position *is* the index), so an
+  adapter folding one into a streaming frame must synthesise it, and must do so all-or-nothing: a
+  synthesised position can collide with a volunteered one.
+- **Classify a status by the taxonomy, never by a header or a number.** A probe branched on
+  `retryAfter != null` and recorded `streaming: false` for a 429 with no `Retry-After`, for one in
+  the HTTP-date form, and for every 5xx and 401 — turning a working provider into a permanently
+  excluded one. And a *turn* must map a status to a code rather than re-raising it: the probe needs
+  the "said no" against "declined to answer" distinction, a turn does not.
+- **A capability nothing can establish must not be `requireable`.** `promptCaching` is response-side,
+  so requiring it refused the pair before the first turn and nothing could ever observe a cached
+  count — a dead end with no operator action. `requireableModelFeatures` names the five a probe
+  can conclude, and both the validator and the provider's constructor refuse the sixth.
 - **Doubles are library code, not `test/fakes/`** — they are for other packages' tests, and a
   `test/` directory is not on another package's resolution path. `FakeClock.delay` completes
   *immediately and advances the clock*; both halves matter. A fake clock's default instant is the
@@ -351,7 +399,11 @@ implementation yet" and "no packages exist yet"; ~20k lines of product code and 
 tests exist. `alteri_one_platform` has **no `StoragePort` implementation** (`HiveCeStorage` is task
 `1.1`'s). `AlteriOneProvider.chat` has **no `deadline` and no `cancel`** — task `0.14` adds both.
 `melos run release:*` scripts, `test/install/`, `config/fixtures/release/` and `tool/install/` are
-specified but not created.
+specified but not created. **`providers.md` §3.1's tool-definition half is not built**: a provider
+request carries no `tools` member, because `ToolDescriptor` is `tools.md` §1 and has no task. The
+other direction is — an assistant turn's `tool_calls` go back on the wire, so a second turn can be
+completed at all, which is why `AlteriOneMessage` gained `toolCalls` in `0.13` while
+`AlteriOneRequest` did not gain `tools`.
 
 Two specification conflicts are recorded in `TODO.md` rather than decided in code: the namespace
 separator is spelled three ways (`/`, `.`, and the shipped dotted `core.initialize`), and
