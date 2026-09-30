@@ -269,8 +269,16 @@ ADR file that is not indexed fails the documentation checker as an orphan.
 
 Trust the executable sources over prose:
 
-- `README.md` says "No packages exist yet" — true of the product's own packages, which carry
-  a manifest and a boundary and no declaration. `site/` is a real, buildable package.
+- `README.md` says "No packages exist yet" — no longer true of `alteri_one_protocol` or
+  `alteri_one_platform`, which carry the envelope, framing, both transports and the six platform
+  ports. It is still true of `alteri_one_core`, which carries a boundary and nothing else. `site/`
+  is a real, buildable package.
+- `alteri_one_platform` has **no `StoragePort` implementation yet**: `HiveCeStorage` is task `1.1`'s
+  (ADR-0004), so the port is declared, the contract test satisfies it with a local double, and the
+  browser surface does not mirror it. Likewise no shipped *fakes* — the determinism doubles are
+  task `0.10`'s — which is why the contract test's fakes are local to `ports_contract_test.dart`.
+  The two tasks in that sentence are the reason neither thing was written early: a declaration
+  written before the task that specifies it is written twice.
 - [quality-gates.md](docs/process/quality-gates.md) lists most gates as active. The
   documentation, governance, Cyrillic, naming, workspace-contract, quality-gate-contract,
   coverage and melos chain gates run today; `test/ci/telemetry_allowlist_test.dart` is named
@@ -286,10 +294,12 @@ Trust the executable sources over prose:
   they scope to exist; a Melos script whose scope matches no package exits `0` without doing
   anything, so their presence proves nothing yet.
 - `alteri_one_protocol` carries the envelope (task `0.4`), the framing (task `0.5`), the control
-  plane (task `0.6`) and both transports (tasks `0.7` and `0.8`): the four variants, the codec, the
+  plane (task `0.6`) and both transports (tasks `0.7` and `0.8`), and `alteri_one_platform` the six
+  ports and their adapters (task `0.9`): the four variants, the codec, the
   version types, the error taxonomy, `Content-Length` framing, the 8 MiB frame cap, the 8 KiB header
   cap, a bounded outbound queue, `$/cancelRequest`, `$/progress`, `core.initialize`, a channel port
-  with a deterministic pair, and the stdio adapter over it. Two SDK facts are baked
+  with a deterministic pair, the stdio adapter over it, and `AlteriOneClock`, `Paths`,
+  `HttpClientPort`, `StoragePort`, `Concurrency` and `ProcessHost`. Two SDK facts are baked
   into its shapes and will bite anyone rewriting them — **`sealed interface` does not parse on
   the pinned 3.13.4**, so `ErrorCode`, `HandshakeOutcome` and every other union is a `sealed
   class`; and an **`extension type` has one constructor and may not override an `Object`
@@ -345,6 +355,63 @@ Trust the executable sources over prose:
   *cannot* do on request — a boundary at a chosen byte — is driven through `_ScriptedPipe` in the
   same file; a test claiming a real pipe split a frame on a particular byte would be asserting the
   OS's scheduling. That is why the file carries the `integration` tag.
+- **The platform's conditional export must put `native.dart` first, and this is not cosmetic.** The
+  analyzer does **not** evaluate `dart.library.*` for a conditional export — it resolves the *default*
+  library and stops. With `src/web.dart` first and `if (dart.library.io) 'src/native.dart'`,
+  `dart analyze` reported the browser surface to every caller on the VM: `PlatformPaths.fromEnvironment`
+  "not defined", `PlatformPaths(uri)` taking "0 positional arguments", `IsolateChannel.maxQueuedBytes`
+  absent, all on members that exist. `dart run` and `dart test` resolved correctly, so the package
+  **passed its own acceptance command and failed its own gate**. The line is
+  `export 'src/native.dart' if (dart.library.js_interop) 'src/web.dart';` — native first so the
+  analyzer, the VM and the test runner agree, and `js_interop` rather than `io` because naming `io`
+  would select the *browser* surface on the machine that has `dart:io`. Check all three when you
+  touch it: `dart analyze`, `dart run`, and `dart compile js`.
+- **A `Uri` can never carry `..`, and that quietly removes half of what a containment check needs.**
+  `Uri.file`, `Uri.parse` and `Uri(scheme:, path:)` all resolve `..` before the value exists, so a
+  `Paths.within`/`isBeneath` written to reject a `..` segment guards against nothing. `Paths.within`
+  is lexical over a normalised path and says so, with symlinks named as the limitation it actually
+  has; the authoritative check is task `0.24`'s `x-path-root` rule against a real path.
+- **`Uri.resolve` replaces the base's last segment, so it is the wrong call for joining into a
+  directory.** `Uri.file('/srv/install').resolve('config')` is `/srv/config` — outside the install
+  root, from a method whose purpose is to produce a path inside it, and the result looks like a
+  successful join. `resolveBeneath` appends a segment instead, which is why it is a function in
+  `src/paths.dart` and not a one-liner.
+- **`late final` with an initializer is lazy, and that is a subscription bug waiting to happen.**
+  `IsolateEndpoint` held its `_inbox.listen(...)` in one, so the endpoint's own receive port was not
+  subscribed until something *read* the field — and the only reader is the peer's channel, which
+  subscribes to `messages`. The endpoint sat there with a port nobody was reading and the round trip
+  never completed, with no exception anywhere. A subscription belongs in a constructor **body**.
+- **`IsolateEndpoint` needs two ports, and the one-port version connects to itself.** An endpoint that
+  wraps a single `ReceivePort` and sends to its own `SendPort` type-checks, never throws, and delivers
+  to nobody — it looks like a working link right up until something waits for the peer. Each side
+  builds an endpoint (which is what gives it a port to *receive* on) and learns the other's port from
+  the message that started the isolate, so `IsolateEndpoint.unconnected()` plus `connect` is two
+  phases because there is no alternative, not out of caution.
+- **`Process.stdout` is single-subscription, so a port that promises a broadcast has to build one.**
+  `dart:io`'s is not, and a second `listen` throws — the transcript tee `HostProcess.stdout`'s
+  documentation offers would have thrown. The adapter wraps it in a broadcast controller and attaches
+  **in the constructor body**, because a subscription taken when the first reader arrives cannot
+  deliver what the child wrote before it.
+- **A `close()` must not stop draining a live child's stderr.** The whole reason the process host
+  drains is that a child writing past a pipe buffer blocks in `write(2)` for ever, and `close` is
+  exactly what a `finally` block calls — before the child has necessarily exited. Cancelling the
+  drain there reintroduces the deadlock the file exists to prevent, and it presents as a Tier 2 plugin
+  that "hangs" holding a capability lease. The drain is released when the child is *observed* to have
+  exited, and a `close` that happened early is completed by the exit rather than left hanging.
+- **`IsolateChannel.write` must copy a `Uint8List` too.** `bytes is Uint8List ? bytes :
+  Uint8List.fromList(bytes)` copies only the case that never needs it — and `Uint8List` is precisely
+  what `FrameOutbox` hands a channel, which reuses its buffer.
+- **A port that releases its bound by acknowledgement can only be satisfied by a peer that
+  acknowledges.** `IsolateChannel` therefore rejects a `ConcurrencyPeer` that is not an
+  `IsolateEndpoint`, with an `ArgumentError` that says why. That is a real constraint rather than a
+  convenience: a channel whose budget is never released would refuse every write for ever, which looks
+  exactly like backpressure and is not.
+- **The product-spelling gate is about identifiers, and it checks that way now.** It used to be
+  `file.contains('alterione')`, which fails a file whose only occurrence is prose explaining ADR-0016
+  *and* a file whose only occurrence is the value `~/.alterione` — which ADR-0016 and
+  `install-and-update.md` §2 **require** `alteri_one_platform` to contain. `_codeOnly` in the
+  workspace contract test strips comments and string literals first, and it has its own test: a
+  governance gate whose machinery is untested is a gate that can stop working with nothing turning red.
 - **A transport never decodes a frame, not even to write a diagnostic.** The close-time loss
   message names a *byte count* rather than a request id for this reason, and the contract test
   asserts it: naming the id would mean decoding, which is the one thing §7.1 forbids.

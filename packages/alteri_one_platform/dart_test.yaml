@@ -1,0 +1,31 @@
+# Test timeouts for alteri_one_platform.
+#
+# `dart_test.yaml` does not inherit between packages, so this file is not optional: a package
+# that gains a test/ directory without one gets the package:test default by accident rather
+# than by decision, and the quality-gate contract test fails on exactly that
+# (test/ci/quality_gates_contract_test.dart, quality-gates.md §4).
+#
+# The default is 30 s, and it is generous. Almost everything in this package's contract test is a
+# check on a declaration — the interface exists, the adapter satisfies it, the browser surface
+# refuses — and those finish in milliseconds. The exceptions are the two that touch the operating
+# system, and both are tagged rather than given a longer default:
+#
+# - the process host's tests spawn a real child, because a `StreamController` has no exit code, no
+#   pipe buffer and no SIGTERM, and the two bounds task 0.8 names (a bounded diagnostics buffer, a
+#   bounded wait) are exactly the properties a fake would be asserting about itself;
+# - the HTTP test binds a loopback socket, because a request that never reaches a socket proves
+#   nothing about the adapter that has to put it there.
+#
+# Both are `integration` and both stay inside the blocking chain. That is allowed and it is not the
+# same thing as reaching the network: the socket is opened on 127.0.0.1 by the test itself on an
+# ephemeral port, so a test run cannot reach anything external and cannot conflict with anything
+# already listening. What is forbidden — and what the local fixture server of task 0.21 exists for —
+# is a blocking-chain test that depends on a host it does not control.
+
+timeout: 30s
+
+tags:
+  integration:
+    timeout: 2m
+  offline-e2e:
+    timeout: 5m

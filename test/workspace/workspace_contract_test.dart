@@ -230,12 +230,29 @@ void main() {
       // Inside the source tree Dart convention applies; `alterione` names the artefact a user
       // installs. The one exception is the bootstrap package itself, whose pub.dev name is
       // part of the decision. ADR-0016.
+      //
+      // **The check is for an identifier, and it is checked as one.** It used to be
+      // `file.contains('alterione')` over the whole file, which is a proxy for "an identifier
+      // spells it" and is wrong in both directions: it fails a file whose only occurrence is prose
+      // explaining ADR-0016, and it fails a file whose only occurrence is the *value* `~/.alterione`.
+      //
+      // That second one is not avoidable, and the reason is the ADR itself. `alteri_one_platform`
+      // resolves the install root, install-and-update.md §2 makes that root `~/.alterione`, and
+      // ADR-0016 requires an installed path and a default configuration value to carry the product
+      // spelling. So the product spelling **must** appear in that package, as a string — and the
+      // rule has to be about identifiers, which is what it says it is about, or the rule and the
+      // specification contradict each other.
+      //
+      // Narrowing it this way does not weaken the gate. An identifier still fails, and the narrowing
+      // is *only* about comments and string literals; the stripper is exercised by its own test below,
+      // because a governance gate that silently stopped checking anything would be worse than the
+      // false positive it replaced.
       for (final member in workspace.members.values) {
         if (member.path == 'apps/bootstrap') continue;
         final offenders = <String>[
           for (final file in _filesIn(Directory(member.path)))
             if (!file.path.endsWith('.g.dart') &&
-                file.readAsStringSync().contains('alterione'))
+                _spellsTheProductNameInCode(file))
               _normalise(file.path),
         ];
         expect(
@@ -243,9 +260,115 @@ void main() {
           isEmpty,
           reason:
               '${member.path} spells the product name in a source identifier; the product '
-              'spelling belongs to the release (ADR-0016)',
+              'spelling belongs to the release (ADR-0016). A comment or a string value may carry '
+              'it — the default install root is `~/.alterione` and has to — but a name may not',
         );
       }
+    });
+
+    test('the product-spelling check looks at code and not at prose', () {
+      // The stripper behind the check above, tested on its own. A governance gate whose own
+      // machinery is untested is a gate that can stop working without anything turning red, which is
+      // the failure mode the rest of this file exists to prevent.
+      //
+      // Every case is written as a **raw** string, because each one is Dart source being fed to the
+      // scanner and an escaped one would be harder to read than the thing it is about.
+      expect(_codeOnly(r'class alterione {}'), contains('alterione'));
+      expect(
+        _codeOnly(r"final x = '~/.alterione';"),
+        isNot(contains('alterione')),
+      );
+      expect(
+        _codeOnly(r'final x = "~/.alterione";'),
+        isNot(contains('alterione')),
+      );
+      expect(
+        _codeOnly(r"final x = r'~/.alterione';"),
+        isNot(contains('alterione')),
+      );
+      expect(
+        _codeOnly(r'// alterione in a line comment'),
+        isNot(contains('alterione')),
+      );
+      expect(
+        _codeOnly(r'/// alterione in a doc comment'),
+        isNot(contains('alterione')),
+      );
+      expect(
+        _codeOnly(r'/* alterione in a block */'),
+        isNot(contains('alterione')),
+      );
+      expect(
+        _codeOnly(r'/* outer /* nested */ still a comment */'),
+        isNot(contains('alterione')),
+        reason: 'Dart block comments nest, so the inner */ does not end the outer one',
+      );
+      expect(
+        _codeOnly(r"final url = 'https://alteri.one'; // alterione"),
+        isNot(contains('alterione')),
+        reason: 'a // inside a string is part of the string, not the start of a comment',
+      );
+      expect(
+        _codeOnly(r"final s = 'it\'s alterione';"),
+        isNot(contains('alterione')),
+        reason: 'an escaped quote does not end the string',
+      );
+      expect(
+        _codeOnly(r'final s = "a\"b alterione";'),
+        isNot(contains('alterione')),
+      );
+      expect(
+        _codeOnly(r"// it's a comment with an apostrophe"),
+        isNot(contains('alterione')),
+        reason:
+            'an apostrophe in a comment does not open a string. Scanning for strings before comments '
+            'would treat the rest of this line as a string and hide whatever came after it',
+      );
+      // **Triple quotes**, where the first version of this scanner had its silent false negative.
+      // Each case is the shape that hid an identifier: a triple-quoted body containing the *other*
+      // kind of quote, followed by real code. The literals are raw or double-quoted so the Dart
+      // source of this test is itself unambiguous -- an escaping mistake here would look like a
+      // scanner failure.
+      expect(
+        _codeOnly(r"final s = '''it's plain''';"),
+        isNot(contains('alterione')),
+        reason: 'a triple-quoted string is a string',
+      );
+      expect(
+        _codeOnly(
+          r"final s = '''it's plain''';"
+          '\nfinal alterione = 1;',
+        ),
+        contains('alterione'),
+        reason:
+            'a triple-quoted string containing a quote must end at the closing triple, not at '
+            'the first quote inside its body -- otherwise everything after it reads as code '
+            'that has been blanked, and the identifier is invisible to the gate',
+      );
+      expect(
+        _codeOnly(
+          'final s = """it\'s plain""";'
+          '\nfinal alterione = 1;',
+        ),
+        contains('alterione'),
+        reason: 'and the same for a double-quoted one',
+      );
+      expect(
+        _codeOnly(
+          r"final s = r'''it's raw''';"
+          '\nfinal alterione = 1;',
+        ),
+        contains('alterione'),
+        reason: 'and for a raw one, which has no escapes at all',
+      );
+      expect(
+        _codeOnly("final s = '''\nalterione\n''';"),
+        isNot(contains('alterione')),
+        reason: 'a multi-line triple-quoted body is still a string',
+      );
+
+      // Length-preserving, so a finding can still be located in the original.
+      expect(_codeOnly('final x = 1;').length, 'final x = 1;'.length);
     });
 
     test('the in-repository graph has no cycle', () {
@@ -687,6 +810,132 @@ final class _Workspace {
 }
 
 enum _Visit { open, done }
+
+/// Whether [file] spells the product name **in code** rather than in a comment or a string.
+///
+/// The rule is about identifiers, so this strips the two things an identifier is not and asks again.
+/// A single-pass scanner rather than a regular expression, because the three cases interact: a `//`
+/// inside a string is part of the string, an apostrophe inside a comment is not a quote, and Dart's
+/// block comments nest. Getting any of those wrong produces either a false positive on a correctly
+/// spelled package or — worse — a false negative that hides the identifier the rule exists to find.
+///
+/// Two documented limits, both harmless for this rule and both stated rather than left to a reader:
+///
+/// - An interpolated expression inside a string is treated as part of the string, so
+///   `'$someIdentifier'` is not inspected. A product-spelled identifier would have to be interpolated
+///   to get past this, which is not a mistake anyone makes by accident.
+/// - Raw strings (`r'…'`) have no escapes, so a quote ends them; that is correct for raw strings and
+///   the reason they need no escape handling. Triple quotes are handled, and that is not a
+///   detail: without them this function had a silent false negative on an identifier after a
+///   triple-quoted block containing an apostrophe -- strictly worse than the false positive it
+///   replaced.
+String _codeOnly(String source) {
+  final out = StringBuffer();
+  var index = 0;
+
+  void blank(int count) {
+    for (var offset = 0; offset < count; offset++) {
+      final character = source[index + offset];
+      // Newlines survive so that a finding's line number still means something in the original.
+      out.write(character == '\n' ? '\n' : ' ');
+    }
+  }
+
+  while (index < source.length) {
+    final character = source[index];
+
+    if (character == '/' && index + 1 < source.length) {
+      if (source[index + 1] == '/') {
+        while (index < source.length && source[index] != '\n') {
+          blank(1);
+          index++;
+        }
+        continue;
+      }
+      if (source[index + 1] == '*') {
+        // Nesting matters: `/* a /* b */ c */` is one comment in Dart, and treating the inner `*/`
+        // as the end would leave `c */` as code — where an identifier could hide.
+        var depth = 0;
+        while (index < source.length) {
+          if (source.startsWith('/*', index)) {
+            depth++;
+            blank(2);
+            index += 2;
+          } else if (source.startsWith('*/', index)) {
+            depth--;
+            blank(2);
+            index += 2;
+            if (depth == 0) break;
+          } else {
+            blank(1);
+            index++;
+          }
+        }
+        continue;
+      }
+    }
+
+    final isQuote = character == "'" || character == '"';
+    final rawPrefix =
+        character == 'r' &&
+        index + 1 < source.length &&
+        (source[index + 1] == "'" || source[index + 1] == '"');
+    if (isQuote || rawPrefix) {
+      final raw = rawPrefix;
+      // The quote starts one past the `r` of a raw prefix and at the character itself otherwise, so
+      // the triple-quote run is measured **from the quote** in both cases. Measuring it from `index`
+      // while guarding on `!raw` looks equivalent and is not: `r'''...` was then read as a
+      // single-quoted raw string that ended at the second quote of the run, which blanked almost
+      // nothing and left the rest of the literal to be scanned as code.
+      final quoteIndex = raw ? index + 1 : index;
+      final quote = source[quoteIndex];
+      // A run of three is a triple-quoted string. **This case is not optional**: reading ''' as
+      // an empty string plus a string starting at the third quote ends it at the *first* apostrophe
+      // in the body, so everything after it is read as code that has been correctly blanked -- and an
+      // identifier after such a block is then invisible to the gate. A longer run is a syntax error
+      // rather than a case worth handling, and taking the first three as the delimiter is the right
+      // approximation of it.
+      final quoteLength =
+          quoteIndex + 2 < source.length &&
+              source[quoteIndex + 1] == quote &&
+              source[quoteIndex + 2] == quote
+          ? 3
+          : 1;
+      final opener = quoteLength + (raw ? 1 : 0);
+      blank(opener);
+      index += opener;
+
+      while (index < source.length) {
+        if (!raw && source[index] == r'\') {
+          // The backslash and whatever follows it, consumed together: an escape has to be
+          // consumed or a quote would end the string early and the rest is read as code. A
+          // backslash-newline is one unit, so its newline is blanked too -- the only case where
+          // the length-preserving property does not hold, and it is a line continuation.
+          final escapeLength = index + 1 < source.length ? 2 : 1;
+          blank(escapeLength);
+          index += escapeLength;
+          continue;
+        }
+        if (source.startsWith(quote * quoteLength, index)) {
+          blank(quoteLength);
+          index += quoteLength;
+          break;
+        }
+        blank(1);
+        index += 1;
+      }
+      continue;
+    }
+
+    out.write(character);
+    index += 1;
+  }
+  return out.toString();
+}
+
+/// Whether [file] carries the product spelling outside a comment and outside a string.
+bool _spellsTheProductNameInCode(File file) =>
+    _codeOnly(file.readAsStringSync()).contains('alterione');
 
 /// The imports, exports and parts of a Dart library, captured.
 final _importPattern = RegExp(
