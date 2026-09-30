@@ -5,11 +5,17 @@
 # than by decision, and the quality-gate contract test fails on exactly that
 # (test/ci/quality_gates_contract_test.dart, quality-gates.md §4).
 #
-# The envelope tests read files and construct values. None of them starts a process, binds a
-# socket or reaches the network, because this package never imports `dart:io` and the tests run
-# in the blocking chain on three operating systems. 30 s is therefore generous, and it is the
-# number rather than a shorter one so that a future test that does wait has room before anyone
-# shortens it to make a suite pass.
+# The envelope, framing, control and in-process transport tests read files and construct values.
+# None of them starts a process, binds a socket or reaches the network, because this package never
+# imports `dart:io` and those tests run in the blocking chain on three operating systems. 30 s is
+# therefore generous, and it is the number rather than a shorter one so that a future test that does
+# wait has room before anyone shortens it to make a suite pass.
+#
+# The stdio contract test of task `0.8` is the exception, and it is the exception because §7's
+# `stdio` row is *about* a pipe: a child that exits, a stdout separate from stderr, and chunk
+# boundaries the OS chose cannot be faked with a `StreamController`, so that file spawns a real
+# `dart` child. It carries the `integration` tag for the 2 m below rather than living on the 30 s
+# default, where a loaded runner would report a bare timeout instead of a failure.
 
 timeout: 30s
 

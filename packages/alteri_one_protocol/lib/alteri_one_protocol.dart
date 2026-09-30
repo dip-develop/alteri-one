@@ -55,5 +55,6 @@ export 'src/error.dart';
 export 'src/framing.dart';
 export 'src/handshake.dart';
 export 'src/json.dart';
+export 'src/stdio.dart';
 export 'src/transport.dart';
 export 'src/version.dart';
