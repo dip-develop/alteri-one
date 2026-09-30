@@ -558,3 +558,62 @@ One envelope runs over three transports. A transport never changes policy or tru
 Missing explicit framing on stdio is a protocol error, not a compatibility mode. The HTTP
 transport does not by itself turn the core into an MCP server or client; that dialect
 adapter is a separate component. See [extensibility/mcp.md](../extensibility/mcp.md).
+
+### 7.1 The in-process transport
+
+The `ipc` row above says the same envelope runs over a channel; this is what that means,
+and `alteri_one_protocol`'s `transport.dart` implements it. Decisions, each one a way an
+in-process transport is easy to get wrong.
+
+- **A transport is bytes in and bytes out, and it never interprets a frame.** The same
+  `FrameDecoder` and `FrameOutbox` the stdio adapter uses, over an injected channel, so §2.1
+  and §2.2 are the *only* description of what may travel. A transport that understood
+  `$/cancelRequest` would be a second place where a notification means something, and §3.1's
+  correlation rules would then be true on one transport and aspirational on the other. Control
+  is the dispatcher's, through the `CancelRegistry`; the transport delivers a notification
+  exactly as it delivers a response.
+- **The transport has no `tier` and no policy hook.** §7's "a transport never changes policy or
+  trust tier" is structural here: there is nothing to set. An `ipc` transport is not a security
+  boundary and is not used for Tier 2 — it cannot be, because the only thing crossing it is a
+  frame, and a frame carries no authority.
+- **The channel is a port, and the platform decides which one.** `TransportChannel` is the
+  smallest thing an isolate, a socket or an in-memory queue can sit behind, and
+  `alteri_one_platform`'s `Concurrency` port implements it. This package never imports
+  `dart:io` or `dart:isolate`, so one transport serves a same-isolate Tier 1 call, an isolate
+  hop and a test. **A port's write reports whether it took the bytes**, because §2.2's rule is
+  that a write refused for space is backpressure and not an error — nothing is taken, nothing is
+  discarded, the caller offers it again. A port that can only accept has no way to say "not
+  now", and a transport built on one has a bound it can never reach and a counter that can never
+  move.
+- **A deterministic channel pair is product code, not test scaffolding.** Two endpoints joined
+  by an explicit queue, delivering bytes only when a caller pumps them. "Admits deterministic
+  duplex channels for Tier 1" is this: a Tier 1 plugin in the same isolate needs no isolate and
+  no microtask race, and a test that interleaves two transports gets the same interleaving
+  every run. A transport whose delivery order depends on a timer is a test that passes on a
+  fast machine and fails on a loaded one.
+- **Sending reports backpressure and never throws for it.** `send` returns
+  `FrameWriteOutcome`, so `backpressured` is a value the caller handles — the caller still holds
+  the frame and offers it again, per §2.2. A transport that threw here would turn a slow reader
+  into a failed session. `accepted` therefore means *the transport owns the frame and will
+  deliver it*, which is a weaker claim than "the channel has taken it" and is the honest one: a
+  frame can be accepted, counted as pending, and still sitting on this side of the link.
+- **A frame the port will not take is held, counted and retried, and losing one is a failure.**
+  The transport keeps the refused frame rather than dropping it, counts it in the bytes pending,
+  and offers it again on the next `send` — which is why the drain runs on **every** `send`,
+  including one the queue refused, since a refused offer is precisely when the queue most needs
+  draining. If the session ends with a frame still held, that is a `-32603` and the transport
+  is failed: a peer waiting for a response that is never coming is the outcome every other rule
+  here exists to avoid, and reporting the loss at close is no worse than swallowing it. `close`
+  reports it rather than throwing, because `close` is what a `finally` block calls and an
+  exception raised there would hide the failure the caller was already handling.
+- **A framing breach is terminal, and it closes the channel.** A receiver that cannot
+  resynchronise is a closed stream, so a `ProtocolViolation` from the decoder fails the
+  transport permanently: the failure is retained, every later `send` is refused with it, and
+  the channel is closed exactly once. There is no "skip this frame and carry on", because the
+  receiver no longer knows where the next frame starts.
+- **Order is preserved and nothing is coalesced.** One frame in, one frame out, in the order
+  `send` was called. A transport that merged two queued frames to save a write would change
+  what a peer observes between two responses, and the transcript records what a peer observes.
+- **A frame that cannot be decoded is a protocol error, not a dropped frame.** The decoder
+  answers `-32700` or `-32600` and the transport surfaces it; silently discarding an undecodable
+  frame would leave the peer waiting for a response that is never coming.

@@ -308,6 +308,20 @@ Trust the executable sources over prose:
   `SessionLimits.capped` (task `0.6`) repeats the arrangement for the two limits the handshake
   negotiates and framing does not own, and `SessionLimits.minimum` deliberately does *not* clamp,
   so a caller cannot fold the hard cap in twice by accident.
+- **A port that cannot refuse has an unreachable bound.** `TransportChannel.write` returns `bool`
+  (task `0.7`) rather than `void`, because §2.2's "a write refused for space is backpressure"
+  needs a port with a "not now". With a `void` write the outbox drained on every `send`, so
+  `backpressured` could never be returned and `pendingBytes` was structurally always 0 — a
+  counter above a bound that cannot be reached. Its test had been passing by *priming* the
+  injected outbox and then measuring that same primed queue, which is a tautology, not a check.
+  Whoever writes `alteri_one_platform`'s `Concurrency` port has to return that `bool`.
+- **`send` drains on every call, including one the queue refused.** Skipping the drain there
+  looks like an optimisation and is a deadlock: a refused offer is exactly when the queue most
+  needs draining, and with the drain skipped a full outbox plus a refusing channel never places
+  the held frame again.
+- **A transport never decodes a frame, not even to write a diagnostic.** The close-time loss
+  message names a *byte count* rather than a request id for this reason, and the contract test
+  asserts it: naming the id would mean decoding, which is the one thing §7.1 forbids.
 - **The cancelled request's id is `params.id`, and there is no frame-level `id` to find.** A
   notification has none — `NotificationEnvelope` has no field for one and the codec refuses one —
   so a receiver reaching for `frame.id` cancels nothing and the symptom is a run that ignores
