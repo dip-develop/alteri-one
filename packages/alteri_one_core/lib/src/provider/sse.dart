@@ -20,11 +20,16 @@
 ///
 /// **A CRLF block terminator splits into two empty lines, not one.** `a\r\n\r\n`.split('\r\n')
 /// is `['a', '', '']` — the blank line *and* an artefact of the split. An implementation that
-/// treats "a blank line" as "dispatch the event" therefore dispatches **twice**: once correctly
-/// and once with an empty payload. The symptom is not a crash; it is a stream that emits a
-/// spurious extra event every frame, which for a tool-call delta is an extra empty fragment and
-/// for a `finish_reason` is a second turn end. [SseReader] consumes the terminator *including*
-/// its line ending, so exactly one empty line is produced per block terminator.
+/// dispatches on every blank line therefore dispatches **twice**: once correctly and once with
+/// an empty payload. The symptom is not a crash; it is a spurious extra event on every frame,
+/// which for a tool-call delta is an extra empty fragment.
+///
+/// Two things in [SseReader] guard that, and it is worth being precise about which does the work
+/// because getting it backwards is how a reader ends up "fixing" the wrong one. The **non-empty
+/// guard** on dispatch is the one that saves it: a second blank line has nothing accumulated, so
+/// it dispatches nothing. Consuming the terminator *including* its line ending is the other half,
+/// and it is what makes a `CRLF` and an `LF` endpoint behave identically rather than one of them
+/// producing an extra event per frame. Both are needed; the first is the load-bearing one.
 ///
 /// **A payload spanning chunks must be compared against the outstanding bytes, never against the
 /// declared length.** That was the protocol framing's version of the same mistake and it emitted
@@ -135,17 +140,6 @@ class SseReader {
     return events;
   }
 
-  /// The event still being accumulated, if the stream ended without a blank line.
-  ///
-  /// The grammar says a dispatch needs a blank line, so a stream that ends mid-block has sent
-  /// nothing — and this returns the *partial* event rather than completing it, because a partial
-  /// `data:` payload is a truncated JSON object and §3.2's assembler would turn it into a
-  /// `-32700` three frames later rather than here, where the cause is known.
-  SseEvent? get pending {
-    if (_data.isEmpty && _fields.isEmpty) return null;
-    return SseEvent(_data.join('\n'), Map<String, String>.of(_fields));
-  }
-
   /// Closes the line currently being accumulated, and dispatches an event on a blank one.
   void _endLine(List<SseEvent> out) {
     if (_line.isEmpty) {
@@ -205,13 +199,23 @@ class SseReader {
     }
   }
 
-  /// The number of UTF-8 bytes the unit at [unit] occupies.
+  /// How many UTF-8 bytes the code unit at [unit] contributes to [maxLineBytes].
   ///
-  /// Read from the lead byte's own range rather than from a table, because the count only matters
-  /// for [maxLineBytes] and a table would be four cases to answer a bound an attacker would have
-  /// to exceed by a megabyte. Continuation bytes report 1: a malformed sequence is caught by the
-  /// decoder, not here.
+  /// **A surrogate pair counts 4, not 8.** This walks *code units*, and a character outside the
+  /// BMP arrives as two of them: an earlier version charged 4 to each and so tripped the
+  /// one-mebyte line bound at roughly half a mebibyte of real bytes on an emoji-heavy line, which
+  /// made [maxLineBytes] a bound on something other than what its documentation says it is. A
+  /// trail surrogate is therefore worth 0 and the lead 4.
+  ///
+  /// Read from the lead unit's own range rather than from a table, because the count only matters
+  /// for a bound an endpoint would have to exceed by a megabyte, and a table would be four cases
+  /// to answer it. A continuation unit standing alone is charged 2: a malformed sequence is
+  /// caught by the decoder, and this only has to be a defensible upper bound, not a diagnosis.
   static int _utf8Width(int unit) {
+    if (unit >= 0xd800 && unit <= 0xdbff)
+      return 4; // A lead surrogate: the pair is 4 bytes.
+    if (unit >= 0xdc00 && unit <= 0xdfff)
+      return 0; // A trail surrogate: already counted.
     if (unit < 0x80) return 1;
     if (unit < 0x800) return 2;
     if (unit < 0x10000) return 3;

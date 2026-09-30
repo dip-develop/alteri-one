@@ -78,6 +78,7 @@ import 'package:alteri_one_protocol/alteri_one_protocol.dart';
 
 import '../profile/diagnostic.dart';
 import '../profile/profile.dart';
+import '../profile/validator.dart' show requireableModelFeatures;
 import '../provider.dart';
 import 'assembler.dart';
 import 'exchange.dart';
@@ -126,6 +127,27 @@ final class OpenAiCompatibleProvider implements AlteriOneProvider {
         code: ConfigDiagnosticCode.configMissingEnv,
         path: 'model.providers',
         values: <String, Object?>{'name': ref.apiKeyEnv, 'field': 'apiKeyEnv'},
+      );
+    }
+    // **`promptCaching` is refused here as well as in the profile validator**, and the
+    // duplication is the point rather than an oversight. The validator is the right home — a
+    // document is its business — but a [ProviderRef] is a plain value a composition root can
+    // build in code, and this constructor is the last point at which a caller can be stopped.
+    // The failure mode without the check is a dead end rather than a wrong answer: the pre-turn
+    // check refuses the pair, so no turn runs, so nothing ever observes a cached count, so the
+    // flag never becomes true. `TODO.md` records the schema gap.
+    if (ref.requires.contains(ModelFeature.promptCaching)) {
+      throw ConfigDiagnostic(
+        code: ConfigDiagnosticCode.configInvalidSchema,
+        path: 'model.providers',
+        values: <String, Object?>{
+          'field': 'requires',
+          'expected':
+              'a feature a probe can establish: '
+              '${requireableModelFeatures.map((f) => f.wireName).join(', ')}. promptCaching is '
+              'observed from a real turn rather than probed, so requiring it would refuse this '
+              'provider for ever',
+        },
       );
     }
   }
@@ -247,7 +269,17 @@ final class OpenAiCompatibleProvider implements AlteriOneProvider {
 
   Future<ProbeOutcome> _runProbe() async {
     try {
-      final outcome = await _probe.run(ref: ref, clock: clock);
+      final outcome = await _probe.run(
+        ref: ref,
+        clock: clock,
+        // The observation travels **in** rather than being read off a field: an exchange is
+        // shared configuration (a client, a credential, a timeout) and a cached-token count is
+        // per-run state that belongs to the provider that made the turn. An earlier version had
+        // it as a `final bool` on the exchange that nothing ever set, so a re-probe reported
+        // `false` while `capabilities` reported `true` — two accessors of one fact, disagreeing,
+        // and the stale one being what a §2.1 cache would have persisted.
+        observedPromptCaching: _observedPromptCaching,
+      );
       _last = outcome;
       return outcome;
     } finally {
@@ -501,14 +533,40 @@ final class OpenAiCompatibleProvider implements AlteriOneProvider {
           'the response body ended inside a character: ${error.message}',
           cause: error,
         );
+      } on TransportFailure catch (failure) {
+        // **The mid-body failure, and it is the common one.** A connection that resets after the
+        // status line is in the caller's hands arrives on the *body* stream, long after `post`
+        // returned — so this is the path a dropped connection actually takes, and before it was
+        // caught it escaped as a raw `TransportFailure`. §1 says transport errors are mapped into
+        // the taxonomy, and a caller catching `SseFormatException`, `ProviderRefusal` *and*
+        // `TransportFailure` to learn that a turn failed has lost the one thing the taxonomy is
+        // for. The port already decided whether the failure was connection-level; this adopts
+        // that verdict as the code rather than second-guessing it.
+        throw ProviderRefusal(
+          DomainErrorCode.providerUnavailable,
+          'the response body failed after the endpoint had begun sending: ${failure.message}',
+          cause: failure,
+        );
       }
     } else if (contentType.contains('application/json') ||
         contentType.isEmpty) {
       // A batch response. Read whole, and **the one place a provider buffers**: §3's reason for
       // streaming is first-token latency, and an endpoint that cannot stream has no first token
-      // to show. The 8 MiB cap is not applied here because this is a completion rather than a
-      // frame — the protocol's cap is about a *frame*, and this body is not one.
-      final bytes = await response.bytes();
+      // to show. The 8 MiB frame cap is not applied here because this is a completion rather than
+      // a frame — the protocol's cap is about a *frame*, and this body is not one.
+      final List<int> bytes;
+      try {
+        bytes = await response.bytes();
+      } on TransportFailure catch (failure) {
+        // The same mid-body failure as the streaming path above, and the same reason it is
+        // caught here too. `HttpResponse.bytes()` already re-throws a `TransportFailure` rather
+        // than folding a truncated body into a short one, which is right; mapping it is ours.
+        throw ProviderRefusal(
+          DomainErrorCode.providerUnavailable,
+          'the response body failed before it was complete: ${failure.message}',
+          cause: failure,
+        );
+      }
       // **Fed to the assembler and its deltas discarded**, and that is §3's own words: *"A
       // non-streaming endpoint may implement the interface with an adapter that emits a single
       // final chunk."* One chunk, not one result plus a synthesised delta. A delta is a report
@@ -518,6 +576,13 @@ final class OpenAiCompatibleProvider implements AlteriOneProvider {
       // what [AlteriOneChatResult.assembledText] is for.
       assembler.add(_batchFrameOf(bytes));
     } else {
+      // **The body is abandoned before the refusal, and that is a resource decision rather than
+      // tidiness.** `HttpResponse.body`'s contract says an abandoned response aborts the request,
+      // and this response has arrived with a body nobody will read — throwing without touching
+      // it would leave a connection checked out of the pool for a turn that has already failed.
+      // The cancel is awaited so the abort happens before the refusal propagates, and it is
+      // deliberately not a drain: there is nothing in an HTML error page this build can read.
+      await response.body.listen(null).cancel();
       throw ProviderRefusal(
         JsonRpcErrorCode.parseError,
         'the endpoint answered $contentType, which is neither text/event-stream nor JSON. §3 '
@@ -526,14 +591,12 @@ final class OpenAiCompatibleProvider implements AlteriOneProvider {
       );
     }
 
-    // **Observed, not assumed.** §4 is explicit that cached tokens are the difference between two
-    // runs of the same script costing almost nothing and costing a great deal, and §2's probe
-    // cannot establish the flag because nothing in a *request* can make an endpoint report it. So
-    // the first turn that reports a non-zero count flips it, and the next probe reports what was
-    // seen rather than probing again.
-    if (assembler.observedCachedTokens) {
-      _observedPromptCaching = true;
-    }
+    // **Observed, not assumed.** §4 is explicit that cached tokens are the difference between
+    // two runs of the same script costing almost nothing and costing a great deal, and §2's
+    // probe cannot establish the flag because nothing in a *request* can make an endpoint report
+    // it. So the first turn that reports a non-zero count flips it, and `capabilities` and a
+    // re-probe both report what was seen.
+    if (assembler.observedCachedTokens) _observedPromptCaching = true;
     yield assembler.finish();
   }
 
@@ -569,6 +632,16 @@ final class OpenAiCompatibleProvider implements AlteriOneProvider {
   /// `message` into `delta`, and the `finish_reason` and `usage` come along unchanged. A
   /// non-streaming endpoint has no deltas because it has no stream, not because its turn is
   /// shaped differently — which is exactly what §3 says when it permits the adapter.
+  ///
+  /// **The `index` is synthesised here, and this is the one thing the rewrite must do.** §3.2
+  /// makes `index` the assembly key — the field every fragment of a call shares — and it exists
+  /// only on the *streaming* delta shape. A batch completion's `message.tool_calls` entries carry
+  /// `{id, type, function}` and no `index`, because their position in the array *is* the index.
+  /// Copying `message` across verbatim therefore folded every call onto `0`: two parallel tool
+  /// calls became one, its buffer was the two argument objects concatenated, and the turn died
+  /// with `-32602` naming the *second* tool for a parse error this function had caused. The
+  /// assembler treats an absent `index` as 0 because a single index-less fragment is
+  /// unambiguous; a whole array of them is not, and the position is right there.
   static ChatFrame _batchFrameOf(List<int> bytes) {
     final Object? decoded;
     try {
@@ -587,27 +660,62 @@ final class OpenAiCompatibleProvider implements AlteriOneProvider {
         'a non-streaming response was a ${decoded.runtimeType} rather than a JSON object',
       );
     }
-    final message = decoded['choices'];
-    final first = message is List<Object?> && message.isNotEmpty
-        ? message.first
+    final choices = decoded['choices'];
+    final first = choices is List<Object?> && choices.isNotEmpty
+        ? choices.first
         : null;
     final choice = first is Map<String, Object?>
         ? first
         : const <String, Object?>{};
-    final delta = choice['message'];
+    final message = choice['message'];
+    final delta = message is Map<String, Object?>
+        ? message
+        : const <String, Object?>{};
     return ChatFrame(<String, Object?>{
       'object': decoded['object'] ?? 'chat.completion',
       'choices': <Object?>[
         <String, Object?>{
           'index': 0,
-          'delta': delta is Map<String, Object?>
-              ? delta
-              : const <String, Object?>{},
+          'delta': _withCallIndices(delta),
           'finish_reason': choice['finish_reason'],
         },
       ],
       if (decoded.containsKey('usage')) 'usage': decoded['usage'],
     });
+  }
+
+  /// [delta] with an `index` on every `tool_calls` entry, taken from its position.
+  ///
+  /// A no-op when there are no tool calls or when the entries already carry an `index`, so a
+  /// **conformant** batch response — one that volunteers indices, which the streaming shape does
+  /// and this one need not — keeps whatever it sent rather than having its numbering replaced.
+  /// Positions are only assigned where the field is absent, and a gap in an otherwise-present
+  /// index sequence is respected rather than closed: an endpoint that says 0 and 2 meant two
+  /// calls at 0 and 2, and renumbering them to 0 and 1 would be this function inventing an
+  /// answer.
+  static Map<String, Object?> _withCallIndices(Map<String, Object?> delta) {
+    final calls = delta['tool_calls'];
+    if (calls is! List<Object?>) return delta;
+    var rewritten = false;
+    final indexed = <Map<String, Object?>>[];
+    for (var position = 0; position < calls.length; position++) {
+      final call = calls[position];
+      if (call is! Map<String, Object?>) {
+        // Not a shape this rewrite can fix. Left alone rather than dropped: the assembler reports
+        // a fragment it cannot read as `-32602` naming the tool, which is a better answer than
+        // silently discarding a call the model asked for.
+        indexed.add(const <String, Object?>{});
+        continue;
+      }
+      if (call.containsKey('index')) {
+        indexed.add(call);
+        continue;
+      }
+      rewritten = true;
+      indexed.add(<String, Object?>{'index': position, ...call});
+    }
+    if (!rewritten) return delta;
+    return <String, Object?>{...delta, 'tool_calls': indexed};
   }
 
   @override

@@ -66,12 +66,7 @@ import 'dart:io' show Directory, File;
 
 import 'package:alteri_one_core/core.dart' show toolIdGrammar;
 import 'package:alteri_one_core/profile.dart'
-    show
-        ConfigDiagnostic,
-        ModelFeature,
-        ProviderDiagnosticCode,
-        ProviderRef,
-        ProfileException;
+    show ConfigDiagnostic, ModelFeature, ProviderDiagnosticCode, ProviderRef;
 import 'package:alteri_one_core/provider.dart';
 import 'package:alteri_one_platform/alteri_one_platform.dart';
 import 'package:alteri_one_protocol/alteri_one_protocol.dart'
@@ -79,7 +74,8 @@ import 'package:alteri_one_protocol/alteri_one_protocol.dart'
 import 'package:test/test.dart';
 
 // The two internals this file reaches past the public surface, for the reason its header gives.
-import 'package:alteri_one_core/src/provider/sse.dart' show SseReader;
+import 'package:alteri_one_core/src/provider/sse.dart'
+    show SseFormatException, SseReader;
 import 'package:alteri_one_core/src/provider/wire.dart'
     show chatCompletionsUri, eventStreamContentType, streamDoneSentinel;
 
@@ -318,6 +314,136 @@ void main() {
         expect(result.assembledText, 'it says hello');
         expect(result.usage.totalTokens, 8);
       },
+    );
+  });
+
+  test('a batch completion keeps parallel tool calls apart', () async {
+    // The regression for the adapter's one real job. A non-streaming completion's
+    // `message.tool_calls` entries carry `{id, type, function}` and **no `index`** — the field
+    // exists only on the streaming delta shape, and the entries' *position* is the index.
+    // Copying `message` across as if it were a delta folded every call onto 0: two calls became
+    // one, their argument objects concatenated into a single buffer, and the turn died with
+    // `-32602` naming the *second* tool for a parse error this function had caused. A batch
+    // endpoint that can call tools in parallel is not a rare thing; §2's `parallelTools` is a
+    // declared capability and a server that answers a parallel request with a merged buffer
+    // looks exactly like a model that misbehaved.
+    final endpoint = _Endpoint();
+    endpoint.replyJson(<String, Object?>{
+      'choices': <Object?>[
+        <String, Object?>{
+          'index': 0,
+          'message': <String, Object?>{
+            'role': 'assistant',
+            'content': null,
+            'tool_calls': <Object?>[
+              <String, Object?>{
+                'id': 'call-a',
+                'type': 'function',
+                'function': <String, Object?>{
+                  'name': 'fs.read',
+                  'arguments': '{"path":"README.md"}',
+                },
+              },
+              <String, Object?>{
+                'id': 'call-b',
+                'type': 'function',
+                'function': <String, Object?>{
+                  'name': 'web.search',
+                  'arguments': '{"q":"dart"}',
+                },
+              },
+            ],
+          },
+          'finish_reason': 'tool_calls',
+        },
+      ],
+      'usage': <String, Object?>{'prompt_tokens': 12, 'completion_tokens': 8},
+    });
+    final provider = _providerFor(endpoint);
+
+    final result = await provider
+        .chat(
+          AlteriOneRequest(
+            messages: AlteriOneConversation(<AlteriOneMessage>[
+              AlteriOneMessage(
+                role: AlteriOneRole.user,
+                content: 'read and search',
+              ),
+            ]),
+          ),
+          model: 'test-model',
+        )
+        .last
+        .then((chunk) => chunk as AlteriOneChatResult);
+
+    expect(result.finishReason, AlteriOneFinishReason.toolCalls);
+    expect(
+      result.toolCallIds,
+      <String>['call-a', 'call-b'],
+      reason:
+          'two calls, two ids, in position order — a merged buffer would have produced one '
+          'id and a -32602',
+    );
+  });
+
+  test('a batch completion that volunteers indices keeps them', () async {
+    // The other half, and it is the direction the *fix* could have broken: synthesising an
+    // index by position must **not** renumber a conformant response that already carries one.
+    // An endpoint reporting calls at 0 and 2 said two calls at 0 and 2; renumbering them to 0
+    // and 1 would be the adapter inventing an answer, and the assembled ids would then be
+    // attached to positions the endpoint never used.
+    final endpoint = _Endpoint();
+    endpoint.replyJson(<String, Object?>{
+      'choices': <Object?>[
+        <String, Object?>{
+          'index': 0,
+          'message': <String, Object?>{
+            'role': 'assistant',
+            'content': null,
+            'tool_calls': <Object?>[
+              <String, Object?>{
+                'index': 0,
+                'id': 'call-a',
+                'type': 'function',
+                'function': <String, Object?>{
+                  'name': 'fs.read',
+                  'arguments': '{}',
+                },
+              },
+              <String, Object?>{
+                'index': 2,
+                'id': 'call-c',
+                'type': 'function',
+                'function': <String, Object?>{
+                  'name': 'web.search',
+                  'arguments': '{}',
+                },
+              },
+            ],
+          },
+          'finish_reason': 'tool_calls',
+        },
+      ],
+      'usage': <String, Object?>{'prompt_tokens': 4, 'completion_tokens': 2},
+    });
+    final provider = _providerFor(endpoint);
+
+    final result = await provider
+        .chat(
+          AlteriOneRequest(
+            messages: AlteriOneConversation(<AlteriOneMessage>[
+              AlteriOneMessage(role: AlteriOneRole.user, content: 'go'),
+            ]),
+          ),
+          model: 'test-model',
+        )
+        .last
+        .then((chunk) => chunk as AlteriOneChatResult);
+
+    expect(
+      result.toolCallIds,
+      <String>['call-a', 'call-c'],
+      reason: 'the gap at index 1 is the endpoint\'s, not a call the adapter dropped',
     );
   });
 
@@ -874,7 +1000,23 @@ void main() {
         final reader = SseReader(maxLineBytes: 64);
         expect(
           () => reader.add('data: ${'x' * 200}\n'),
-          throwsA(isA<Exception>()),
+          throwsA(
+            isA<SseFormatException>().having(
+              (e) => e.message,
+              'message',
+              contains('64'),
+            ),
+          ),
+          reason:
+              'the message has to name the bound it broke, or an operator reading it learns '
+              'only that something was too long',
+        );
+        // And the bound is on the *line*, not on the stream: 80 bytes across two events is fine
+        // at the same limit.
+        final perEvent = SseReader(maxLineBytes: 64);
+        expect(
+          perEvent.add('data: ${'x' * 40}\n\ndata: ${'y' * 40}\n\n'),
+          hasLength(2),
         );
       },
     );
@@ -1139,6 +1281,176 @@ void main() {
       expect(provider.lastProbe, isNull);
     });
 
+    test('a 5xx, a 429 and a rejected credential fail the probe, not the capability', () async {
+      // §2's rule is that an *unknown* capability is an absent flag. A 503 is not unknown — it
+      // is an endpoint declining to answer — and recording `streaming: false` for it would
+      // present a working provider as permanently incompatible, after which §5's failover would
+      // never route to it again.
+      //
+      // **The 429 case is the one that was wrong**, in a way a status-number check would have
+      // missed. An earlier version branched on `retryAfter != null`, so a 429 carrying no
+      // `Retry-After` header recorded `false`, and so did one whose header used the HTTP-date form
+      // — which this product deliberately declines to parse, because a delay computed against
+      // an unsourced "now" is not a delay the endpoint asked for. Both are the common case.
+      for (final status in <int>[429, 503, 401]) {
+        final endpoint = _Endpoint();
+        endpoint.reply(
+          status: status,
+          contentType: 'application/json',
+          jsonBody: <String, Object?>{
+            'error': <String, Object?>{'message': 'no'},
+          },
+        );
+        final provider = _providerFor(
+          endpoint,
+          ref: _ref(requires: const <ModelFeature>{ModelFeature.streaming}),
+        );
+
+        await expectLater(
+          provider.probe(),
+          throwsA(isA<ProviderProbeException>()),
+          reason:
+              '$status is somebody declining to answer, not the endpoint saying the pair '
+              'cannot stream',
+        );
+        expect(
+          provider.capabilities,
+          isNull,
+          reason:
+              'a failed probe stores nothing, so nothing downstream can read a matrix that '
+              'was never established',
+        );
+      }
+    });
+
+    test(
+      'promptCaching cannot be required, because no probe can conclude it',
+      () async {
+        // A dead end with no operator action, and the one failure mode `probe.dart` is written to
+        // prevent — except that it was not transient. `requires: [promptCaching]` made
+        // `ensureCompatible` refuse the pair, so no turn ran, so nothing ever observed a cached
+        // count, so the flag never became true. The refusal has to happen where a profile is read.
+        //
+        // Checked **twice on purpose**: once in the profile validator, which is the right home for
+        // a document fault, and once in the provider's constructor, because a `ProviderRef` is a
+        // plain value a composition root can build in code and the constructor is the last point at
+        // which a caller can be stopped.
+        final endpoint = _Endpoint();
+        endpoint.reply(
+          status: 200,
+          contentType: eventStreamContentType,
+          frames: <String>[streamDoneSentinel],
+        );
+        expect(
+          () => _providerFor(
+            endpoint,
+            ref: _ref(
+              requires: const <ModelFeature>{ModelFeature.promptCaching},
+            ),
+          ),
+          throwsA(
+            isA<ConfigDiagnostic>().having(
+              (d) => d.values['expected'],
+              'values.expected',
+              contains('promptCaching is observed from a real turn'),
+            ),
+          ),
+        );
+        expect(
+          endpoint.requests,
+          isEmpty,
+          reason:
+              'refused at construction, so not one request was spent on a pair that could '
+              'never satisfy the requirement',
+        );
+      },
+    );
+
+    test(
+      'a body that fails mid-stream is -32001, not a raw TransportFailure',
+      () async {
+        // §1: "HTTP and transport errors are mapped into the taxonomy." A connection that resets
+        // *after* the status line is in the caller's hands arrives on the body stream, long after
+        // `post` returned — so this is the path a dropped connection actually takes, and before it
+        // was caught it escaped as a `TransportFailure`. A caller catching three exception types to
+        // learn that a turn failed has lost the one thing the taxonomy is for.
+        final endpoint = _Endpoint();
+        endpoint.replyBrokenBody(
+          status: 200,
+          contentType: eventStreamContentType,
+          frames: <String>[
+            _frame(<String, Object?>{
+              'choices': <Object?>[
+                <String, Object?>{
+                  'index': 0,
+                  'delta': <String, Object?>{'content': 'half '},
+                },
+              ],
+            }),
+          ],
+        );
+        final provider = _providerFor(endpoint);
+
+        await expectLater(
+          provider
+              .chat(
+                AlteriOneRequest(
+                  messages: AlteriOneConversation(<AlteriOneMessage>[
+                    AlteriOneMessage(role: AlteriOneRole.user, content: 'hi'),
+                  ]),
+                ),
+                model: 'test-model',
+              )
+              .toList(),
+          throwsA(
+            isA<ProviderRefusal>()
+                .having(
+                  (r) => r.code,
+                  'code',
+                  DomainErrorCode.providerUnavailable,
+                )
+                .having((r) => r.cause, 'cause', isA<TransportFailure>()),
+          ),
+        );
+      },
+    );
+
+    test('a refused turn releases the response body', () async {
+      // `HttpResponse.body`'s contract: abandoning a response aborts the request, and a provider
+      // that threw on a body nobody read without cancelling it would leave a connection checked
+      // out of the pool for a turn that had already failed. Counted on the double rather than
+      // asserted as a comment, because the failure mode is *invisible* — the turn fails
+      // correctly either way and the cost is a socket.
+      final endpoint = _Endpoint();
+      endpoint.reply(
+        status: 200,
+        contentType: 'text/html',
+        jsonBody: <String, Object?>{'error': 'not a completion endpoint'},
+      );
+      final provider = _providerFor(endpoint);
+
+      await expectLater(
+        provider
+            .chat(
+              AlteriOneRequest(
+                messages: AlteriOneConversation(<AlteriOneMessage>[
+                  AlteriOneMessage(role: AlteriOneRole.user, content: 'hi'),
+                ]),
+              ),
+              model: 'test-model',
+            )
+            .toList(),
+        throwsA(isA<ProviderRefusal>()),
+      );
+      expect(
+        endpoint.bodiesCancelled,
+        1,
+        reason:
+            'the one response that arrived with a body nobody read was cancelled, not left '
+            'dangling',
+      );
+    });
+
     test('an unreachable endpoint fails the probe rather than reporting seven falses', () async {
       // The distinction `probe.dart` is built around. A transport failure is not a statement by
       // anybody, and recording `false` for it would present a provider as permanently
@@ -1182,7 +1494,42 @@ void main() {
           ref: _ref(requires: const <ModelFeature>{ModelFeature.streaming}),
         );
         final capabilities = await provider.probe();
-        expect(capabilities.contextWindow, greaterThan(0));
+        expect(
+          capabilities.contextWindow,
+          ChatExchange.defaultContextWindow,
+          reason:
+              'a profile that declares nothing gets the conservative default, and the probe '
+              'does not go measuring it',
+        );
+        // The override the exchange documents, driven rather than assumed: §2's matrix belongs to
+        // an `endpoint + model` *pair*, so a window a composition root knows cannot be a
+        // `static const`.
+        final wide = _Endpoint();
+        wide.reply(
+          status: 200,
+          contentType: eventStreamContentType,
+          frames: <String>[streamDoneSentinel],
+        );
+        final roomy = OpenAiCompatibleProvider(
+          ref: _ref(requires: const <ModelFeature>{ModelFeature.streaming}),
+          exchange: ChatExchange(
+            client: wide,
+            apiKey: 'k',
+            contextWindow: 128000,
+          ),
+          clock: FakeClock(),
+        );
+        expect((await roomy.probe()).contextWindow, 128000);
+        // And a declared non-positive one is refused outside a debug build, where an `assert`
+        // would have been the whole of the check.
+        expect(
+          () => ChatExchange(
+            client: wide,
+            apiKey: 'k',
+            contextWindow: 0,
+          ).declaredContextWindow(_ref()),
+          throwsA(isA<ArgumentError>()),
+        );
         expect(
           () => AlteriOneModelCapabilities(
             tools: true,
@@ -1435,19 +1782,40 @@ void main() {
       final spec = File(
         '${_repositoryRoot().path}/docs/architecture/providers.md',
       ).readAsStringSync();
-      for (final reason in <String>['tool_calls', 'stop', 'length']) {
-        expect(
-          spec,
-          contains('`$reason`'),
-          reason: '§3.2 names $reason as a finish_reason this build must map',
-        );
-      }
+      // **The names come *out* of the document and are driven through the code in the tests
+      // above**, which is what makes this a cross-check rather than a presence check. An earlier
+      // version asserted `spec.contains('`stop`')` and would have passed on an implementation
+      // that had dropped `stop` from `finish()` entirely — the document and the code are both
+      // inputs and nothing compared them. `registry_dispatch_contract_test.dart` does exactly
+      // this for `overview.md` §5's table, with a guard that a parser reading nothing would
+      // otherwise compare an empty list against nothing and pass.
+      // **Bounded by its own heading and by the next**, so a parser that read nothing would
+      // produce an empty set and fail the equality below rather than compare nothing with
+      // nothing. `registry_dispatch_contract_test.dart` states the same guard for the same reason.
+      final section = spec
+          .split('### 3.2 Chunk assembly')
+          .last
+          .split('## 4. Usage and cost')
+          .first;
+      final named = RegExp(r'`(tool_calls|stop|length)`')
+          .allMatches(section)
+          .map((m) => m.group(1))
+          .toSet();
       expect(
-        spec,
+        named,
+        <String>{'tool_calls', 'stop', 'length'},
+        reason:
+            '§3.2 names these three and each is mapped by a test above; a fourth would be '
+            'one this build has no answer for. Read out of the document so the set cannot drift '
+            'from §3.2',
+      );
+      expect(
+        section,
         contains('-32030'),
         reason:
             '§3.2 makes a truncated turn -32030, and error-codes.md §1 gives that number a '
-            'name',
+            'name. Asserted against §3.2 specifically, not the whole file: the number also '
+            'appears in §4.1, and a check on the file would pass on either',
       );
       expect(
         spec,
@@ -1483,22 +1851,6 @@ void main() {
         reason:
             'a missing capability exits 8, and §4.1 maps provider.incompatible_capabilities '
             'to it — the refusal this task raises has to land on the exit code an operator sees',
-      );
-    });
-
-    test('a ProfileException is not what a missing capability raises', () {
-      // A distinction worth one line: `ConfigDiagnostic` is returned and collected by the
-      // pipeline, and `ProfileException` is the single-diagnostic throw a composition root
-      // chooses. A provider refusal has to be catchable as the former, because `doctor` collects
-      // many and the CLI prints them.
-      expect(
-        () => ProfileException(
-          ConfigDiagnostic(
-            code: ProviderDiagnosticCode.providerIncompatibleCapabilities,
-            values: const <String, Object?>{'name': 'tools'},
-          ),
-        ),
-        returnsNormally,
       );
     });
   });
@@ -1657,6 +2009,13 @@ class _Endpoint implements HttpClientPort {
   final List<HttpRequestSpec> requests = <HttpRequestSpec>[];
   TransportFailure? _failure;
 
+  /// How many response bodies a refusal abandoned rather than read.
+  ///
+  /// Counted because the alternative is a comment. A turn that throws without releasing its
+  /// response behaves identically from the caller's side and costs a pooled connection, which is
+  /// the shape of defect that is found by a leak monitor six months later rather than by a test.
+  int bodiesCancelled = 0;
+
   /// Queues a reply for the next request.
   void enqueue(_Reply reply) => _queue.add(reply);
 
@@ -1690,7 +2049,21 @@ class _Endpoint implements HttpClientPort {
     _Reply(status: 200, contentType: 'application/json', jsonBody: body),
   );
 
-  /// Makes the next request fail the way a refused connection does.
+  /// Queues a reply whose body fails part way through, as a dropped connection does.
+  void replyBrokenBody({
+    required int status,
+    required String contentType,
+    required List<String> frames,
+  }) => enqueue(
+    _Reply(
+      status: status,
+      contentType: contentType,
+      frames: frames,
+      broken: true,
+    ),
+  );
+
+  /// Makes the next request fail the way a refused connection does, before any headers arrive.
   void failWith(TransportFailure failure) => _failure = failure;
 
   @override
@@ -1705,7 +2078,7 @@ class _Endpoint implements HttpClientPort {
         'a test that would have passed on a provider that sent nothing',
       );
     }
-    return _queue.removeAt(0).respond();
+    return _queue.removeAt(0).respond(onAbandoned: () => bodiesCancelled++);
   }
 
   @override
@@ -1724,6 +2097,7 @@ class _Reply {
     this.chunks,
     this.jsonBody,
     this.headers = const <String, List<String>>{},
+    this.broken = false,
   });
 
   /// The status to answer with.
@@ -1744,19 +2118,23 @@ class _Reply {
   /// Extra headers.
   final Map<String, List<String>> headers;
 
+  /// Whether the body fails part way through, as a reset connection does.
+  final bool broken;
+
   /// The [HttpResponse] this reply stands for.
-  HttpResponse respond() {
+  ///
+  /// [onAbandoned] is called when a caller cancels the body instead of reading it, so the
+  /// endpoint can count it. `HttpResponse.body`'s contract says an abandoned body aborts the
+  /// request, and that is the only thing a double can observe about it.
+  HttpResponse respond({required void Function() onAbandoned}) {
     final List<List<int>> body;
     if (chunks != null) {
       body = chunks!;
     } else if (jsonBody != null) {
       body = <List<int>>[utf8.encode(jsonEncode(jsonBody))];
     } else {
-      final frames = this.frames ?? const <String>[];
-      // `body: <List<int>>` instead of a `Stream`, so a stream-scoped test would need an
-      // `async*` here; one list is enough and keeps the double's control flow visible.
       final buffer = StringBuffer();
-      for (final frame in frames) {
+      for (final frame in frames ?? const <String>[]) {
         buffer
           ..write('data: $frame\r\n')
           ..write('\r\n');
@@ -1769,7 +2147,54 @@ class _Reply {
         'content-type': <String>[contentType],
         ...headers,
       },
-      body: Stream<List<int>>.fromIterable(body),
+      body: broken ? _failing(body) : _tracked(body, onAbandoned),
     );
+  }
+
+  /// A body that delivers its bytes and then fails, the way a reset connection does.
+  ///
+  /// **An error and then a close**, in that order. A stream that errors and never finishes
+  /// leaves an `await for` above it waiting for ever, which is a far worse symptom than the
+  /// failure it was told about — the same trap `PlatformHttpClient` documents on its own body,
+  /// and the reason `http.dart`'s comment says so in three lines.
+  Stream<List<int>> _failing(List<List<int>> body) async* {
+    for (var i = 0; i < body.length; i++) {
+      if (i == body.length - 1) {
+        yield body[i];
+        throw TransportFailure('connection reset', retryable: true);
+      }
+      yield body[i];
+    }
+  }
+
+  /// A body that reports, through [onAbandoned], whether anyone read it.
+  ///
+  /// A single-subscription controller rather than `asBroadcastStream`, because the *cancel* is
+  /// the event of interest and a broadcast stream has several subscribers to confuse the count
+  /// with. `onCancel` fires once, on the one subscription this port hands out.
+  Stream<List<int>> _tracked(
+    List<List<int>> body,
+    void Function() onAbandoned,
+  ) {
+    late final StreamController<List<int>> controller;
+    var consumed = false;
+    StreamSubscription<List<int>>? subscription;
+    controller = StreamController<List<int>>(
+      onListen: () {
+        subscription = Stream<List<int>>.fromIterable(body).listen(
+          controller.add,
+          onError: controller.addError,
+          onDone: () {
+            consumed = true;
+            controller.close();
+          },
+        );
+      },
+      onCancel: () async {
+        if (!consumed) onAbandoned();
+        await subscription?.cancel();
+      },
+    );
+    return controller.stream;
   }
 }

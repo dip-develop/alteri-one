@@ -54,12 +54,20 @@ import 'dart:convert';
 import '../profile/profile.dart';
 import '../provider.dart';
 
-/// The `SSE` terminator an OpenAI-compatible endpoint sends to close a stream.
+/// The terminator an OpenAI-compatible endpoint sends to close a stream.
 ///
-/// Not a `finish_reason` and not an empty frame: it is a *sentinel on the transport*, and it is
-/// the only value in the stream that is not JSON. An endpoint that closed its stream without it
-/// is an endpoint that ended early, and [ChatFrame.isDone] is where that becomes a `-32603`
-/// rather than a turn that happened to stop.
+/// Not a `finish_reason` and not an empty frame: it is a **sentinel on the transport**, and it is
+/// the only value in a stream that is not JSON — which is why the reader recognises it by
+/// comparison and never by decoding it.
+///
+/// **Its absence is not a failure, and the reader does not insist on it.** §3.2 makes
+/// `finish_reason` the thing that terminates a turn, and [ChatAssembler] enforces the three rules
+/// that follow from that: a turn with no `finish_reason` is `-32603`, a turn with no usage is
+/// `-32603`, and a truncated one is `-32030`. A stream that closes its connection without a
+/// sentinel but did report a `finish_reason` and a usage has said everything §3.2 requires of a
+/// finished turn, and refusing it would be refusing a conformant-enough endpoint on a formality
+/// the specification does not state. The sentinel's role is narrower: it ends the *reading*, so
+/// that whatever a pooled connection sends next is not folded into this turn.
 const String streamDoneSentinel = '[DONE]';
 
 /// The `content-type` a streaming response carries, and the only signal that it streams.

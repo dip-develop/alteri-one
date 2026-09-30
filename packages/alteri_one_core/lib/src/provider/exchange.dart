@@ -156,7 +156,7 @@ final class ChatExchange {
     required this.apiKey,
     this.timeout = const Duration(seconds: 120),
     this.maxTokensKey = 'max_tokens',
-    this.observedPromptCaching = false,
+    this.contextWindow = defaultContextWindow,
   });
 
   /// The port every request goes through. Swappable for a deny-all client by task `0.21`.
@@ -178,12 +178,14 @@ final class ChatExchange {
   /// matrix"*. The default is the OpenAI spelling.
   final String maxTokensKey;
 
-  /// Whether a real turn has reported non-zero cached tokens.
+  /// The context window this endpoint is believed to have, in tokens.
   ///
-  /// Not probed — see `probe.dart`'s documentation. This is the observation §4 cares about
-  /// (a warm run and a cold run cost very different amounts), and it is a field the provider sets
-  /// rather than derives so that the probe can report it without a turn having run yet.
-  final bool observedPromptCaching;
+  /// **A field and not only the [defaultContextWindow] constant**, because §2's "every
+  /// `endpoint + model` pair has its own capability matrix" is exactly this: the window is a
+  /// property of the pair, and a provider serving two models with different windows cannot
+  /// express that in a `static const`. A composition root that knows a real window passes it
+  /// here; one that does not gets the conservative default below.
+  final int contextWindow;
 
   /// The declared context window for [ref], in tokens.
   ///
@@ -193,21 +195,28 @@ final class ChatExchange {
   /// invented large window would be a compaction that never runs.
   static const int defaultContextWindow = 4096;
 
-  /// The context window to use for [ref], validated as positive per §2.
+  /// The context window to report for [ref], validated as positive per §2.
   ///
-  /// [ref] is a parameter and not used, and the reason is that it is the extension point. §2
-  /// makes the window a property of the `endpoint + model` **pair**, and `ProviderRef` carries no
-  /// window of its own because `config-schema.md` §2's provider entry does not declare one — so
-  /// the value has to come from somewhere, and this is that somewhere. A composition root that
-  /// knows a real window constructs its own exchange with an override; the default below is what
-  /// a profile that says nothing gets.
+  /// [contextWindow], with the positivity check applied **here** rather than left to
+  /// [AlteriOneModelCapabilities]'s constructor, for a reason that is about the *error*: the
+  /// constructor's `assert` is debug-only, so a release build would report a window of zero and
+  /// the caller of `probe()` would never learn why. §2 says the value "is validated as a
+  /// positive number", and a validation that only exists in a debug build is not one.
   ///
-  /// The default is deliberately the **smallest** window a v1 model plausibly has rather than a
-  /// generous one: `AlteriOneRequest` docs say a null `maxOutputTokens` is the provider's own
-  /// default, and the same reasoning applies here. A compaction trigger computed from an
-  /// invented large window is a compaction that never runs, and a run that never compacts is a run
-  /// that fails on its first oversized request.
-  int declaredContextWindow(ProviderRef ref) => defaultContextWindow;
+  /// [ref] is accepted and unused so a future that reads a per-model window has somewhere to put
+  /// it; `ProviderRef` carries none today because `config-schema.md` §2's provider entry does
+  /// not declare one, which `TODO.md` records.
+  int declaredContextWindow(ProviderRef ref) {
+    if (contextWindow <= 0) {
+      throw ArgumentError.value(
+        contextWindow,
+        'contextWindow',
+        'providers.md §2 requires a positive context window; zero is not a small window, it is '
+            'a value nobody declared',
+      );
+    }
+    return contextWindow;
+  }
 
   /// The URL every exchange posts to, for [ref].
   ///

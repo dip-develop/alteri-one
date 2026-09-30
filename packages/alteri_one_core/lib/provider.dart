@@ -31,12 +31,16 @@
 ///
 /// ## What is exported, and what a caller should reach for
 ///
-/// The port and its DTOs, the provider, and the two things a caller genuinely has to name: the
-/// probe's [ProbeOutcome] (because §2.1's cache stores it) and the two failure types. The wire,
-/// the SSE reader and the assembler are **not** exported: they are the provider's internals, and
-/// a test that drives them directly is a test of a private arrangement rather than of the port.
-/// The contract test for `0.13` reaches them through `package:alteri_one_core/src/...` and says
-/// why at the point it does.
+/// The port and its DTOs, the provider, and the three things a caller genuinely has to name: the
+/// probe's [ProbeOutcome] (because §2.1's cache stores it) and the two failure types.
+///
+/// The wire and the SSE reader are **not** exported — they are the provider's internals, and a
+/// test that drove them directly would be a test of a private arrangement rather than of the
+/// port. One thing from the assembler *is* exported, [assembledCall], and it is exported for a
+/// reason rather than by accident: §3.2's "parsed as JSON exactly once" is a rule about a pure
+/// function of four scalars, and a caller that wants to validate an argument object has to be able
+/// to name it. The contract test for `0.13` reaches `SseReader` through
+/// `package:alteri_one_core/src/...` and says why at the point it does.
 ///
 /// [architecture/providers.md]: ../../docs/architecture/providers.md
 /// [docs/process/task-breakdown.md]: ../../docs/process/task-breakdown.md

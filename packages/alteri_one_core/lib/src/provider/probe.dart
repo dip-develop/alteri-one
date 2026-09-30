@@ -66,6 +66,9 @@ library;
 
 import 'package:alteri_one_platform/alteri_one_platform.dart';
 
+import 'package:alteri_one_protocol/alteri_one_protocol.dart'
+    show JsonRpcErrorCode;
+
 import '../profile/diagnostic.dart';
 import '../profile/profile.dart';
 import '../provider.dart';
@@ -89,6 +92,9 @@ final class ProbeOutcome {
     required this.capabilities,
     required this.probedAt,
     required this.requestCount,
+    required this.providerId,
+    required this.modelId,
+    required this.baseUrl,
   });
 
   /// What was established.
@@ -96,6 +102,24 @@ final class ProbeOutcome {
 
   /// When the probe ran, from the injected clock. Never `DateTime.now`.
   final DateTime probedAt;
+
+  /// The profile's id for the pair that was probed, from [ProviderRef.id].
+  ///
+  /// §2 says the outcome is stored "together with `providerId`, `modelId`, `baseURL` and the
+  /// probe timestamp", and §2.1's probe key is built from all four. The values are copied out
+  /// of the [ProviderRef] rather than left to the cache's caller to remember: a cache that reads
+  /// a key off one object and a result off another is a cache whose correctness depends on the
+  /// two agreeing, and they are two fields of one class.
+  final String providerId;
+
+  /// The model the handshake was about, from [ProviderRef.modelId].
+  final String modelId;
+
+  /// The base URL the handshake went to, from [ProviderRef.baseUrl].
+  ///
+  /// A [String] and not a [Uri] because the [ProviderRef] holds a string and re-parsing it here
+  /// would be a second place to disagree about what the endpoint is.
+  final String baseUrl;
 
   /// How many requests the handshake cost.
   ///
@@ -106,7 +130,7 @@ final class ProbeOutcome {
 
   @override
   String toString() =>
-      'ProbeOutcome(probedAt: $probedAt, requests: $requestCount, '
+      'ProbeOutcome($providerId, $modelId, probedAt: $probedAt, requests: $requestCount, '
       'tools: ${capabilities.tools}, streaming: ${capabilities.streaming})';
 }
 
@@ -189,9 +213,12 @@ final class CapabilityProbe {
   /// [ProviderRefusal] when the profile's credential is missing — the second before any request,
   /// because a request with no `Authorization` header is answered with a 401 whose message is
   /// about authentication rather than about the thing that is actually wrong.
+  /// [observedPromptCaching] is the provider's own record of what a real turn has reported — see
+  /// this file's documentation for why it is an argument and not something the exchange holds.
   Future<ProbeOutcome> run({
     required ProviderRef ref,
     required AlteriOneClock clock,
+    bool observedPromptCaching = false,
   }) async {
     ChatExchange.checkBaseUrl(ref);
     if (ref.needsCredential &&
@@ -262,13 +289,17 @@ final class CapabilityProbe {
         streaming: streaming,
         jsonMode: found[ModelFeature.jsonMode] ?? false,
         // Not concluded by a probe — see this file's documentation. A real turn's usage is the
-        // only evidence there is, and the exchange carries whatever has been observed so far.
-        promptCaching: exchange.observedPromptCaching,
+        // only evidence there is, so the flag is what the caller has observed rather than
+        // something the handshake looked for.
+        promptCaching: observedPromptCaching,
         seed: found[ModelFeature.seed] ?? false,
         contextWindow: exchange.declaredContextWindow(ref),
       ),
       probedAt: clock.now(),
       requestCount: meter.used,
+      providerId: ref.id,
+      modelId: ref.modelId,
+      baseUrl: ref.baseUrl,
     );
   }
 
@@ -341,20 +372,29 @@ final class CapabilityProbe {
       await response.body.listen(null).cancel();
       return true;
     } on ProviderStatusException catch (status) {
-      if (status.retryAfter != null) {
-        // §6: `-32002` permits a retry only after the delay the endpoint asked for, and a probe
-        // that swallowed the 429 would turn a rate limit into "the endpoint does not support
-        // this" — permanently. So the rate limit is a probe *failure* and the delay travels with
-        // it, which is what makes `-32002` a different answer from `-32602`.
-        throw ProviderProbeException(
-          'the endpoint refused the capability probe on rate',
-          retryAfter: status.retryAfter,
-        );
+      // **Classified by the taxonomy, not by the status and not by a header.** §6 makes
+      // `error-codes.md` the thing that decides, and [ProviderStatusException.code] is where
+      // this build's status→code table already lives. An earlier version branched on
+      // `retryAfter != null`, and that was wrong in three ways at once: a 429 with **no**
+      // `Retry-After` header recorded `streaming: false`; a 429 whose `Retry-After` used the
+      // HTTP-date form — which `_retryAfterOf` deliberately declines to parse, since a delay
+      // computed against an unsourced "now" is not a delay the endpoint asked for — did the same;
+      // and a 503 or a rejected credential recorded every probed flag as absent. Each of those is
+      // a provider that would present as permanently incompatible and, after §5, never be routed
+      // to again.
+      //
+      // So: **`invalidParams` alone is the endpoint answering.** It is the code a 4xx that
+      // rejected *our request* maps to, and "I do not accept this field" is exactly the answer
+      // the flag is for. Everything else — a rate, a 5xx, a refused credential — is somebody
+      // declining to answer, and the probe fails.
+      if (status.code == JsonRpcErrorCode.invalidParams) {
+        return false;
       }
-      // Any other status is the endpoint answering. `false`, which is §2's absent flag and never
-      // an optimistic `true`: a 400 that names `tools.unsupported` is the clearest possible
-      // evidence that the capability is absent.
-      return false;
+      throw ProviderProbeException(
+        'the capability probe was refused with ${status.code.code} '
+        '(${status.status}${status.excerpt.isEmpty ? '' : ': ${status.excerpt}'})',
+        retryAfter: status.retryAfter,
+      );
     } on ProviderRefusal catch (refusal) {
       // Nothing answered. That is not a statement about the capability, so it is not `false`.
       throw ProviderProbeException(

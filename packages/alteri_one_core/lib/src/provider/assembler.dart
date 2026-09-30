@@ -179,28 +179,27 @@ class ChatAssembler {
   /// the caller, not about two reports of one turn.
   AlteriOneUsage? _usage;
 
-  /// Whether a text or tool delta has been emitted.
-  ///
-  /// Tracked so the result can say whether the turn produced anything, which is what separates
-  /// `stop` with an answer from `stop` with nothing — and the second is not an error the
-  /// assembler invents, it is reported as such by the caller reading [wasEmpty].
-  bool _emitted = false;
-
-  /// Whether a reported usage has ever carried a non-zero cached count.
+  /// Whether the last reported usage carried a non-zero cached count.
   ///
   /// §2's probe cannot establish [AlteriOneModelCapabilities.promptCaching] — nothing in a
   /// *request* can make an endpoint report cached tokens — so the only evidence in the whole
   /// product is a real turn whose `usage.prompt_tokens_details.cached_tokens` is non-zero. That
   /// makes this the single place the observation is made, and the provider folds it into the flag
   /// so a later probe reports what has been seen rather than asking again.
+  ///
+  /// **The *last* report, not "any".** [_usage] is overwritten as frames arrive, because §4's
+  /// rule is that a turn has one usage and the wire is free to repeat it; a doc that said "ever"
+  /// would be false for an endpoint that reports per frame, whose later zero would erase a warm
+  /// observation the run had already paid for.
   bool get observedCachedTokens =>
       _usage != null && _usage!.cachedInputTokens > 0;
 
   /// The reply text accumulated so far.
+  ///
+  /// Read once, at the end, by [finish]. A getter rather than a second `String` field because a
+  /// copy kept alongside the buffer is a number that can disagree with the buffer, and nothing
+  /// here needs it before the turn is over.
   String get assembledText => _text.toString();
-
-  /// Whether any content was emitted.
-  bool get wasEmpty => !_emitted;
 
   /// Folds one [frame] in and returns the chunks it completed.
   ///
@@ -221,7 +220,6 @@ class ChatAssembler {
       // deltas as content would report a turn that produced nothing as one that produced a
       // character. The field's contract is kept by the *result* carrying the assembled text.
       _text.write(text);
-      _emitted = true;
       out.add(AlteriOneTextDelta(text));
     }
 
@@ -250,7 +248,6 @@ class ChatAssembler {
         if (name != null) builder.name = name;
         final fragment = arguments ?? '';
         if (fragment.isNotEmpty) builder.arguments.write(fragment);
-        _emitted = true;
         out.add(
           AlteriOneToolCallDelta(
             index: index,
@@ -337,7 +334,7 @@ class ChatAssembler {
     return AlteriOneChatResult(
       finishReason: reason,
       usage: usage,
-      assembledText: _text.toString(),
+      assembledText: assembledText,
       toolCallIds: <String>[for (final call in calls) call.id],
     );
   }
@@ -361,13 +358,19 @@ class ChatAssembler {
 
   /// The `index` of a wire tool-call delta, or 0 when it carries none.
   ///
-  /// **0 rather than a refusal, and the reason is §3.2.** The `index` is what makes a fragment
-  /// addressable and an OpenAI-compatible endpoint is expected to send it; a fragment without one
-  /// is an endpoint being non-conformant in a way that has an unambiguous reading — the only call
-  /// in the delta. Refusing here would turn a sloppy endpoint into a run that cannot use tools at
-  /// all, over a field the engine can reconstruct. The case is documented at [AlteriOneToolCallDelta]
-  /// as well because a reader who finds it by grepping for `index` should not have to come here
-  /// to find out what happens when it is absent.
+  /// **0 rather than a refusal, and the narrowness of that choice is the point.** The `index` is
+  /// what makes a fragment addressable, and §3.2's own word for the stream is a *delta*: a
+  /// fragment, usually one of many for one call. A single index-less fragment is unambiguously
+  /// call 0 — there is nothing else it could be — so reading it as 0 recovers from a sloppy
+  /// endpoint instead of refusing a turn that was perfectly legible.
+  ///
+  /// It is only sound for **one** fragment, and every place that has several must supply the index
+  /// itself rather than lean on this. A batch completion's `tool_calls` array is the case that
+  /// forced the distinction: its entries carry no `index` at all — the field exists only on the
+  /// streaming delta shape — and their *position* is the index, so the adapter that folds a batch
+  /// response into one frame synthesises one. Copied across verbatim, two parallel calls became
+  /// one, the two argument objects concatenated into a single buffer, and the turn died with
+  /// `-32602` naming the second tool for a parse error the product had caused itself.
   static int _indexOf(Map<String, Object?> delta) {
     final raw = delta['index'];
     if (raw is int) return raw;

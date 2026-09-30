@@ -26,8 +26,9 @@
         4096. Measuring it would cost a request with an N-token prompt for every N
       - `promptCaching` is a *response-side* observation: nothing in a request makes an endpoint
         report `prompt_tokens_details.cached_tokens`, so the first turn that reports a non-zero
-        count sets it. A schema field for it, or a documented "unknown", would let a profile say
-        what it knows
+        count sets it. **It is consequently not a legal `requires` member** and both the profile
+        validator and the provider's constructor refuse it, because requiring it would refuse the
+        pair on every run with no operator action. `config-schema.md` §2's table does not say so
 - [ ] §3.1's **tool-definition** mapping (`ToolDescriptor` → `tools[].function.*`) is not built,
       because `ToolDescriptor` is `tools.md` §1 and arrives with the tool contract. Task `0.13`
       sends a request with **no** `tools` member, and the *probe* declares a tool of its own —
