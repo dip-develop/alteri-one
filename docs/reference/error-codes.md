@@ -81,7 +81,7 @@ logs. They are greppable and localisable by key.
 | Provider | `provider.unavailable`, `provider.rate_limited`, `provider.incompatible_capabilities`, `provider.probe_stale` |
 | Protocol | `framing.oversize`, `framing.incomplete_header`, `framing.bad_content_length`, `protocol.json_depth`, `protocol.queue_overflow` |
 | Config | `config.invalid_schema`, `config.unknown_api_version`, `config.unknown_field`, `config.missing_env`, `config.lock_held`, `config.manifest_drift` |
-| Engine | `engine.deadline_exceeded`, `engine.budget_exhausted`, `engine.max_steps`, `engine.stagnation` |
+| Engine | `engine.deadline_exceeded`, `engine.budget_exhausted`, `engine.max_steps`, `engine.stagnation`, `engine.observer_failed` |
 | Storage | `storage.lock_held`, `storage.quota`, `storage.migration_failed` |
 | Plugin | `plugin.integrity_failed`, `plugin.sandbox_unavailable`, `plugin.version_incompatible` |
 | Extension | `extension.unresolved`, `extension.version_incompatible`, `extension.duplicate_id` |
@@ -99,6 +99,7 @@ What the three newer groups mean:
 | `extension.version_incompatible` | An extension's `apiVersion` falls outside `api.extension`, or one of its port versions outside `api.ports`. Refused at discovery, before any capability is bound. Paired with `−32050` |
 | `extension.duplicate_id` | Two units claim one id, or two injections claim one `order` in one stage. A bind-time conflict with no implicit priority |
 | `injection.failed` | An injection threw. Its contribution is skipped, the original fragments are kept, and the run continues — an injection cannot take the run down and cannot prevent it either |
+| `engine.observer_failed` | A subscriber on the event bus threw while being delivered an event. Isolated: the remaining subscribers still receive the event, the throw is recorded against the subscription, and the run continues. It is a **log** code, never a refusal — an observer is not enforcement, so there is nothing here to refuse *about*. Added by task `0.12`, where the bus made the condition reachable and it had no name |
 | `integrity.integrity_failed` | A digest mismatch, an unverifiable signature, or an artefact that cannot be accepted: the release, `alterione.aot`, `bin/dartrantime` or a Tier 2 executable |
 | `integrity.runtime_mismatch` | The `dartrantime` version is outside `alterione.yaml` → `runtime.version`. Never a fallback to a system `dart`, to JIT or to source |
 
