@@ -4,13 +4,25 @@
      Anything durable belongs in docs/process/task-breakdown.md or a GitHub issue; if an
      item lives in both places, each one points at the other. -->
 
-- [x] One install-root layout, not two: `install-and-update.md` §2 and `workspace-layout.md` §4
+- [ ] The namespace **separator** is spelled three ways and the documents do not reconcile them:
+      `protocol.md` §1 and `concepts.md` §2 use `/` (`core/run`, `core/step_completed`),
+      `overview.md` §5 and `concepts.md` §2's tool ids use `.` (`<namespace>.*`, `web.search`),
+      and the shipped `initializeMethod` is dotted (`core.initialize`). Task `0.12` resolves a
+      namespace as the **leading segment** so all three route, which works around an ambiguity
+      rather than deciding it. Picking one separator changes a documented contract
+- [ ] An event's `provenance`: `engine.md` §4 says `host | user | model | tool | plugin`, and
+      `concepts.md` §3 says there is **one** label system with seven values. Task `0.12` uses
+      `concepts.md`'s seven and maps the five coarsely onto them, with `plugin` having no distinct
+      value. The two sentences need reconciling; `concepts.md`'s "exactly one label system" is
+      the one the code follows
+- [ ] One install-root layout, not two: `install-and-update.md` §2 and `workspace-layout.md` §4
       disagree and the difference is where a user's memory lives — issue #18
 - [x] Task `0.10`: `IdGenerator` with a counter-based seeded mode and a real CRC-32 identity block,
       `FakeClock`, the provider port, and `FakeProvider` with its read-only script and transcript
 - [x] Task `0.11`: the versioned `kind: Profile` schema, `${ENV_VAR}` interpolation, the migration
       registry, the four-level precedence merge with origins, the `Paths`-backed locator, and the
       l10n catalogue with `en` and `ru` — ADR-0022
+- [x] Task `0.12`: the extension registry, the event bus and the prefix dispatcher
 - [ ] `intl_translation` and generated l10n accessors: `configuration.md` §7.1 says user-facing text
       comes "through generated accessors" and the catalogue is hand-written. ADR-0022 defers this to
       `0.17`, which is the first task with user-facing prose; the catalogue is already shaped so

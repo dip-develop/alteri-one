@@ -244,6 +244,12 @@ const englishMessages = <DiagnosticCode, DiagnosticMessages>{
     error: 'the loop stopped making progress.',
     hint: 'raise budgets.stagnationWindow, or check for a task that cannot complete',
   ),
+  EngineDiagnosticCode.engineObserverFailed: DiagnosticMessages(
+    error: 'a subscriber threw while being delivered {eventType}.',
+    hint:
+        'the event reached the other subscribers and the run continued. Find the subscription '
+        'by id, and fix its handler',
+  ),
 
   // Storage. All three are fail-closed — the store is not opened — so none of the hints says
   // "try again"; the fix is on disk, in a backup, or in another profile.
@@ -446,6 +452,12 @@ const russianMessages = <DiagnosticCode, DiagnosticMessages>{
     error: 'цикл перестал продвигаться.',
     hint:
         'увеличьте budgets.stagnationWindow или проверьте, выполнима ли задача',
+  ),
+  EngineDiagnosticCode.engineObserverFailed: DiagnosticMessages(
+    error: 'подписчик бросил исключение при доставке {eventType}.',
+    hint:
+        'событие доставлено остальным подписчикам, работа продолжается. Найдите подписку по '
+        'идентификатору и исправьте её обработчик',
   ),
 
   StorageDiagnosticCode.storageLockHeld: DiagnosticMessages(

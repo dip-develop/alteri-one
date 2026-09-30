@@ -287,7 +287,21 @@ enum EngineDiagnosticCode implements DiagnosticCode {
   engineMaxSteps(DiagnosticArea.engine, 'engine.max_steps'),
 
   /// The loop stopped making progress. Paired with `-32033`.
-  engineStagnation(DiagnosticArea.engine, 'engine.stagnation');
+  engineStagnation(DiagnosticArea.engine, 'engine.stagnation'),
+
+  /// A subscriber on the event bus threw while being delivered an event.
+  ///
+  /// **A log code and never a refusal**, and the distinction is the whole reason it is separate
+  /// from the four above. Those end something: a run, a budget, a step. This does not — the
+  /// remaining subscribers still receive the event and the run continues, because an *observer*
+  /// is not enforcement. `injection.failed` is the same shape and says so: "an injection cannot
+  /// take the run down and cannot prevent it either."
+  ///
+  /// It exists because task `0.12` made the condition reachable and it had no name. A failure
+  /// recorded only in an in-memory list is a failure an operator cannot grep for, and §3's
+  /// promise — "machine-readable codes… appear in `--json` output and in logs" — is not kept by
+  /// a field nobody reads.
+  engineObserverFailed(DiagnosticArea.engine, 'engine.observer_failed');
 
   const EngineDiagnosticCode(this.area, this.code);
 

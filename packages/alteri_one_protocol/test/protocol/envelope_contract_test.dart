@@ -199,6 +199,48 @@ void main() {
       expect(violation.message, contains('correlated'));
     });
 
+    test('an event without a traceId is refused', () {
+      // **The type says optional and the wire says required, and the decoder is what makes that
+      // true.** `EventEnvelope.traceId` is `String?` — a locally built envelope need not be one
+      // that came off a wire — and its own documentation says: "A frame with no `traceId` is
+      // refused by the decoder, so 'optional in the type' cannot become 'optional on the wire'."
+      //
+      // That claim was **false from task `0.4` until task `0.12`**: the decoder read the member
+      // with `_readOptionalString` and nothing checked, so the guarantee existed only as a
+      // sentence. It became reachable when the event bus arrived, because `engine.md` §4's "every
+      // event carries at least `eventId`, `traceId`, …" is a constructor that cannot be satisfied
+      // by a null — so an untraced event frame would have surfaced as a **crash in the host**
+      // rather than as an error to the peer that sent it. `-32602` naming the path is the
+      // difference.
+      //
+      // This assertion exists so the sentence and the code cannot diverge again: a decoder that
+      // went back to reading it optionally would fail here rather than re-opening a documented
+      // guarantee that nothing held.
+      final frame = _frameWith('event')..remove('traceId');
+      final violation = _refuse(frame);
+      expect(
+        violation.code,
+        JsonRpcErrorCode.invalidRequest,
+        reason:
+            '`-32600`, not `-32602`, and the reason is which member is wrong. An envelope member '
+            'is part of the frame; `params` is the method\'s. `error-codes.md` §1 gives '
+            '`-32602` as "Invalid params" and `protocol.md` §1.2 scopes it to a method\'s '
+            'schema, and every other required envelope member in this codec refuses with '
+            '`-32600` — a missing `id`, a `topic` on a request, a member `meta` does not define. '
+            '`traceId` is a member of the event variant, so it follows them',
+      );
+      expect(violation.path, r'$.traceId');
+    });
+
+    test('an event with a non-string traceId is refused', () {
+      // The other half of "required": required means a *string* is required, and a number in
+      // this member is a frame from a peer that misread the schema. A `String?` field is exactly
+      // where that would otherwise be caught by a cast rather than by a check.
+      final violation = _refuse(_frameWith('event', extra: {'traceId': 42}));
+      expect(violation.code, JsonRpcErrorCode.invalidRequest);
+      expect(violation.path, r'$.traceId');
+    });
+
     test('a request whose id is not a non-empty string is refused', () {
       for (final bad in <Object?>[
         '',

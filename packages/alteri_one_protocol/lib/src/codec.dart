@@ -122,7 +122,24 @@ AlteriOneEnvelope fromJsonMap(JsonMap frame) {
       meta: meta,
       topic: _readString(frame, 'topic'),
       data: _readObject(frame, 'data', known, defaultTo: JsonMap.empty),
-      traceId: _readOptionalString(frame, 'traceId'),
+      // **Required, and this used to be `_readOptionalString`.** `EventEnvelope.traceId` is
+      // nullable in the type and mandatory on the wire, and the envelope's own documentation says
+      // so: "A frame with no `traceId` is refused by the decoder, so 'optional in the type' cannot
+      // become 'optional on the wire'." The claim was false — the decoder read it optionally and
+      // nothing checked — which is the shape of defect this repository is built to avoid: a
+      // documented guarantee that no test and no code held.
+      //
+      // `engine.md` §4 is the requirement ("Every event carries at least `eventId`, `traceId`…"),
+      // and it became reachable with the event bus: a frame decoded without a trace id would
+      // produce an `AlteriOneEvent` that cannot be constructed, so the failure would surface as a
+      // crash in the host rather than as `-32602` to the peer that sent it. Refusing it here is
+      // the difference between telling a peer and losing a frame.
+      //
+      // The field stays nullable in the *type* because a locally built `EventEnvelope` is not
+      // obliged to be one that came off a wire, and the envelope documentation explains the
+      // distinction. Making the constructor require it would have been the wrong fix: it would
+      // have changed a type rather than a check, and the type is right.
+      traceId: _readString(frame, 'traceId'),
     ),
   };
 }

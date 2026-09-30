@@ -11,9 +11,18 @@
 /// [architecture/overview.md] §3 and §4.
 ///
 /// Task `0.1` creates the package and its boundary. Task `0.10` adds the provider port and
-/// the `FakeProvider` double. The registry and dispatch arrive with task `0.12`, the
-/// OpenAI-compatible provider with `0.13`, the control primitives with `0.14` and the
-/// walking skeleton with `0.15`.
+/// the `FakeProvider` double. Task `0.11` adds the versioned profile document and the
+/// localisation catalogue. Task `0.12` adds the registry, the event bus and the dispatcher —
+/// the OpenAI-compatible provider arrives with `0.13`, the control primitives with `0.14` and
+/// the walking skeleton with `0.15`.
+///
+/// ## The registry's size is not fixed at compile time
+///
+/// The sentence in the paragraph above is a design rule and the tree enforces it: nothing in
+/// `lib/` may import an extension package, so the registry is populated with values the
+/// composition root supplies rather than with plugin types this package names. That is what
+/// makes `overview.md` §5's "adding a plugin providing a new namespace requires no change to the
+/// core" true rather than aspirational. See `lib/core.dart`.
 ///
 /// ## The determinism doubles are shipped here, and that is a decision
 ///
@@ -72,3 +81,8 @@ export 'profile.dart';
 /// The localisation catalogue every `DiagnosticCode` is rendered through. See `lib/l10n.dart`
 /// for why it is a library of its own rather than part of the profile surface.
 export 'l10n.dart';
+
+/// The capability registry, the event bus and the prefix dispatcher. See `lib/core.dart` for
+/// where `overview.md` §5's "no core change to add a capability" is implemented and — more to the
+/// point — what is *absent* so that it holds.
+export 'core.dart';

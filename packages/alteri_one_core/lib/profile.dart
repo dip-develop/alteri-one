@@ -119,6 +119,13 @@ export 'src/profile/profile.dart'
         RequestOrigin,
         SystemCapability,
         kindFor;
+
+/// The tool-id grammar, re-exported from `src/core/namespace.dart`.
+///
+/// It is declared **there** and not here, because the validator dispatches on it and two copies
+/// of a grammar are two copies that drift — the ambiguity between this library and `lib/core.dart`
+/// is what surfaced that. A caller with only the profile surface still finds it under this name.
+export 'src/core/namespace.dart' show toolIdGrammar;
 export 'src/profile/validator.dart'
     show
         HeaderValidation,
@@ -129,7 +136,6 @@ export 'src/profile/validator.dart'
         knownKinds,
         tokenCeiling,
         toolCallsPerStepCap,
-        toolIdGrammar,
         turnCeiling,
         validateConfigHeader,
         validateProfile;
