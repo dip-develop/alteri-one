@@ -12,9 +12,10 @@ error code also require a migration guide, referenced from the relevant release 
 
 ## [Unreleased]
 
-Nothing released yet. The project is specification-first: see
-[docs/process/task-breakdown.md](docs/process/task-breakdown.md), whose first task creates
-the Dart workspace.
+Nothing released yet. Tasks `0.1`–`0.12` have landed on `develop`: the workspace and its gate
+chain, the governance records, the versioned envelope, framing, the control plane, both
+transports, the platform ports, the determinism fakes, the profile schema, and the
+registry/dispatch/bus. See [docs/process/task-breakdown.md](docs/process/task-breakdown.md).
 
 ### Added
 
@@ -84,7 +85,7 @@ the Dart workspace.
   `apps/web` is a local server that hosts a Flutter web GUI, and the core is neither
   compiled into a browser bundle nor hosted remotely.
 - Renamed the extension unit from "module" to "plugin". `module` survives only as the
-  JSON-RPC namespace field and the `core/*` method prefix.
+  JSON-RPC namespace field and the `core` method namespace.
 - Split "capability" into two distinct terms: a **capability** is a permission the host can
   refuse; a **tool** is an operation the model can call.
 - Unified three overlapping label systems into one `Provenance` enum and one `Sensitivity`

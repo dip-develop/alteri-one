@@ -17,8 +17,8 @@ updates:
       actions:
         patterns: ["*"]
 
-  # The product workspace. Inactive until task 0.1 creates the root pubspec.yaml, at which
-  # point Dependabot starts opening PRs against it.
+  # The product workspace. Active since task `0.1` landed the root `pubspec.yaml`; these PRs
+  # target `develop` and are never retargeted onto `main`.
   #
   # These are opened as PRs and never merged automatically: pub upgrades interact with the
   # committed pubspec.lock and with freezed 4.x's exact pins, so a bump needs the codegen

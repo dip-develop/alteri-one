@@ -83,10 +83,12 @@ expected to **refuse**, and that refusal is a pass — see
 | `eval` | Is the agent's behaviour good? | yes, non-gating |
 
 A test that reaches the network in the blocking chain is a defect, not a slow test. If you
-need a real HTTP peer, use the fixture server from task `0.21`.
+need a real HTTP peer, use the fixture server from task `0.21` — which has not landed yet, so
+until it does a test that needs one is blocked rather than slow.
 
 Anything touching the loop, memory, policy, compaction or subagents needs `FakeProvider`,
-`AlteriOneClock` and `IdGenerator`. A real model is not a deterministic oracle.
+`FakeClock` (the fake behind the `AlteriOneClock` port) and `IdGenerator`. A real model is not
+a deterministic oracle.
 
 If you change a transcript, the canonical serialisation rules apply and a golden file
 update must be its own commit with a stated reason.
@@ -118,6 +120,11 @@ These are enforced by tests, not by review etiquette:
   directly.
 - A sandbox that cannot be established causes a refusal, never a degraded mode.
 - New packages are not created without a repeatable boundary or demonstrated duplication.
+- No user-facing string is added without an l10n catalogue entry and a `DiagnosticCode`.
+
+The full review checklist is
+[.github/pull_request_template.md](.github/pull_request_template.md), which is a strict superset of
+the list above — satisfying this section is not by itself enough to pass a review.
 
 Read [docs/decisions/README.md](docs/decisions/README.md) before changing anything
 architectural. A decision made in prose is not a decision; write an ADR.
@@ -170,8 +177,8 @@ Do not open a public issue for a vulnerability. See [SECURITY.md](SECURITY.md).
 
 ## Getting started
 
-The project is specification-first: there is no implementation yet. Task `0.1` creates the
-workspace. Read in this order:
+The workspace exists and the gate chain runs against it: tasks `0.1`–`0.12` have landed. Read in
+this order:
 
 1. [docs/vision-and-scope.md](docs/vision-and-scope.md)
 2. [docs/concepts.md](docs/concepts.md) — the vocabulary everything else depends on

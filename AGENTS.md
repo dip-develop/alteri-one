@@ -1,185 +1,258 @@
-# AGENTS.md
+# Agent notes — AlteriOne
 
-Agent notes for the AlteriOne specification repository. Read
-[docs/README.md](docs/README.md) for the specification itself; this file records only
-what an agent would otherwise get wrong.
+What an agent would otherwise get wrong. The specification itself is [docs/README.md](docs/README.md);
+this file records only the traps. Where a trap is already documented at the point of use in the
+source (most are), this file links there instead of restating it.
 
-## The state of the tree: the workspace exists, the product does not
+## State of the tree
 
-Task `0.1` has landed. There is a root `pubspec.yaml` carrying `workspace:` and `melos:`, a
-root `analysis_options.yaml`, a committed `pubspec.lock`, the three product libraries under
-`packages/`, the default v1 extension set (`apps/cli`, `apps/bootstrap`, `plugins/memory`,
-`injections/skill`) and `test/workspace/workspace_contract_test.dart`. There is still
-**no `alterione.yaml`**, no `tools/` package, and no product code: every package carries its
-boundary and nothing else, and each declaration arrives with the task that specifies it.
+Tasks `0.3`–`0.12` have landed. The next task is **`0.13`, the OpenAI-compatible provider inside
+`alteri_one_core`**. [task-breakdown.md](docs/process/task-breakdown.md) is the source of truth for
+what is next; `TODO.md` is the short-lived list of what is in flight.
 
-Consequence: `melos run generate` is a no-op (`--depends-on="^build"` matches no package until
-codegen exists), and `melos run test` runs the root package's contract tests only — the
-packages have no `test/` directory yet, which is why the `test` script carries
-`--dir-exists=test`. That is expected, not a failure. Likewise `bin/main.dart` and
-`bin/alterione.dart` do not exist, so `doctor`, `build:aot` and `install:release` fail rather
-than pretend to work; they land with `0.17` and `0.30`.
+| Package | State |
+|---|---|
+| `alteri_one_core` | real — registry, dispatcher, event bus, profile subsystem, `AlteriOneProvider` port, `FakeProvider` (~9.0k lib / 5.5k test) |
+| `alteri_one_protocol` | real — envelope, codec, error taxonomy, framing, control plane, in-process + stdio transports (~7.2k / 8.0k) |
+| `alteri_one_platform` | real — six ports, five native adapters, browser surface, `FakeClock` (~3.7k / 2.5k) |
+| `alteri_one_cli`, `alterione`, `alteri_one_memory`, `alteri_one_injection_skill` | **boundary only** — one file, a doc comment and `library;`, no `test/` |
 
-The `detect` job in [ci.yml](.github/workflows/ci.yml) now sets `has_workspace=true`, so the
-`workspace-contracts` and `matrix` jobs run. `workspace-contracts` runs each contract test
-file that exists and reports the ones whose task has not run yet, and it fails if none exists.
+Not in the tree yet, though scripts and docs name them: `alterione.yaml`, `tools/`, any `bin/`
+in any package, `config/`, `tool/install/`, `test/install/`, and nine of the ten `release:*`
+`tool/release/*.dart` gates (only `repo_settings.sh` exists). `test/ci/telemetry_allowlist_test.dart`
+is named in `ci.yml` and absent — the job reports it rather than pretending it passed.
 
-Per [repo-settings.json](repo-settings.json), the **only required status checks** on
-`main` and `develop` are `Detect repository phase` and `Documentation and governance`.
-Those two jobs are what currently block a PR.
+**Every package is `publish_to: none`**, so nothing is published yet.
 
-## What actually runs today
+## The one rule
+
+Every task has exactly one automated acceptance criterion, and a change is done when that command
+exits `0`. The quoted string after the dash in the task MUST appear verbatim in the test file —
+once as a comment, once as the `test(...)` name (see `registry_dispatch_contract_test.dart:16,65`),
+so the assertion is greppable. If the work cannot be made mechanical it moves to the growth curve
+labelled `[manual]`; a manual observation presented as a test is the defect to avoid.
+
+## Commands
 
 ```bash
-dart pub global activate melos 8.9.0
-dart pub get
-
-# The gate chain, in order. `format` and `format:root` are one gate with two commands.
-melos run generate
-melos run analyze
-melos run format
-melos run format:root
+dart pub get            # at the root only — one resolution for the whole workspace
+melos run generate      # no-op today: --depends-on="^build" matches nothing until codegen exists
+melos run analyze       # --fatal-infos: an INFO diagnostic fails the build
+melos run format        # every package
+melos run format:root   # the root package's own test/ and tool/ — ONE gate with the above, not two
 melos run test
-
-# The task 0.1 acceptance criterion.
-dart test test/workspace/workspace_contract_test.dart
-
-# The documentation gate. Dependency-free, needs no `pub get`, covers every markdown file.
-dart tool/docs/check_doc_links.dart --orphans
-
-# The site. Deliberately outside the workspace: its own lockfile, its own gate.
-dart pub global activate jaspr_cli
-cd site
-dart pub get
-jaspr serve                                        # http://localhost:8080
-jaspr build --sitemap-domain https://alteri.one    # → site/build/jaspr/
 ```
 
-Dart is pinned to **3.13.4** in every workflow. Do not bump it casually: the site's
-`build_runner` pin and the product's `^2.16.1` are coupled to this resolution
-(see *Site* below).
+Order matters: codegen first (generated code is analysed), format last (it checks the post-codegen
+tree). The same chain runs on Linux, macOS and Windows.
 
-`analyze` runs `dart analyze --fatal-infos` — an **info-level diagnostic fails the build**.
+Focused runs — this is how a single task is verified:
 
-## Gotchas that will be guessed wrong
+```bash
+melos exec --scope=alteri_one_core -- dart test test/core/registry_dispatch_contract_test.dart
+dart test test/workspace/workspace_contract_test.dart        # root package, task 0.1
+dart tool/docs/check_doc_links.dart --orphans               # doc links + orphans, no pub get needed
+```
 
-- **`main` is the default branch, `develop` is not.** `gh pr create` without `--base`
-  targets `main`, and a PR against `main` is reviewed as a release or hotfix. Always pass
-  `--base develop`.
-- **Every `.md` file must be reachable from `README.md` or `docs/README.md`,
-  transitively.** A new document is an orphan failure until something links to it.
-  Anchors use GitHub's slug algorithm; headings with punctuation produce ambiguous
-  slugs, so nothing links to them.
-- **The spec is English-only.** CI runs `git grep -nP '[\x{0400}-\x{04FF}]' -- '*.md'`
-  and fails on any Cyrillic. Translate pasted non-English content; do not defer it.
-  Note that the local `git grep -P` / `grep -P` in some containers is built against a
-  non-UTF PCRE and aborts with *"character code point value in \x{} is too large"*
-  (exit 128) on that exact pattern — that is a local toolchain limit, not a finding. Check
-  locally with `python3` and the escape form of the class, `[\u0400-\u04FF]`, never with the
-  characters themselves: a note that spells the range out literally fails the very gate it
-  is describing.
-- **Markdown has no hard line breaks** (no trailing double-space). Break with a blank
-  line. Note: `.editorconfig` claims CI enforces trailing whitespace — it does not;
-  only the editor config does.
-- **`check_doc_links.dart` sets `exitCode` instead of returning it**, because neither
-  `dart run file.dart` nor `dart file.dart` propagates an `int main` return. Keep that if
-  you extend it; returning findings and exiting `0` is worse than no gate at all.
-- **The SDK constraint is written `>=3.13.0 <4.0.0`, never `^3.13.0`**, because
-  `freezed` 4.x requires the explicit upper bound. This is a workspace contract test
-  assertion, not a style preference.
-- **`pubspec.lock` is committed and must not be gitignored.** Task `0.1` asserts it.
-- **The root manifest and the melos scripts are defined in prose**, in
-  [workspace-layout.md §2](docs/architecture/workspace-layout.md#2-root-manifest). That
-  section is the single source of truth — there is no `melos.yaml` and there must not
-  be one. `melos bootstrap` is not a prerequisite; pub workspaces resolve local
-  dependencies directly.
-- **A `workspace:` glob that matches no package makes `dart pub get` fail** — not a warning,
-  not an empty result. The root manifest lists only the subprojects that hold a package, and
-  a pattern is added by the same commit that creates its first package. There is no `sdk/*`
-  glob: `alteri_one_sdk` lives under `packages/`. See ADR-0021.
-- **Adding a package means editing the workspace contract test too.**
-  `test/workspace/workspace_contract_test.dart` holds a hard-coded membership list, the
-  allowed-dependency table from `overview.md` §3, and the noun each subproject's package names
-  have to state. That is intentional: a layout change is reviewed as a change to a contract,
-  not discovered by a glob.
-- **`dart format` ignores `analyzer.exclude`.** It has no exclude flag, so a `.` at the
-  repository root walks into `site/` and its 28 MB of resolved package source. Hence
-  `format` (per package) and `format:root` (`test` and `tool`, by path). Do not merge them
-  back into one command.
+There is no `melos.yaml` and there must not be one — the root `pubspec.yaml` `melos:` block is the
+single definition (ADR-0001). `melos bootstrap` is never needed. `dart pub get` runs at the root
+only; the sole exception is `pages.yml`, which resolves `site/` separately.
 
-## `site/` — the website
+A package with a `test/` directory **must** carry its own `dart_test.yaml` — the file does not
+inherit, and `test/ci/quality_gates_contract_test.dart` fails the build without one.
 
-`site/` is a static Jaspr landing page published to alteri.one. It is a landing page,
-**not** an app, and **not** the web target (`apps/web`, ADR-0019, does not exist yet).
+## Layout and boundaries
 
-- **It is deliberately outside the pub workspace and must stay there.** `jaspr_builder
-  0.23.5` requires `analyzer ^12.1.0`; `build_runner >=2.15.2` requires
-  `analyzer >=13.3.0 <15.0.0`. The site pins `build_runner: '>=2.15.1 <2.15.2'` where the
-  product pins `^2.16.1`. They cannot be resolved together. ADR-0020.
-- **Never add a melos script for `site/` or `tool/`.** Neither is in a workspace glob;
-  a `melos run` for either is a mistake.
-- **`static/` is not copied by Jaspr.** `pages.yml` copies it and asserts `CNAME` and
-  `index.html` are both present. A missing `CNAME` silently serves from a
-  `github.io` URL. `static/CNAME` is the only place the domain is written — change that
-  file, not the workflow.
-- **`jaspr build` leaves ~28 MB of resolved package source** in `build/jaspr/packages`.
-  The workflow deletes it. Do not "fix" that in `site/` — the exclusion belongs at
-  deployment, and `site/analysis_options.yaml` already excludes `build/**` from the
-  analyzer for the same reason.
-- **`site/pubspec.yaml` must never gain a `flutter:` key.** `pages.yml` greps for it
-  and fails the build. Enabling Flutter embedding would pull a whole SDK into a
-  documentation build.
-- `site/lib/main.server.options.dart` is generated (`GENERATED FILE, DO NOT MODIFY`) and
-  is committed. Regenerate via `jaspr build`; never hand-edit.
+The root manifest is a package, not a directory of convenience: `useRootAsPackage: true` is required
+or `test/` and `tool/` are never gated. The `workspace:` globs are `packages/*`, `apps/*`,
+`injections/*`, `plugins/*`. **A glob that matches no package makes `dart pub get` fail**, so a
+pattern is added by the same commit that creates its first package. There is no `sdk/*` glob —
+`alteri_one_sdk` lives under `packages/` (ADR-0021).
 
-## Where a change belongs
+`pubspec.lock` is committed and must never be gitignored; the workspace contract test asserts both.
+If it is absent, `dart pub get` regenerates it. `site/` has its own lockfile and is deliberately
+outside the workspace.
 
-Four extension subprojects, and picking the wrong one is the most common structural
-mistake a new contributor makes:
+Adding a package means editing the root manifest **and** `test/workspace/workspace_contract_test.dart`
+— it holds a hard-coded membership list, the dependency table from `overview.md` §3, and the noun
+each package name must state. That is intentional: a layout change is reviewed as a change to a
+contract, not discovered by a glob.
 
 | Your change is… | Goes in | Also declared in |
 |---|---|---|
-| a model-invocable operation | `tools/<name>/` | `pubspec.yaml` **and** `alterione.yaml` |
-| something that rewrites context | `injections/<name>/` | `pubspec.yaml` **and** `alterione.yaml` |
-| a runtime service (memory, MCP) | `plugins/<name>/` | `pubspec.yaml` **and** `alterione.yaml` |
+| a model-invocable operation | `tools/<name>/` | `pubspec.yaml` and `alterione.yaml` |
+| something that rewrites context | `injections/<name>/` | `pubspec.yaml` and `alterione.yaml` |
+| a runtime service (memory, MCP) | `plugins/<name>/` | `pubspec.yaml` and `alterione.yaml` |
 | a UI or an embedder | `apps/<name>/` | `pubspec.yaml` |
 | a library the product is built from | `packages/<name>/` | `pubspec.yaml` |
 | single-package tooling | `tool/<name>/` | — |
 
-`pubspec.yaml` **resolves** the code; `alterione.yaml` **declares** what participates and
-at which API version. Both are mandatory, and they are cross-checked in both directions
-at bind time. `config/` is fixtures only and is never on the runtime search path.
+`pubspec.yaml` **resolves** the code; `alterione.yaml` **declares** what participates. Both are
+mandatory and cross-checked in both directions at bind time. There is no runtime extension
+registration and no dynamic import — Dart has no class loader, so an extension is added or removed
+by a build. A design implying otherwise cannot ship.
 
-**There is no runtime extension registration and no dynamic import**, because Dart has
-no class loader. A new tool, injection or plugin needs a build. A claim that implies
-otherwise cannot ship.
-
-## Invariants that are enforced by tests, not by review
+## Enforced by tests, not review
 
 - `alteri_one_core` and `alteri_one_protocol` never import `dart:io`.
 - `alteri_one_memory` never imports `hive_ce` or `dart:io`.
-- An **injection** never obtains a capability; an **app** ships no tools and no services.
+- An injection never obtains a capability; an app ships no tools and no services.
 - The engine contains no UI — approval goes through `ApprovalPort`.
-- Production code never calls `DateTime.now`, a random source, or a process-global id
-  directly. Inject the clock and the id generator.
+- Production code never calls `DateTime.now`, a random source, or a process-global id directly.
 - A sandbox that cannot be established causes a **refusal**, never a degraded mode.
-- No new package without a repeatable boundary or demonstrated duplication.
-- New packages are not created empty to hold future work.
+- No new package without a repeatable boundary or demonstrated duplication; none created empty.
+
+## Language traps on the pinned SDK (3.13.4)
+
+These fire regardless of which file you open. The reason for each is in a doc comment at the point
+of use; the list is here so it is known before the build fails.
+
+- **`sealed interface` does not parse.** Use `sealed class`. Sealedness cannot be asserted by
+  reflection on this SDK — the only check is a `switch` with no `default`, which is also the
+  strongest: a fourth subclass then breaks compilation.
+- **An enum cannot `extend` a class that has state.** `super` in an enum constructor, a superclass
+  implicit `super()`, and a super parameter are each rejected. The only working shape is
+  `implements` plus each enum restating its own fields — and restating `toString()`, which is not
+  inherited.
+- **An `extension type` has one constructor and may not override an `Object` member.** `ProtoMajor`,
+  `FrameId` and `CancelReason` are final classes for that reason.
+- **A named capture group `(?<name>…)` makes `match.group('name')` a compile error** — it types the
+  call as the `group(int)` overload. Use positional groups and name the index in a comment.
+- **A class whose only member is `const C(this.a, this.b);` is rejected**
+  (`initializing_formal_for_non_existent_field`). Declare the fields explicitly.
+- The SDK constraint is written `>=3.13.0 <4.0.0`, **never `^3.13.0`** — `freezed` 4.x needs the
+  explicit upper bound. This is a contract-test assertion, not a style preference.
+
+## Analyzer and gate traps
+
+- **`public_member_api_docs` is on and `--fatal-infos` is the gate**, so every undocumented public
+  member is a build failure. Strict casts/inference/raw-types are on; there is deliberately no
+  `include: package:lints/recommended.yaml`.
+- **`dart format` has no exclude flag and does not read `analyzer.exclude`.** A `.` at the root
+  walks into `site/` and its resolved package source. Hence `format` and `format:root`. Do not merge
+  them.
+- **`--dir-exists=test` is load-bearing** — `dart test` in a package with no `test/` is a usage error.
+  Conversely **a Melos scope matching zero packages exits `0` silently**, so `generate`,
+  `test:offline`, `build:aot` and `install:release` currently prove nothing. `bin/main.dart` and
+  `bin/alterione.dart` do not exist, so `doctor` and `build:aot` fail rather than pretend to work.
+- **A conditional export's default branch is the *fallback*.** `export 'a.dart' if (C) 'b.dart';`
+  uses `b` on `C` and `a` everywhere else — never both. The analyzer does **not** evaluate
+  `dart.library.*`; it resolves the default and stops. `alteri_one_platform`'s line is
+  `export 'src/native.dart' if (dart.library.js_interop) 'src/web.dart';` — native first, and
+  `js_interop` rather than `io` (naming `io` would select the *browser* surface on the machine that
+  has `dart:io`). With the order reversed the package passes its own acceptance command and fails
+  its own gate. Check `dart analyze`, `dart run` and `dart compile js` when touching it.
+- **Canonicalise paths before a "have I been here" check.** `package:clock`'s barrel does
+  `export 'src/../clock.dart'`, and two spellings of one file defeat the set — the web-resolution
+  walk in the workspace contract test recursed until the stack gave out. That test uses
+  `package:path` for this reason, which is why `path` is a root `dev_dependency`.
+- Coverage is **reported, never gated**; the quality-gate contract test fails if `coverage` is ever
+  added to `repo-settings.json`. Do not add a threshold.
+- `repo-settings.json` is a record, not a target. `repo_settings.sh --check` diffs live settings
+  against it, `--record` re-records; it never applies anything. Re-record after an intentional
+  change and say why in the commit.
+- The required status checks are job **names**: `Detect repository phase` and `Documentation and
+  governance`. Renaming either job in `ci.yml` silently unblocks the branch.
+
+## Documentation rules
+
+- **The specification is English-only.** CI runs
+  `git grep -nP '[\x{0400}-\x{04FF}]' -- '*.md'` and fails on any Cyrillic. The local `grep -P` in
+  some containers is built against a non-UTF PCRE and aborts on that pattern (exit 128) — a local
+  toolchain limit, not a finding. Check locally with `python3` and the escape form of the class.
+  Translate pasted non-English content; do not defer it.
+- **Every `.md` must be reachable from `README.md` or `docs/README.md`, transitively.** A new
+  document, including a new ADR, is an orphan failure until something links to it and it is indexed
+  in [docs/decisions/README.md](docs/decisions/README.md).
+- `check_doc_links.dart` **sets `exitCode` instead of returning it**, because neither `dart run
+  file.dart` nor `dart file.dart` propagates an `int main` return. Keep that; returning findings and
+  exiting `0` is worse than no gate.
+- Its link regex matches **inline links only** — reference-style links are invisible to it.
+- Anchors use GitHub's slug algorithm; a heading with punctuation produces an ambiguous slug, so
+  nothing links to one.
+- Markdown has no hard line breaks — break with a blank line.
+- `.editorconfig` claims CI enforces trailing whitespace in Markdown. It does not; only the editor
+  config does.
+- The governance contract test reads markdown and splits on `\n`: normalise CRLF when adding a file
+  it will scan, or it fails on every CI runner and on Windows.
 
 ## Naming is split at the build boundary (ADR-0016)
 
 `alteri_one_*` in the source tree; `alterione` for everything the user receives.
 
-- A **source identifier** containing `alterione` is a review finding.
-- An **installed path, launcher, installer script, asset name or default config value**
-  containing `alteri_one` fails the release assembly. `ci.yml` greps `tool/install/**`
-  and `_artifacts.yml` to keep it that way.
+- The product-spelling gate reads code with comments and string literals **stripped**
+  (`_codeOnly`), so `const String alterioneManifestFileName = 'alterione.yaml';` fails as an
+  identifier — it is `productManifestFileName`. A file whose only occurrence is prose or the value
+  `~/.alterione` passes.
+- `ci.yml` greps `install-and-update.md` and `workspace-layout.md` with an awk block that only
+  fails when a **fenced block** contains `~/.alterione` or `ALTERIONE_HOME` *and* `alteri_one`.
+  A blanket file ban would forbid the documents that define the ban.
+- `ci.yml` also greps `_artifacts.yml` with an exemption for `alteri_one_cli` — editing that
+  workflow's prose can break the CI gate. Its `Sign` step is currently only `echo` statements.
 
-When writing prose, the check is scoped: `install-and-update.md` and
-`workspace-layout.md` deliberately name both sides, so only the fenced install-root
-blocks are forbidden from containing `alteri_one`.
+## Design traps worth knowing before the test tells you
 
-## Writing tests
+Each is explained at the point of use; these are the ones that cost the most time to rediscover.
+
+- **Framing.** A header block ending in `\r\n\r\n` splits on `\r\n` into **two** trailing empty
+  elements, not one. When a payload spans chunks, compare the incoming chunk against the
+  **outstanding** bytes (`declared − already buffered`), never the declared length.
+  `FrameLimits.capped`'s `assert`s are debug-only, so a limit above the hard cap is *clamped* —
+  "negotiate lower, never higher" is a property of the reader.
+- **Transports never decode a frame**, not even to write a diagnostic — which is why the close-time
+  loss message names a byte count rather than a request id.
+- **A cancelled request's id is `params.id`.** There is no frame-level `id`; a notification has
+  none, so reaching for `frame.id` cancels nothing and the symptom is a run that ignores Ctrl-C.
+- **A refused handshake is an `error` response**, never a result carrying `accepted: false` — the
+  two are mutually exclusive, and `accepted` appears in a result only as `true`.
+- **The `warn+degrade` path is a loop, not a `return`.** It is the one handshake check whose cause
+  is degradable; `return consider(...)!` compiles and throws mid-way through the path that must
+  work.
+- **A namespace's grammar must admit `$`**, or the control plane is unroutable. Build control
+  method calls from `alteri_one_protocol`'s own constants in tests, never from a string literal.
+- **`DiagnosticCode` is a `sealed class` in the core, not the protocol package** — `framing.oversize`
+  and `config.unknown_field` are things an operator reads. Framing raises a `ProtocolViolation`
+  with a wire code and a path; the host that logs it produces the `DiagnosticCode`.
+- **A diagnostic carries a code and placeholder *values*, never a sentence.** `ConfigDiagnostic` has
+  no `error` parameter by design (`configuration.md` §7.2) — put "expected at most 16" in
+  `expected:`.
+- **`${ENV_VAR}` in `apiKeyEnv` is refused even when the variable is set**, because the field names
+  a variable and never carries a value. Test it with the variable present or `config.missing_env`
+  fires first and the rule is never reached.
+- **An event is redacted by construction or not at all.** `RedactedPayload.of` refuses
+  `Sensitivity.secret` outright rather than redacting it — a redactor is a parameter, so there is
+  no "default no-op" one method away.
+- **`EventBus` has no `dart:async`**: a `StreamController` per subscriber makes transcript order the
+  event loop's, and `observability.md` §2 compares transcripts byte-for-byte.
+- **Paths.** A `Uri` can never carry `..` — `Uri.file`, `Uri.parse` and `Uri(scheme:, path:)` all
+  resolve it before the value exists, so a `..`-rejecting check guards against nothing.
+  `Paths.within` is lexical over a normalised path and says so. And `Uri.resolve` replaces the base's
+  last segment (`/srv/install` + `config` → `/srv/config`), which is why joining *into* a directory
+  is `resolveBeneath` in `src/paths.dart` and not a one-liner.
+- **Lifecycles.** A subscription belongs in a constructor **body** — `late final` with an
+  initializer is lazy, so `IsolateEndpoint`'s inbox was not being read until something read the
+  field. `IsolateEndpoint` needs two ports and is `unconnected()` + `connect`, because a
+  one-port version connects to itself and delivers to nobody. `Process.stdout` is
+  single-subscription, so the broadcast wrapper's listener is attached in the constructor body.
+  `close()` must not wait for the child, and must not stop draining its stderr — that drain is what
+  keeps a chatty child from blocking in `write(2)` for ever.
+- **`IsolateChannel.write` must copy a `Uint8List`**, which is exactly what `FrameOutbox` hands it.
+- **Identifiers.** The identity block is **CRC-32, not FNV-1a**: FNV's intermediate exceeds 2^53,
+  where a Dart `int` stops being exact in JavaScript, so a web build would compute a *different*
+  identity block from the same seed — visible only as a transcript digest that matches on the VM and
+  not in a browser. CRC-32 is the widest block exact on both. `identityBlock` is exported **only**
+  so a test can pin it against `CRC-32("123456789") == 0xCBF43926`.
+  The two blocks have no separator (`concepts.md` §2's grammar admits nothing else), and counters are
+  **per kind** so instrumentation does not change a logical event's id.
+- **Doubles are library code, not `test/fakes/`** — they are for other packages' tests, and a
+  `test/` directory is not on another package's resolution path. `FakeClock.delay` completes
+  *immediately and advances the clock*; both halves matter. A fake clock's default instant is the
+  Unix epoch, never `DateTime.now()`. `ScriptedTurn` checks its last chunk in the **constructor**,
+  and an unscripted step throws — `withDefault` is a separate constructor so a reader can see
+  whether a typo would be caught. `AlteriOneUsage.totalTokens` is derived (`input + output`),
+  never stored.
+
+## Testing
 
 | Level | Question | Network |
 |---|---|---|
@@ -188,21 +261,50 @@ blocks are forbidden from containing `alteri_one`.
 | `integration` | do real components work together? | no |
 | `eval` | is the agent's behaviour good? | yes, non-gating |
 
-- **A test that reaches the network in the blocking chain is a defect, not a slow
-  test.** Use the local fixture server from task `0.21`; the eval tier is tagged `eval`
-  and excluded from the blocking chain.
-- Anything touching the loop, memory, policy, compaction or subagents uses
-  `FakeProvider`, `AlteriOneClock` and `IdGenerator`. **A real model is not a
-  deterministic oracle.**
-- **Every task has exactly one automated acceptance criterion.** The quoted string after
-  the dash in [task-breakdown.md](docs/process/task-breakdown.md) must exist verbatim in
-  the test file so the assertion is greppable. If the work cannot be made mechanical,
-  it moves to the phase growth curve labelled `[manual]` — never present a manual
-  observation as a test.
-- Transcript or golden-file changes must be **their own commit with a stated reason**.
-- Tier 2 is Linux-only. On macOS and Windows the suite must **refuse explicitly before
-  any process is created**, and that refusal **is a pass**. A skip would hide a
-  regression to "degrade instead of refuse".
+- A test that reaches the network in the blocking chain is a **defect, not a slow test**. Use the
+  local fixture server from task `0.21`; `eval` is non-gating.
+- Anything touching the loop, memory, policy, compaction or subagents uses `FakeProvider`,
+  `FakeClock` and `IdGenerator`. A real model is not a deterministic oracle.
+- Tier 2 is Linux-only. On macOS and Windows the suite must **refuse explicitly before any process
+  is created**, and that refusal **is a pass** — a skip would hide a regression to "degrade instead
+  of refuse". The `tier2-refusal` CI job is deliberately excluded from Linux for this reason.
+- The stdio contract test spawns a **real `dart` child** (`test/transport/fixtures/stdio_child.dart`)
+  running the shipped `StdioTransport`, because a `StreamController` has no stdout, no child exit and
+  no chunk boundaries it did not choose.
+- Transcript or golden-file changes must be their **own commit with a stated reason**.
+- `dart_test.yaml` declares `timeout: 30s`, `integration: 2m`, `offline-e2e: 5m`. Note that the
+  comment there claims `eval` is excluded by name — no `presets:` or `--exclude-tags` implements it.
+- `testing-strategy.md` §2 specifies `unit/ contract/ integration/ fakes/`; the packages with tests
+  actually use `core/ protocol/ transport/ platform/ profile/` and `fakes/` holding the
+  *determinism contract test*, not the doubles.
+
+## `site/` — the website
+
+A static Jaspr landing page at alteri.one. **Not** an app, and **not** the web target (`apps/web`,
+ADR-0019, does not exist).
+
+- **Deliberately outside the pub workspace and it must stay there.** `jaspr_builder 0.23.5` needs
+  `analyzer ^12.1.0`; `build_runner >=2.15.2` needs `analyzer >=13.3.0 <15.0.0`. The site pins
+  `build_runner: '>=2.15.1 <2.15.2'` where the product pins `^2.16.1`. ADR-0020.
+- Build it separately — it has its own lockfile, its own `analysis_options.yaml` and its own gate:
+
+  ```bash
+  cd site && dart pub get
+  dart pub global activate jaspr_cli
+  jaspr serve                                     # http://localhost:8080
+  jaspr build --sitemap-domain https://alteri.one # → site/build/jaspr/
+  ```
+
+- **Never add a melos script for `site/` or `tool/`.** Neither is in a workspace glob.
+- **`static/` is not copied by Jaspr.** `pages.yml` copies it and asserts `CNAME` and `index.html`
+  are present; a missing `CNAME` silently serves from `github.io`. The domain is written only in
+  `site/static/CNAME`.
+- **`site/pubspec.yaml` must never gain a `flutter:` key** matching `embedded|plugins` —
+  `pages.yml` greps for it and fails the build.
+- `jaspr build` leaves ~28 MB of resolved package source in `build/jaspr/packages`. The workflow
+  deletes it; do not "fix" that in `site/`.
+- `site/lib/main.server.options.dart` is generated and committed. Regenerate via `jaspr build`.
+- `pages.yml` runs only on a push to `main` or manual dispatch — never per PR.
 
 ## Git flow
 
@@ -212,30 +314,26 @@ blocks are forbidden from containing `alteri_one`.
 | `hotfix/*`, `release/*` | `main` | `main` **and** `develop` (two PRs) |
 | `backmerge/<version>` | `origin/main` | `develop` |
 
-- Never commit or push to `main` or `develop`; never merge, tag, delete branches or
-  force-push. Branch protection enforces it.
-- `origin/HEAD` is `main`. Check `git branch -a` before assuming the table applies.
-- **`Closes #N` is inert for a PR into `develop`** (not the default branch). Use
-  `Refs #N` and close the issue after the operator merges.
-- `dismiss_stale_reviews_on_push` and `require_last_push_approval` are both on: pushing
-  again after a review discards the approval, so a re-reviewed change needs a second one.
-- Commits are Conventional Commits — `melos version` derives the changelog from them.
-  Do not hand-edit the generated `CHANGELOG.md` sections.
-- `TODO.md` is the short-lived working list. It rides in the feature branch and lands
-  with the PR, never directly on `develop`. Durable work belongs in
-  [task-breakdown.md](docs/process/task-breakdown.md) or a GitHub issue, and an item in
-  both places points at the other from both.
+- Never commit or push to `main` or `develop`; never merge, tag, delete branches or force-push.
+  Rulesets enforce it: linear history, 1 approving review, code-owner review, resolved threads,
+  no deletion, no force-push.
+- **`main` is the default branch, `develop` is not.** `gh pr create` without `--base` targets
+  `main`, and a PR against `main` is reviewed as a release or hotfix. Always pass `--base develop`.
+- **`Closes #N` is inert for a PR into `develop`** (not the default branch). Use `Refs #N` and close
+  the issue after the operator merges.
+- `dismiss_stale_reviews_on_push` and `require_last_push_approval` are both on: pushing again after
+  a review discards the approval, so a re-reviewed change needs a second one.
+- Conventional Commits — `melos version` derives the changelog from them. Do not hand-edit the
+  generated `CHANGELOG.md` sections.
+- **CODEOWNERS is load-bearing.** `require_code_owner_review` is on for both protected branches, and
+  every rule is `@DipDevDevelopers`. Changes to `/docs/`, `/site/`, `/SECURITY.md`, `/docs/security/`,
+  `/docs/reference/`, `/docs/architecture/{protocol,configuration,install-and-update,build-and-release}.md`,
+  `/docs/extensibility/{plugins,tools,injections}.md`, `/docs/decisions/risks.md`, `/repo-settings.json`,
+  `/pubspec.lock` or `/.github/workflows/` all need that review.
+- Dependabot has three targets, **all on `develop`**: `github-actions` at `/` (weekly), `pub` at `/`
+  (monthly), `pub` at `/site` (monthly). Never retarget a dependency PR onto `main`.
 
-### CODEOWNERS is load-bearing
-
-`require_code_owner_review` is enabled on both protected branches, so any change to
-`/docs/`, `/site/`, `/SECURITY.md`, `/docs/security/`, `/docs/reference/`,
-`/docs/architecture/{install-and-update,build-and-release}.md`,
-`/docs/extensibility/{plugins,tools,injections}.md`, `/docs/decisions/risks.md`,
-`/repo-settings.json`, `/pubspec.lock` or `/.github/workflows/` needs
-`@DipDevDevelopers` review. See [.github/CODEOWNERS](.github/CODEOWNERS).
-
-### An ADR is required before
+## An ADR is required before
 
 - a new package appears in the workspace;
 - a dependency is added to a published package;
@@ -243,376 +341,29 @@ blocks are forbidden from containing `alteri_one`.
 - a tier, a trust boundary or a fail-closed rule changes;
 - a north-star goal is relaxed, deferred or removed.
 
-A decision recorded only in prose is not a decision. Write the ADR in
-`docs/decisions/`, and index it in [decisions/README.md](docs/decisions/README.md) — a new
-ADR file that is not indexed fails the documentation checker as an orphan.
+A decision recorded only in prose is not a decision. Write it in `docs/decisions/` and index it in
+[docs/decisions/README.md](docs/decisions/README.md) — an unindexed ADR fails the orphan check.
 
-## Operational gotchas
+## Known-false claims in the tree
 
-- **`repo-settings.json` is a record, not a target.**
-  `tool/release/repo_settings.sh --check` diffs live settings against it; `--record`
-  re-records. The script deliberately never *applies* settings. Re-record after an
-  intentional change and say why in the commit.
-- Three settings cannot be recorded and are checked by hand: Pages HTTPS enforcement
-  (waits on a certificate), `secret_scanning_validity_checks` (plan-gated), and the
-  apex DNS records.
-- **Dependabot has three targets, all on `develop`:** `github-actions` at `/` (weekly),
-  `pub` at `/` (monthly, inactive until `0.1`), and `pub` at `/site` (monthly). Never
-  retarget a dependency PR onto `main`.
-- **Phase-gated CI jobs use a `detect` job that publishes outputs**, because
-  `hashFiles` is not reliably available in a job-level `if`. Follow that pattern for any
-  new phase-gated job.
-- `pages.yml` runs only on a push to `main` or manual dispatch — deliberately not per
-  PR, so unreviewed HTML never reaches the project's own domain.
+Trust the executable sources. `README.md` and `CONTRIBUTING.md` still say "specification only, no
+implementation yet" and "no packages exist yet"; ~20k lines of product code and ~16k of contract
+tests exist. `alteri_one_platform` has **no `StoragePort` implementation** (`HiveCeStorage` is task
+`1.1`'s). `AlteriOneProvider.chat` has **no `deadline` and no `cancel`** — task `0.14` adds both.
+`melos run release:*` scripts, `test/install/`, `config/fixtures/release/` and `tool/install/` are
+specified but not created.
 
-## Documentation claims that are not yet true
-
-Trust the executable sources over prose:
-
-- `README.md` says "No packages exist yet" — no longer true of `alteri_one_protocol`,
-  `alteri_one_platform` or `alteri_one_core`, which carry the envelope, framing, both transports,
-  the six platform ports, the provider port and the whole profile subsystem. `site/` is a real,
-  buildable package.
-- `alteri_one_platform` has **no `StoragePort` implementation yet**: `HiveCeStorage` is task `1.1`'s
-  (ADR-0004), so the port is declared, the contract test satisfies it with a local double, and the
-  browser surface does not mirror it. The contract test's *own* fakes are still local to
-  `ports_contract_test.dart`; the shipped ones (`FakeClock`, task `0.10`) are separate from those
-  and live in `lib/src/fakes/`.
-- **`AlteriOneProvider.chat` has no `deadline` and no `cancel`.** `providers.md` §1 names both and
-  `providers.md` §3 forbids retrofitting streaming after clients exist — but `Deadline` and
-  `CancelToken` are task `0.14`'s, and a required parameter typed against a type that does not
-  exist yet is the declaration-written-twice failure this repository is built to avoid. §3's
-  concern is retrofitting after *clients* exist; there are none. **Task `0.14` adds both** — two
-  required named parameters against two in-tree implementations, which is the cheap direction.
-- **`alteri_one_core` is the only product library with a third-party runtime dependency** — `yaml`,
-  `source_span` and `intl`, all since task `0.11` and all recorded in
-  [ADR-0022](docs/decisions/0022-core-runtime-dependencies.md). They are pure Dart and that is the
-  whole reason they may live there; the workspace contract test now walks every product library's
-  resolved closure **the way a web build resolves it**, so a dependency that quietly makes the
-  core uncompilable for the browser fails a test instead of a release. `intl` has two libraries
-  that import `dart:io` (`intl_standalone.dart` and `date_symbol_data_file.dart`) and the property
-  that keeps them out is that neither is reachable from `intl.dart` — so import
-  `package:intl/intl.dart` and nothing else.
-- [quality-gates.md](docs/process/quality-gates.md) lists most gates as active. The
-  documentation, governance, Cyrillic, naming, workspace-contract, quality-gate-contract,
-  coverage and melos chain gates run today; `test/ci/telemetry_allowlist_test.dart` is named
-  but not created, and `workspace-contracts` reports it rather than pretending it passed.
-- The `coverage` job in `ci.yml` reports; it is not a required check, and the quality-gate
-  contract test fails if `coverage` is ever added to `repo-settings.json`. Do not add a
-  threshold to it — quality-gates.md §4.
-- [tool/release/README.md](tool/release/README.md) lists nine `*.dart` gate scripts; only
-  `repo_settings.sh` is present.
-- `melos run release:*` scripts, `test/install/`, `config/fixtures/release/` and
-  `tool/install/` are all specified but not created. The `build:*`, `doctor`, `bench:startup`,
-  `test:offline` and `install:release` scripts are declared and will fail until the packages
-  they scope to exist; a Melos script whose scope matches no package exits `0` without doing
-  anything, so their presence proves nothing yet.
-- `alteri_one_protocol` carries the envelope (task `0.4`), the framing (task `0.5`), the control
-  plane (task `0.6`) and both transports (tasks `0.7` and `0.8`), and `alteri_one_platform` the six
-  ports and their adapters (task `0.9`): the four variants, the codec, the
-  version types, the error taxonomy, `Content-Length` framing, the 8 MiB frame cap, the 8 KiB header
-  cap, a bounded outbound queue, `$/cancelRequest`, `$/progress`, `core.initialize`, a channel port
-  with a deterministic pair, the stdio adapter over it, and `AlteriOneClock`, `Paths`,
-  `HttpClientPort`, `StoragePort`, `Concurrency` and `ProcessHost`. Two SDK facts are baked
-  into its shapes and will bite anyone rewriting them — **`sealed interface` does not parse on
-  the pinned 3.13.4**, so `ErrorCode`, `HandshakeOutcome` and every other union is a `sealed
-  class`; and an **`extension type` has one constructor and may not override an `Object`
-  member**, so `ProtoMajor`, `FrameId` and `CancelReason` are final classes. Also: a `JsonMap` is
-  a wrapper, so `jsonEncode` cannot see through it — use `encodeFrame`, not
-  `jsonEncode(frame.toJson())`.
-- **Two framing traps, both of which the contract test caught the hard way.** A header block
-  ending in `\r\n\r\n` splits on `\r\n` into **two** trailing empty elements, not one — the
-  blank line *and* the split's own artefact — and getting that wrong refuses every well-formed
-  header. And when a payload spans chunks, the incoming chunk must be compared against the
-  **outstanding** bytes (`declared − already buffered`), never against the declared length:
-  conflating them emits every multi-chunk frame one bufferful short, which decodes as truncated
-  JSON on a stream whose frames are all correctly sized.
-- **`FrameLimits.capped` is the check that holds in every build.** Its `assert`s are
-  debug-only, so a `FrameLimits` above a hard cap is *clamped* rather than honoured — "negotiate
-  lower, never higher" is a property of the reader, not of whoever wrote the configuration.
-  `SessionLimits.capped` (task `0.6`) repeats the arrangement for the two limits the handshake
-  negotiates and framing does not own, and `SessionLimits.minimum` deliberately does *not* clamp,
-  so a caller cannot fold the hard cap in twice by accident.
-- **A port that cannot refuse has an unreachable bound.** `TransportChannel.write` returns `bool`
-  (task `0.7`) rather than `void`, because §2.2's "a write refused for space is backpressure"
-  needs a port with a "not now". With a `void` write the outbox drained on every `send`, so
-  `backpressured` could never be returned and `pendingBytes` was structurally always 0 — a
-  counter above a bound that cannot be reached. Its test had been passing by *priming* the
-  injected outbox and then measuring that same primed queue, which is a tautology, not a check.
-  Whoever writes `alteri_one_platform`'s `Concurrency` port has to return that `bool`.
-- **`send` drains on every call, including one the queue refused.** Skipping the drain there
-  looks like an optimisation and is a deadlock: a refused offer is exactly when the queue most
-  needs draining, and with the drain skipped a full outbox plus a refusing channel never places
-  the held frame again. Note the shape when the outbox is the thing refusing: `send` offers *before*
-  it drains, so the call that empties the queue can itself return `backpressured` for its own frame
-  while delivering the two behind it. That is correct, and the contract test asserts it as its own
-  observation rather than smoothing it over.
-- **The stdio adapter keeps its diagnostics sink out of the channel, and that is the only reason
-  a log line cannot reach stdout.** `StdioChannel` holds the child's stdin and stdout and has no
-  diagnostics member; `StdioTransport` holds the child's stderr and its only byte-moving member is
-  `send`, which frames. Neither object can put a log line on the protocol stream because neither
-  holds the other's sink — so the separation is a fact about the API, and the contract test asserts
-  it as an *absence* of members via `dart:mirrors`. Adding a `write` to `StdioTransport`, or a
-  `diagnostic` to `StdioChannel`, is the change that breaks §2's guarantee.
-- **`close()` must not wait for the child, and `isReading` is the observable that says so.** Closing
-  the child's stdin is what makes a child blocked on a read stop waiting, and it is awaited; the
-  child's *exit* is not, because `close` is what a `finally` block calls and a teardown that blocks
-  is one that hangs a CLI on Ctrl-C. The bounded wait for a process is `ProcessHost`'s (task `0.9`).
-  A released reader means the subscription field is cleared, not merely cancelled: `cancel` is
-  asynchronous, so a field left dangling reports a released reader as attached for a turn, and an
-  observable that is briefly wrong is worse than none.
-- **The stdio contract test spawns a real `dart` child, and that is not optional.** A
-  `StreamController` has no stdout separate from stderr, no child that exits, and no chunk
-  boundaries it did not choose, so the three properties task `0.8` names cannot be demonstrated with
-  one. The child is `test/transport/fixtures/stdio_child.dart` and it runs the product's own
-  `StdioTransport`, so the round trip exercises the shipped adapter at both ends. What a real pipe
-  *cannot* do on request — a boundary at a chosen byte — is driven through `_ScriptedPipe` in the
-  same file; a test claiming a real pipe split a frame on a particular byte would be asserting the
-  OS's scheduling. That is why the file carries the `integration` tag.
-- **The platform's conditional export must put `native.dart` first, and this is not cosmetic.** The
-  analyzer does **not** evaluate `dart.library.*` for a conditional export — it resolves the *default*
-  library and stops. With `src/web.dart` first and `if (dart.library.io) 'src/native.dart'`,
-  `dart analyze` reported the browser surface to every caller on the VM: `PlatformPaths.fromEnvironment`
-  "not defined", `PlatformPaths(uri)` taking "0 positional arguments", `IsolateChannel.maxQueuedBytes`
-  absent, all on members that exist. `dart run` and `dart test` resolved correctly, so the package
-  **passed its own acceptance command and failed its own gate**. The line is
-  `export 'src/native.dart' if (dart.library.js_interop) 'src/web.dart';` — native first so the
-  analyzer, the VM and the test runner agree, and `js_interop` rather than `io` because naming `io`
-  would select the *browser* surface on the machine that has `dart:io`. Check all three when you
-  touch it: `dart analyze`, `dart run`, and `dart compile js`.
-- **A `Uri` can never carry `..`, and that quietly removes half of what a containment check needs.**
-  `Uri.file`, `Uri.parse` and `Uri(scheme:, path:)` all resolve `..` before the value exists, so a
-  `Paths.within`/`isBeneath` written to reject a `..` segment guards against nothing. `Paths.within`
-  is lexical over a normalised path and says so, with symlinks named as the limitation it actually
-  has; the authoritative check is task `0.24`'s `x-path-root` rule against a real path.
-- **`Uri.resolve` replaces the base's last segment, so it is the wrong call for joining into a
-  directory.** `Uri.file('/srv/install').resolve('config')` is `/srv/config` — outside the install
-  root, from a method whose purpose is to produce a path inside it, and the result looks like a
-  successful join. `resolveBeneath` appends a segment instead, which is why it is a function in
-  `src/paths.dart` and not a one-liner.
-- **`late final` with an initializer is lazy, and that is a subscription bug waiting to happen.**
-  `IsolateEndpoint` held its `_inbox.listen(...)` in one, so the endpoint's own receive port was not
-  subscribed until something *read* the field — and the only reader is the peer's channel, which
-  subscribes to `messages`. The endpoint sat there with a port nobody was reading and the round trip
-  never completed, with no exception anywhere. A subscription belongs in a constructor **body**.
-- **`IsolateEndpoint` needs two ports, and the one-port version connects to itself.** An endpoint that
-  wraps a single `ReceivePort` and sends to its own `SendPort` type-checks, never throws, and delivers
-  to nobody — it looks like a working link right up until something waits for the peer. Each side
-  builds an endpoint (which is what gives it a port to *receive* on) and learns the other's port from
-  the message that started the isolate, so `IsolateEndpoint.unconnected()` plus `connect` is two
-  phases because there is no alternative, not out of caution.
-- **`Process.stdout` is single-subscription, so a port that promises a broadcast has to build one.**
-  `dart:io`'s is not, and a second `listen` throws — the transcript tee `HostProcess.stdout`'s
-  documentation offers would have thrown. The adapter wraps it in a broadcast controller and attaches
-  **in the constructor body**, because a subscription taken when the first reader arrives cannot
-  deliver what the child wrote before it.
-- **A `close()` must not stop draining a live child's stderr.** The whole reason the process host
-  drains is that a child writing past a pipe buffer blocks in `write(2)` for ever, and `close` is
-  exactly what a `finally` block calls — before the child has necessarily exited. Cancelling the
-  drain there reintroduces the deadlock the file exists to prevent, and it presents as a Tier 2 plugin
-  that "hangs" holding a capability lease. The drain is released when the child is *observed* to have
-  exited, and a `close` that happened early is completed by the exit rather than left hanging.
-- **`IsolateChannel.write` must copy a `Uint8List` too.** `bytes is Uint8List ? bytes :
-  Uint8List.fromList(bytes)` copies only the case that never needs it — and `Uint8List` is precisely
-  what `FrameOutbox` hands a channel, which reuses its buffer.
-- **A port that releases its bound by acknowledgement can only be satisfied by a peer that
-  acknowledges.** `IsolateChannel` therefore rejects a `ConcurrencyPeer` that is not an
-  `IsolateEndpoint`, with an `ArgumentError` that says why. That is a real constraint rather than a
-  convenience: a channel whose budget is never released would refuse every write for ever, which looks
-  exactly like backpressure and is not.
-- **The product-spelling gate is about identifiers, and it checks that way now.** It used to be
-  `file.contains('alterione')`, which fails a file whose only occurrence is prose explaining ADR-0016
-  *and* a file whose only occurrence is the value `~/.alterione` — which ADR-0016 and
-  `install-and-update.md` §2 **require** `alteri_one_platform` to contain. `_codeOnly` in the
-  workspace contract test strips comments and string literals first, and it has its own test: a
-  governance gate whose machinery is untested is a gate that can stop working with nothing turning red.
-- **The id's identity block is CRC-32, and it was FNV-1a first.** The reason is arithmetic, not
-  reputation: FNV-1a's step is `(hash ^ byte) * 0x01000193`, whose intermediate reaches about
-  7.2 × 10¹⁶ — above 2⁵³, where an integer compiled to JavaScript stops being exact. A web build
-  would compute a *different* identity block from the same seed, and the only symptom would be a
-  transcript digest that matches on the VM and not in a browser. CRC-32's step is a shift and an
-  exclusive-or, both under 2³², so it is exact on every target. **32 bits is the widest identity
-  block that is exact on the VM and in a web build at once** — a Dart `int` is a signed 64-bit
-  value on the VM and a double everywhere else, so any wider accumulator is exact on one target
-  and not the others. The same argument rules out `hashCode` (not stable across versions) and a
-  64-bit PRNG. `identityBlock` is exported *only* so a test can pin it against the published
-  CRC-32 vector `CRC-32("123456789") == 0xCBF43926`; a second implementation in the test is what
-  makes that a check rather than a tautology.
-- **The two id blocks have no separator, and that is forced rather than chosen.**
-  `concepts.md` §2's grammar is `_(hex)+` and admits nothing else, so `trace_9f2c41ab_00000007`
-  would be a record id the grammar *rejects* — and one it rejects is one a validating profile or
-  an exported transcript cannot carry. Sixteen hex characters in two 8-character blocks, the second
-  being a per-kind counter. A doc comment that shows the underscore is wrong, and the contract
-  test's first job is to catch exactly that.
-- **The counter is per kind, and that is the whole reason the id is stable under concurrency.**
-  A shared counter would make every request id depend on how many span ids the run happened to draw,
-  so two runs differing only in instrumentation would produce different ids for the same logical
-  event and the transcript digest would differ for a reason that has nothing to do with the run.
-  What per-kind counters do *not* fix is draw order between callers sharing one generator, so
-  **a generator is owned by one logical actor** (a run, a trace, a subagent) and two interleaved
-  actors are two seeded generators. The contract test interleaves two of them for real and compares
-  each against the sequence it produces alone.
-- **`FakeClock.delay` completes immediately *and* advances the clock, and both halves matter.** A
-  fake that waited would make the suite take as long as the run it stands in for; one that completed
-  without moving anything would make every retry-backoff assertion read `0 ms` — a test that passes
-  and proves nothing. A caller that must stop waiting races the future and abandons the loser, which
-  is the rule `AlteriOneClock.delay` states.
-- **A fake clock's default instant is the Unix epoch, not `DateTime.now()`.** A default of "now"
-  would make every test that forgot to pass an instant depend on the wall clock — the defect this
-  package exists to prevent, introduced by the package that prevents it.
-- **The determinism doubles are library code, not `test/fakes/`.** They are for *other* packages'
-  tests (`memory.md` §4 replays a `FakeProvider` script; `cli.md` §5 scripts the REPL with one), and
-  a `test/` directory is not on another package's resolution path — so the alternative is one copy
-  per package, each drifting, and a drift between a double and the port it doubles is invisible
-  until a test passes for the wrong reason. The cost is kilobytes in the AOT snapshot. Note this
-  leaves `test/fakes/` holding the *determinism contract test* rather than the doubles, which is
-  the one place `testing-strategy.md` §2's layout is not followed literally; the TODO item says so.
-- **`ScriptedTurn` checks its last chunk in the constructor, not in a getter.** `providers.md` §3.2
-  makes the final chunk mandatory — it is the only one carrying `usage` — and a script that does not
-  end in a result is a *script* that is wrong. A lazy check would be a getter that throws on first
-  use, which is the same discovery three frames deeper into a stream subscription.
-- **An unscripted step throws rather than answering with an empty turn.** A model that said nothing
-  would leave most assertions still holding, so a typo in a script would be invisible. This is the
-  fail-closed rule applied to the double itself, and `withDefault` is a *separate constructor*
-  rather than a flag precisely so a reader can see whether a typo would be caught.
-- **`AlteriOneUsage.totalTokens` is derived and never stored.** A stored total is a fourth number
-  that can disagree with the three it summarises, and the disagreement is undetectable — an engine
-  that trusts it and a test that asserts it would both be describing the same wrong number. Cached
-  tokens are a *subset* of input, not an addition, which is why the derived total is `input +
-  output` and not the sum of all three.
-- **There is no `SocketOverrides` on the pinned SDK 3.13.4, and `IOOverrides` does not cover the
-  network.** An `HttpOverrides`-denial test therefore checks the HTTP door and nothing else; a raw
-  `Socket.connect` is covered only structurally, by reflecting over the fake's fields and
-  constructor parameters. Neither alone covers the claim, which is why both exist. The full answer
-  is task `0.21`'s deny-all egress harness.
-- **`dart:mirrors` on this SDK has no `isSealed`, no `FieldMirror` and no `declaredMembers`.** A
-  class's members come from `declarations`, a `Map<Symbol, DeclarationMirror>`; a field is
-  identified by its runtime type name (`_VariableMirror`) and its type by
-  `mirror.getField(symbol).type`; `reflectedType(Foo).declaredFields` does not exist. **Sealedness
-  has no reflection check at all**, so the only way to assert it is a `switch` with no `default`
-  that the compiler accepts — a fourth chunk subclass then breaks compilation, which is the
-  strongest available form. Know that before writing a test that tries to test for `sealed`.
-- **A transport never decodes a frame, not even to write a diagnostic.** The close-time loss
-  message names a *byte count* rather than a request id for this reason, and the contract test
-  asserts it: naming the id would mean decoding, which is the one thing §7.1 forbids.
-- **A namespace's grammar must admit `$`, or the control plane is unroutable.** The alternative
-  is `^[a-z][a-z0-9_]*` plus "`$/` is the constant `MethodNamespace.control`, reach it as a
-  constant" — and that is wrong in a way that passes every obvious test. `MethodNamespace.of`
-  takes a *method*, and the control plane's two methods are `$/cancelRequest` and `$/progress`, so
-  the constant existed, the seeded owner existed, `registry.owns(MethodNamespace.control)` was
-  `true`, and **no dispatch could ever reach it**: `MethodCall('$/cancelRequest')` threw and
-  `routeNotification` returned false. `overview.md` §5's middle row was dead code. Build the call
-  from the protocol package's own `cancelRequestMethod` constant in a test, never from a literal.
-- **A namespace's prefix and a record id's prefix cannot collide**, which is why nothing refuses a
-  namespace for being `mem` or `trace`. `concepts.md` §2's record-id grammar is `_(hex)+`, so the
-  underscore *binds a hex block* and a namespace is never a prefix of a record id. A comment here
-  once claimed the opposite and also said "`trace_` is not a valid namespace anyway" — false in
-  the same breath, since `_` is legal after a letter. The list is documentary, and the contract
-  test records the absence of a rule as a checked fact rather than leaving it as prose.
-- **The documents spell the namespace separator three ways**, and the code copes by taking the
-  leading segment: `protocol.md` §1 and `concepts.md` §2 use `/` (`core/run`, `core/step_completed`),
-  `overview.md` §5 and the tool ids use `.` (`<namespace>.*`, `web.search`), and the *shipped*
-  `initializeMethod` is dotted (`core.initialize`). Picking one is a change to a documented
-  contract, so `TODO.md` carries it as an operator decision rather than the code deciding.
-- **`engine.md` §4's event `provenance` and `concepts.md` §3's are two different label systems** —
-  five coarse words against seven values. `concepts.md`'s seven are the ones the code uses, because
-  ADR-0005 lists "a second label enum anywhere" under *Forbidden* and §3.1 requires labels to
-  survive transport unchanged, which a coarse event label would have to be mapped to at every
-  boundary. `plugin` deliberately has no distinct value: inventing one would be a second label
-  system and would be the one entry `concepts.md` §3.1's `Trust` derivation cannot answer.
-- **An event is redacted by construction or not at all.** `RedactedPayload.of(raw,
-  sensitivity:, redactor:)` takes a redactor as a parameter and **refuses** `Sensitivity.secret`
-  outright rather than redacting it, because a payload whose `.redacted()` call was forgotten is a
-  secret in a transcript, and `concepts.md` §3.1 says secret content must not reach memory,
-  transcript, logs, argv or a manifest *even in debug mode*. A function type rather than an
-  interface, so a "default no-op" implementation is not one method away.
-- **A bus with a `StreamController` per subscriber makes transcript order the event loop's.**
-  Delivery order is the order a transcript is written in and `observability.md` §2 compares
-  transcripts byte-for-byte, so `EventBus` is synchronous, in-process and has no `dart:async` at
-  all — the same argument the platform's clock documentation makes against a periodic timer.
-- **A `sealed class` with state cannot be an enum's superclass on the pinned SDK.** The three
-  shapes that look equivalent are not. An enum's constructor **cannot** have a `super` initializer
-  ("`super_in_enum_constructor`"), the superclass's implicit `super()` takes no arguments, and a
-  super *parameter* (`super.area`) is rejected with
-  `super_formal_parameter_without_associated_positional`. So `enum Foo extends DiagnosticCode` with
-  fields in the base class does not compile at all. The only working shape is
-  `implements` + each enum declaring its own fields — which is what `alteri_one_protocol`'s
-  `ErrorCode` already does, and the cost is the same: each enum restates the members.
-- **A named capture group `(?<name>…)` makes `match.group('name')` a compile error on this
-  analyzer.** It types the call as the `group(int)` overload, so every use of the name is
-  "The argument type 'String' can't be assigned to the parameter type 'int'". Use positional
-  groups and a comment naming each index.
-- **A class whose only member is `const C(this.a, this.b);` is not accepted here** — the analyzer
-  reports `initializing_formal_for_non_existent_field` for the parameters. Declare the fields
-  explicitly. Every other class in the tree already does, which is why the shape reads as fine
-  until you write the one class with nothing else in it.
-- **`DiagnosticCode` is a `sealed class` in the *core*, not the protocol package**, and that is a
-  layering rule rather than a placement preference. `config.unknown_field` and `framing.oversize`
-  are things an operator reads; neither is negotiated with anything, and `alteri_one_protocol`
-  cannot import the core. The framing code raises a `ProtocolViolation` with a wire code and a
-  path, and the host that logs it is what turns that into a `DiagnosticCode`.
-- **A diagnostic carries a code and placeholder *values*, never a sentence.** `ConfigDiagnostic` has
-  no `error:` constructor parameter and no `error` field, and that absence is
-  `configuration.md` §7.2 in one shape. A validator that wants to say "expected at most 16" puts
-  that in `expected:` and the catalogue renders it. Adding an `error` parameter would put a
-  string literal back at every call site and make a Russian diagnostic impossible.
-- **`${ENV_VAR}` is refused in `apiKeyEnv` even when the variable is set**, and it is refused
-  because the field *names* a variable and never carries a value. Testing it with the variable
-  present is the only version of the test that means anything: with it absent, `config.missing_env`
-  fires first and the name-only rule is never reached.
-- **A `sealed class`'s `toString` is not inherited by an enum that `implements` it**, so each of
-  the ten `DiagnosticCode` enums restates `String toString() => code;`. The codes are never
-  compared with a custom `operator ==`: enums have identity equality, and equality on the
-  *spelling* would make two entries claiming one string interchangeable and hide the very
-  duplication the `error-codes.md` §3 comparison exists to find.
-- **`package:clock`'s barrel does `export 'src/../clock.dart'`.** So a walk over an import closure
-  that keys a "have I been here" set on the path **as written** recurses until the stack gives
-  out — two spellings of one file never match. The workspace contract test's web-resolution walk
-  canonicalises with `package:path` before the visited check, and that is the reason `path` is a
-  root `dev_dependency`.
-- **A conditional directive's default branch is the *fallback*, not a branch.**
-  `export 'a.dart' if (C) 'b.dart';` means a build satisfying `C` uses `b.dart` and every other
-  build uses `a.dart` — never both. Following the default unconditionally makes
-  `alteri_one_platform`'s `src/native.dart` look reachable from a browser, and following every
-  branch reaches both files and reports the same false failure. Parse the whole line into one
-  default plus ordered `if` clauses and take the first the target satisfies.
-- **The ADR-0016 naming gate bites identifiers you write for a product-spelled *value*.**
-  `const String alterioneManifestFileName = 'alterione.yaml';` fails the product-spelling check
-  even though the value is exactly right, because the gate reads code with comments and strings
-  stripped. It is `productManifestFileName` with the value `'alterione.yaml'`.
-- **The cancelled request's id is `params.id`, and there is no frame-level `id` to find.** A
-  notification has none — `NotificationEnvelope` has no field for one and the codec refuses one —
-  so a receiver reaching for `frame.id` cancels nothing and the symptom is a run that ignores
-  Ctrl-C. This is the easiest thing to get wrong in `control.dart` and the first thing its
-  contract test asserts.
-- **A refused handshake is an `error` response, never a result carrying `accepted: false`.** §1
-  makes `result` and `error` mutually exclusive, so protocol.md §4's "terminates the handshake
-  with `accepted: false` and `-32050`" cannot be one frame holding both. The refusal is the error
-  response and `accepted: false` is what the *negotiator* concludes; `accepted` appears in a
-  result only as `true`, and a result carrying `false` is `-32600`. Every refusal cause is
-  `-32050` with the cause in `error.data.reason`, because the handshake negotiates and does not
-  grant — a capability asked for *after* it is `-32042`.
-- **`HandshakeAccepted.invariant` is the only library code that builds a
-  `SessionVersionInvariant`.** That is the promise `envelope.dart` makes from task `0.4`, and it
-  is why `InitializeResult` has no `invariant` getter of its own. A test may still build one to
-  exercise `require`; the point is that "an agreement happened" has exactly one source here.
-- **`ProtoVersion.toString` writes `-preRelease` and `+build` independently.** It used to emit
-  the pair together, so a version with build metadata and no pre-release rendered as
-  `1.0.0-+build.7` — not semver, and rejected by that same file's parser. Found by task `0.6`'s
-  range test, which is the first thing to build a version carrying build metadata.
-- **The `warn+degrade` path is a loop, not a `return`.** `negotiateHandshake` check 6 is the only
-  check whose cause is degradable, so `consider(...)` returns null there precisely when the
-  handshake is meant to continue; checks 1–5 call `refuse(...)`, which cannot. Writing check 6 as
-  `return consider(...)!` compiles and throws a null-check error in the middle of the one path
-  that is supposed to work — it is a real crash, not a lint.
+Two specification conflicts are recorded in `TODO.md` rather than decided in code: the namespace
+separator is spelled three ways (`/`, `.`, and the shipped dotted `core.initialize`), and
+`engine.md` §4's five `provenance` values contradict `concepts.md` §3's seven. The code follows
+`concepts.md`; picking otherwise changes a documented contract.
 
 ## Where to start reading
 
 | To understand | Read |
 |---|---|
-| the goal and the ten principles | [vision-and-scope.md](docs/vision-and-scope.md) |
-| the six nouns — **before anything else** | [concepts.md](docs/concepts.md) |
-| repo layout, root manifest, melos scripts, config precedence | [workspace-layout.md](docs/architecture/workspace-layout.md) |
-| your task and its one acceptance command | [task-breakdown.md](docs/process/task-breakdown.md) |
-| the website's build, constraints and follow-ups | [website.md](docs/website.md) |
-| what is decided, proposed, superseded or open | [decisions/README.md](docs/decisions/README.md) |
+| the goal and the ten principles | [docs/vision-and-scope.md](docs/vision-and-scope.md) |
+| the six nouns — **before anything else** | [docs/concepts.md](docs/concepts.md) |
+| repo layout, root manifest, melos scripts, config precedence | [docs/architecture/workspace-layout.md](docs/architecture/workspace-layout.md) |
+| your task and its one acceptance command | [docs/process/task-breakdown.md](docs/process/task-breakdown.md) |
+| what is decided, proposed, superseded or open | [docs/decisions/README.md](docs/decisions/README.md) |

@@ -36,9 +36,10 @@
 - [ ] CI compiles the browser surface (`dart compile js`); `alteri_one_platform`'s central claim is
       that a web build resolves the refusal surface, and nothing keeps that true but this AGENTS.md note
 - [ ] `test/` directory layout: `testing-strategy.md` §2 says `unit/`, `contract/`, `integration/`,
-      `fakes/`; the packages with tests use `protocol/`, `transport/`, `platform/` and `fakes/`.
-      Note `fakes/` now holds the *determinism contract test*, not the doubles — the doubles are
-      library code, because a `test/` directory is not importable from another package
+      `fakes/`; the packages with tests use `core/`, `profile/`, `protocol/`, `transport/`,
+      `platform/` and `fakes/`. Note `fakes/` holds the *determinism contract test*, not the
+      doubles — the doubles are library code, because a `test/` directory is not importable from
+      another package
 - [x] Task `0.9`: the six platform ports, five native adapters, and a browser surface that
       refuses rather than approximating
 - [ ] Publish the `alterione` package name on pub.dev (`alterione` was unclaimed on 2026-09-29; a name on pub.dev is a permanent claim)
