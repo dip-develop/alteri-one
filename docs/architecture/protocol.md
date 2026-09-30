@@ -237,6 +237,75 @@ unfinished request receives `-32031`.
 and optional `total` and `message`. Progress carries no secrets and changes no policy
 decision.
 
+### 3.1 What a receiver does with `$/cancelRequest`
+
+The section above states the frame. These are the decisions, each one a case a peer can get
+wrong, and `alteri_one_protocol`'s `control.dart` implements them.
+
+- **The correlation id is `params.id`, and there is no frame-level `id` to find.** §1 gives a
+  notification no `id` member and the decoder refuses one, so the *only* place a cancelled
+  request's id appears is inside `params`. A receiver that looks for `frame.id` finds nothing
+  and cancels nothing, and the symptom is a run that ignores Ctrl-C. This is the single most
+  likely bug in this area, which is why it is the first thing the contract test asserts.
+- **`reason` is required, and it is a token.** `^[a-z][a-z0-9_]*$`, at most 64 characters — the
+  identifier grammar of [concepts.md](../concepts.md#2-identifier-grammar) without the dot. A
+  reason names a cause, not a namespace, and a dotted spelling would invite a peer to smuggle
+  a capability id into a field nobody validates. The wire example's `user_interrupt` is the
+  shape; the vocabulary is not fixed by this version, so a receiver must not switch on it.
+- **The first reason wins.** A token that is already cancelled keeps the cause it was cancelled
+  with. A second `$/cancelRequest` for the same id is idempotent: it does not overwrite the
+  reason, and it does not fire a second cascade. A cascade that fires twice runs a tool's
+  cleanup twice, which is how a cancelled Tier 2 process group turns into a leaked one.
+- **Four outcomes, and none of them is a response.** A notification is never answered, so the
+  receiver's answer is a log line: `cancelled` (this cancel tripped the token), `alreadyCancelled`
+  (the idempotent repeat), `alreadyCompleted` (the result stands) and `unknownRequest` (nothing is
+  in flight under that id).
+- **A cancel for an id this peer never sent is not a frame error.** It is `unknownRequest`, not
+  `-32600`. A peer that cancels work which has already finished, or which the receiver never
+  dispatched, is behaving correctly; refusing the frame would fail a healthy session over a
+  duplicate message.
+- **The race resolves by which happened first, and the order matters.** A cancel that arrives
+  while a request is still unfinished trips the token and the request answers `-32031`. A cancel
+  that arrives after the response has been sent is `alreadyCompleted` and changes nothing: §3
+  resolves in favour of the completed result, and a cancel cannot un-send a response. The
+  receiver therefore marks a request complete when it *sends* the response, not when it starts
+  building one.
+- **`-32031` is a response, and it goes to the cancelled request's id.** It is the
+  `ErrorBody` of a `response` frame, not a notification and not a second `$/cancelRequest`, so
+  the peer's own pending request is answered exactly once whichever way it was cancelled.
+- **Cancelling a `core.initialize` is the same operation.** The handshake has a request id like
+  any other, and cancelling it produces the same four outcomes. It is worth calling out because a
+  handshake is the one request whose id the peer has not seen echoed yet.
+
+### 3.2 Progress is advisory, and a regression is ignored
+
+- **`progress` is required and lies in `0.0..1.0`, inclusive.** A value outside that range is
+  `-32602` naming `$.params.progress`; a peer sending `1.5` has a bug, and a range check costs
+  nothing to be strict about.
+- **`total` is optional and informational.** A non-negative integer count of steps. Nothing
+  derives `progress` from it: the sender computes the fraction, and the receiver's high-water
+  mark is over `progress` alone, so a wrong `total` cannot move a bar.
+- **`message` is optional and unbounded.** No cap, and that is deliberate rather than an
+  omission: the frame cap already bounds it at 8 MiB, a per-field limit would be a second
+  number to negotiate, and a diagnostic string is not the place to spend one. The `reason` of
+  §3.1 is bounded because it has a grammar with limits, not because it is a short field.
+- **Monotonic is the receiver's property, not the sender's promise.** A receiver keeps a
+  high-water mark per `requestId` and reports the maximum value it has ever seen. A frame
+  carrying a *lower* value is ignored: not applied, not an error, not a session failure.
+  Progress changes no policy decision, so a peer whose progress goes backwards has a cosmetic
+  bug that must not take a live run down — and a UI that has already drawn 60% must not jump
+  back to 20% because a late frame arrived. Ignoring is what satisfies both halves of that.
+- **An equal value is a duplicate, not a regression.** Progress is at-least-once in practice, so
+  the same value twice is ordinary and is accepted silently. Refusing it would make a retried
+  notification an error, and a notification cannot be answered anyway.
+- **A `$/progress` for an id that is not in flight is ignored**, for the same reason an unknown
+  cancel is not an error: a progress frame that arrives after its response has gone is ordinary
+  ordering, and dropping it is the only safe action.
+- **Progress is never evidence.** A progress value never satisfies a policy check, never relaxes
+  a deadline and never stands in for a result. The `message` is free text and is not a place for
+  a credential; the redaction obligation is the sender's, and a receiver that renders it must
+  treat it as untrusted.
+
 ## 4. Handshake
 
 The first request of a session is `core.initialize`: the peer — a Tier 2 tool or plugin,
@@ -255,11 +324,19 @@ no ordinary method is accepted.
     "protoVersionRange": ">=1.0.0 <2.0.0",
     "moduleVersion": "1.2.0",
     "capabilities": ["web.search"],
-    "limits": { "maxFrameBytes": 8388608, "maxJsonDepth": 64, "maxConcurrentRequests": 32 }
+    "limits": { "maxFrameBytes": 8388608, "maxJsonDepth": 64, "maxConcurrentRequests": 32 },
+    "extensionApi": "1.0.0",
+    "ports": { "storage": "1.0.0" }
   },
   "meta": { "proto": 1, "moduleVersion": "1.2.0" }
 }
 ```
+
+`extensionApi` and `ports` are the two members §4.1's mandatory check reads, so they are
+required like the other three: a peer that omits them has declared nothing, and a check that can
+be skipped by omitting its input is not a check. They are the *versions* the peer implements — a
+manifest's `extensionApi` constraint is resolved before the handshake, and resolving it is the
+manifest task's business. `limits` is the only optional member, and §4.2 says why.
 
 ```jsonc
 {
@@ -271,11 +348,23 @@ no ordinary method is accepted.
     "accepted": true,
     "negotiatedProtoVersion": "1.0.0",
     "degradePolicy": "refuse",
-    "limits": { "maxFrameBytes": 8388608, "maxJsonDepth": 64, "maxConcurrentRequests": 32 }
+    "limits": { "maxFrameBytes": 8388608, "maxJsonDepth": 64, "maxConcurrentRequests": 32 },
+    "api": {
+      "protocol": ">=1.0.0 <2.0.0",
+      "extension": "1.0.0",
+      "runtime": "1.0.0",
+      "ports": { "storage": "1.0.0", "memory": "1.0.0", "mcp": "2026-07-28" }
+    }
   },
   "meta": { "proto": 1, "moduleVersion": "1.2.0" }
 }
 ```
+
+`api` is the host's `api:` block of `alterione.yaml` in the same member names
+([reference/config-schema.md](../reference/config-schema.md#12-api)), and all four of its values
+are **ranges**: `extension: "1.0.0"` is the range admitting exactly `1.0.0`, and
+`mcp: "2026-07-28"` is a date-shaped exact version rather than a semver. That is why §4.4's
+grammar has a bare version, and why none of the four is typed as a semver.
 
 `degradePolicy` accepts only an explicitly chosen `refuse` or `warn+degrade`; it is never
 inferred. A capability mismatch, an incompatible protocol or a security policy violation
@@ -299,6 +388,110 @@ An injection speaks no protocol at all. It has no handshake, no frames, no negot
 no transport: it is a linked function the host calls on the context path, and the guarantees
 it gets come from never giving it authority rather than from a handshake. See
 [extensibility/injections.md](../extensibility/injections.md#3-authority-none-and-how-that-is-kept-true).
+
+### 4.2 Accepted, refused, and which one the response is
+
+§4 states the rule and §1 constrains the shape it can take, and the two together force a
+reading that is worth stating because the prose alone reads the other way.
+
+- **A refusal is an `error` response, never a result carrying `accepted: false`.** §1 makes
+  `result` and `error` mutually exclusive, so "terminates the handshake with `accepted: false`
+  and `-32050`" cannot be one frame holding both a `result.accepted` and an `error`. The refusal
+  is therefore the error response; `accepted: false` is what the **negotiator** concludes from it,
+  not a member of the frame. A peer reading a refused handshake looks for the error, and it is
+  there.
+- **`accepted` appears in a result only as `true`.** A result carrying `accepted: false` is
+  refused by the receiver with `-32600`: a peer that answers a handshake with a result saying it
+  was not accepted has neither agreed nor refused, and a session started from that value would
+  be a session nobody agreed to.
+- **Every handshake refusal is `-32050`, and the cause is named in `error.data`.** Including a
+  capability mismatch and a security policy violation, because **the handshake negotiates and
+  does not grant**: nothing is published before `accepted: true`, so there is no capability to
+  deny at handshake time. A capability the host does not have is `-32042`, raised at the point
+  the peer asks for one *after* the handshake. `error.data.reason` names which disagreement it
+  was — an unreadable diagnostic and `-32050` alone would send an operator looking for the wrong
+  half of the system.
+- **`meta.moduleVersion` and `params.moduleVersion` must agree.** §4's example carries both and
+  §1.1 defines `meta.moduleVersion` as the manifest version, so a peer that sends two different
+  values for one handshake has not said which version it is, and `-32050` is the answer. A
+  `params.moduleVersion` is required, because the module version is one of the two things being
+  negotiated and a peer that omits it has not offered one.
+- **`params.capabilities` is required, `params.limits` is not.** A capability list of `[]` is a
+  real state — most peers grant nothing — so it is spelled explicitly rather than inferred from
+  an absent member. Limits are the exception: an absent `limits` means "no request to lower
+  anything", which is exactly the default, and the host's answer says so.
+
+### 4.3 What the negotiation decides
+
+- **A limit is the minimum of three numbers: the peer's proposal, the host's own, and the hard
+  cap.** "May negotiate lower, never higher" is not a request to both sides' good behaviour; it
+  is arithmetic, and the arithmetic lives in one place. A peer asking for 16 MiB is granted
+  8 MiB and *told* 8 MiB — the answer is the clamp, not a rejection, because a peer asking for
+  too much is asking for a conversation, not committing a breach.
+- **Reading a limit clamps it, in every build.** The negotiated value, the peer's proposal and
+  the host's configuration all pass through the same clamp, so a caller holding a `SessionLimits`
+  is holding the effective one even with the checks compiled out. A limit that configuration can
+  raise is not a limit, and the same sentence holds here as for framing.
+- **The four limits are one value because they are negotiated together.** `maxFrameBytes` and
+  `maxHeaderBytes` are framing's; `maxJsonDepth` and `maxConcurrentRequests` belong to the codec
+  and the dispatcher. This section is where a peer *learns* what it may send, not where any of
+  the four is *counted* — depth is enforced when the codec lands, concurrency when the dispatcher
+  does, and a negotiated number with no enforcement behind it is a claim, so the two must arrive
+  in the same task.
+- **The negotiated version is the host's, and two ranges must admit it.** It must satisfy the
+  peer's `protoVersionRange` *and* the host's own `api.protocol`, which §1.2 calls the envelope
+  wire version range "matching `meta.proto`". The second is a self-check and it is not redundant:
+  a host whose own version falls outside the range it publishes is misconfigured, and the
+  handshake is where a peer would otherwise find out by not working. The host does not pick a
+  version inside the peer's range by preference: it speaks one version, and if that version is
+  not admitted by both ranges the handshake is refused. "Choose the highest version both could
+  support" would need a second version in this package to choose from, and a second
+  implementation is a second thing to get wrong for a case that has not happened yet.
+- **The peer's declared `extensionApi` and `ports` are checked against §4.1's ranges**, and a
+  port the host does not declare is as fatal as one declared at the wrong version: both mean the
+  peer was built against a contract this host does not have. Every refusal cause is `-32050` and
+  every one names itself in `error.data.reason`.
+- **Only `capability_mismatch` is ever degradable, and that is a property of the cause rather
+  than of configuration.** The four version causes are fail-closed whatever a host configures,
+  because a host that cannot speak the peer's version cannot usefully pretend to: there is nothing
+  to warn and continue with. A capability the host does not publish is different in kind — §5
+  permits `warn+degrade` for "an explicitly optional capability" — so the *policy* decides
+  whether that one cause degrades, and the decision is recorded in the outcome as a warning
+  rather than discarded.
+- **An accepted handshake is the only thing that constructs a `SessionVersionInvariant`.** Before
+  it, `meta.proto` is the sender's major and nothing has been agreed; after it,
+  `meta.proto == negotiatedProtoVersion.major` for every frame in the session. There is
+  deliberately no `Session` holding a nullable version: "not yet negotiated" is the *absence* of
+  the agreement, not an agreement with nothing in it. A frame that disagrees is `-32050` and the
+  session is over — the frame is not dropped and the session not carried on, because a session
+  running on a version nobody agreed to is worse than a closed connection.
+- **`degradePolicy` is chosen, never inferred.** The only two wire values are `refuse` and
+  `warn+degrade`, and a missing or unrecognised one is a refused handshake rather than a
+  default. Defaulting to `refuse` would be the safe answer and the wrong one — it silently
+  accepts a peer that forgot to choose, and the operator never learns the policy was never set.
+  A `warn+degrade` host may only degrade on a cause it **named in advance**, because §5 permits
+  it "only under a policy defined in advance"; sandbox, secrets, egress and Tier 2 are fail-closed
+  whatever the policy says.
+
+### 4.4 The range grammar
+
+One spelling, everywhere: a whitespace-separated conjunction of comparators, each of `>=`, `>`,
+`<=`, `<`, `=` or `=` with a bare version, and **every** comparator must hold. `">=1.0.0
+<2.0.0"` is the whole grammar.
+
+- **No `^`, no `~`, no `||`, no `*`, no hyphen ranges.** Every document in this repository writes
+  one form — [reference/config-schema.md](../reference/config-schema.md) §`api` and
+  §`extension` both use `>=1.0.0 <2.0.0` — and a parser that accepts a second form has two
+  answers to "is 1.5.0 inside this range". A range outside the grammar is refused with the
+  offending token named, not partially understood.
+- **Comparison is semver precedence, so a pre-release is below its release.** `1.0.0-alpha.1`
+  does **not** satisfy `>=1.0.0 <2.0.0`, and that is the correct answer rather than an accident:
+  a peer offering a pre-release to a range that starts at the release has said it is not that
+  release, and the handshake is the place to find out.
+- **Build metadata is ignored**, as semver requires, and a version that cannot be parsed is
+  refused rather than coerced. The same strictness as `version.dart` applies to the range: a
+  lenient parser here is how `1.0` and `1.0.0` end up meaning different things on either side
+  of a socket.
 
 ## 5. Versioning rules
 

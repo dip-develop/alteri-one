@@ -48,8 +48,10 @@
 library;
 
 export 'src/codec.dart' show decodeEnvelope, fromJsonMap;
+export 'src/control.dart';
 export 'src/envelope.dart';
 export 'src/error.dart';
 export 'src/framing.dart';
+export 'src/handshake.dart';
 export 'src/json.dart';
 export 'src/version.dart';

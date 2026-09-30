@@ -25,6 +25,7 @@
 - [x] Task `0.4`: the versioned envelope, its codec and the error taxonomy
 - [x] The governance contract test is portable again: it read only SSH remotes and split on `\n` without normalising CRLF, so it failed on every CI runner and on Windows only — the blocking chain had been red on `develop` since #11 unnoticed
 - [x] Task `0.5`: `Content-Length` framing, the 8 MiB frame cap, the 8 KiB header cap and bounded backpressure
+- [x] Task `0.6`: `$/cancelRequest`, `$/progress`, `core.initialize` and the refuse-or-degrade policy
 - [ ] Site: install, extensions and documentation-index pages
 - [ ] Site: render `docs/` with `jaspr_content` rather than summarising it
 - [ ] Site: dark theme — `css.media` in the pinned Jaspr has no `prefers-color-scheme`
