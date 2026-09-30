@@ -219,12 +219,20 @@ final class ProtoVersion implements Comparable<ProtoVersion> {
   @override
   int get hashCode => Object.hash(major, minor, patch, preRelease);
 
+  /// `major.minor.patch`, then `-preRelease` when there is one, then `+build` when there is one.
+  ///
+  /// The two optionals are independent, and rendering them as a single `-$preRelease` pair was a
+  /// bug: a version with build metadata and no pre-release — `1.0.0+build.7` — came out as
+  /// `1.0.0-+build.7`, which is not semver and does not survive this file's own parser. The
+  /// hyphen belongs to the pre-release and the plus to the build, so each is written only when
+  /// its own part is present.
   @override
-  String toString() => build.isEmpty
-      ? (preRelease.isEmpty
-            ? '$major.$minor.$patch'
-            : '$major.$minor.$patch-$preRelease')
-      : '$major.$minor.$patch-$preRelease+$build';
+  String toString() {
+    final buffer = StringBuffer('$major.$minor.$patch');
+    if (preRelease.isNotEmpty) buffer.write('-$preRelease');
+    if (build.isNotEmpty) buffer.write('+$build');
+    return buffer.toString();
+  }
 }
 
 /// `major.minor.patch`, then `-preRelease`, then `+build`, with no leading `v`.
