@@ -616,6 +616,141 @@ void main() {
       );
     });
 
+    test('the organisation is read from every URL form git writes', () {
+      // The regression this pins: the check above silently returned null on every CI runner,
+      // because `actions/checkout` writes an HTTPS remote and the pattern only understood SSH.
+      // It passed on a laptop and failed in a pipeline, which is a gate that verifies nothing
+      // where it is most needed — and nothing in the run said so except a null.
+      const config =
+          '[remote "origin"]\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n';
+      for (final url in const <String>[
+        'https://github.com/dip-develop/alteri-one.git',
+        'https://github.com/dip-develop/alteri-one',
+        'ssh://git@github.com/dip-develop/alteri-one.git',
+        'git@github.com:dip-develop/alteri-one.git',
+        'https://x-access-token:ghs_abc123@github.com/dip-develop/alteri-one.git',
+        'https://github.com/dip-develop/alteri-one/\n',
+      ]) {
+        expect(
+          _organisationFromConfig('$config\turl = $url\n'),
+          'dip-develop',
+          reason:
+              'the remote "$url" is one git writes, and its owner must be readable',
+        );
+      }
+
+      // And a remote that is not on GitHub is refused rather than guessed at, so the check
+      // cannot read an owner out of a fork, a submodule or an unrelated host.
+      for (final url in const <String>[
+        'https://gitlab.com/dip-develop/alteri-one.git',
+        'https://github.com/dip-develop',
+        '/local/path/to/repo',
+      ]) {
+        expect(
+          _organisationFromConfig('$config\turl = $url\n'),
+          isNull,
+          reason:
+              'the remote "$url" names no organisation this gate can rely on',
+        );
+      }
+    });
+
+    test('the git config is found through a worktree pointer', () {
+      // The layout that is invisible from the repository root, and therefore the one that gets
+      // shipped broken: in a linked worktree `.git` is a file, and the directory it points at has
+      // no `config` — it has a `commondir` naming the one that does. Reading `<gitdir>/config`
+      // returns null, and the CODEOWNERS check then fails in a worktree while passing everywhere
+      // else. This was the first version of [_gitConfig], and it is here so that cannot recur
+      // unnoticed.
+      final root = Directory.systemTemp.createTempSync('alterione-gitconfig');
+      addTearDown(() => root.deleteSync(recursive: true));
+
+      const remote =
+          '[remote "origin"]\n'
+          '\turl = https://github.com/dip-develop/alteri-one.git\n';
+
+      // A normal checkout: `.git` is a directory and `config` is in it.
+      final plain = Directory('${root.path}/plain/.git')
+        ..createSync(recursive: true);
+      File('${plain.path}/config').writeAsStringSync(remote);
+      expect(
+        _organisationFromConfig(_gitConfig('${root.path}/plain/.git')!),
+        'dip-develop',
+        reason: 'a normal checkout keeps its config in `.git`',
+      );
+
+      // A linked worktree. The layout, exactly: the *main* repository's `.git` is a directory
+      // holding the config, the worktree's own `.git` is a pointer file, and the per-worktree
+      // gitdir it names holds no config — only a `commondir` pointing back at the main one.
+      final mainGit = Directory('${root.path}/repo/.git')
+        ..createSync(recursive: true);
+      File('${mainGit.path}/config').writeAsStringSync(remote);
+      final worktreeGitDir = Directory('${mainGit.path}/worktrees/wt')
+        ..createSync(recursive: true);
+      File('${worktreeGitDir.path}/commondir').writeAsStringSync('../..\n');
+
+      final worktree = Directory('${root.path}/wt')..createSync();
+      final pointer = File('${worktree.path}/.git')
+        ..writeAsStringSync('gitdir: ${worktreeGitDir.path}\n');
+
+      expect(
+        _organisationFromConfig(_gitConfig(pointer.path)!),
+        'dip-develop',
+        reason: 'a worktree\'s config is reached through commondir, not through its gitdir',
+      );
+      // The distinction that makes this worth a test: the worktree's gitdir has no config of its
+      // own, so anything reading `<gitdir>/config` finds nothing and reports no remote at all.
+      expect(
+        File('${worktreeGitDir.path}/config').existsSync(),
+        isFalse,
+        reason: 'the fixture is only faithful if the worktree gitdir really has no config',
+      );
+
+      // And a pointer that is not a pointer, and a path that is nothing at all, both decline
+      // rather than inventing an answer.
+      final broken = File('${root.path}/broken.git')
+        ..writeAsStringSync('not a git pointer\n');
+      expect(_gitConfig(broken.path), isNull);
+      expect(_gitConfig('${root.path}/absent'), isNull);
+    });
+
+    test('a document is read the same way on a CRLF checkout', () {
+      // The second regression, and the one that only ever failed on Windows. Normalisation lives
+      // at the *read* boundary in [_textOf], not in each helper, so that is what is asserted:
+      // the helpers are line-oriented and correct, and what they are handed has been normalised.
+      // `.` does not match the `\r` of a CRLF line, so the pattern `^\s*(\d+)\.\s+(.*)$` that
+      // finds the constitution's numbered items matches every line of an LF checkout and none of
+      // a CRLF one — a failure with no error message, in a file whose other patterns happen to
+      // survive because they end `\s*$`.
+      const lf =
+          '## 3. Constitution\n\n1. First principle\n2. Second principle\n';
+      final crlf = lf.replaceAll('\n', '\r\n');
+
+      expect(
+        _normaliseLineEndings(crlf),
+        lf,
+        reason:
+            'a CRLF read must reach the helpers as the LF it was written as',
+      );
+      expect(
+        _numberedUnder(_normaliseLineEndings(crlf), 'Constitution'),
+        _numberedUnder(lf, 'Constitution'),
+        reason: 'line endings must not change what a document says',
+      );
+
+      // A lone `\r` is a carriage return someone typed, not a line ending, and eating it would
+      // change what a document says in the other direction.
+      expect(_normaliseLineEndings('a\rb\n'), 'a\rb\n');
+
+      // The same for a heading lookup and a section body, which use different patterns from the
+      // numbered one and would be a second and third thing to regress.
+      expect(_headings(_normaliseLineEndings(crlf)), _headings(lf));
+      expect(
+        _sectionBody(_normaliseLineEndings(crlf), 'Constitution'),
+        _sectionBody(lf, 'Constitution'),
+      );
+    });
+
     test('the code-owner requirement itself is recorded, not assumed', () {
       // This file cannot read a ruleset. What it can check is that the repository records
       // the requirement, so a reviewer can go and confirm it in the UI — and so that
@@ -1080,6 +1215,26 @@ void main() {
 /// The records, read once.
 final _cache = <String, String>{};
 
+/// The text of a repository document, with its line endings normalised to `\n`.
+///
+/// The normalisation is not tidiness — it is the difference between this file passing on Windows
+/// and failing on it, and it is done **here**, once, rather than in each of the eleven helpers
+/// that split on `'\n'`.
+///
+/// The mechanism, because it is not obvious and it fails silently: `.` in a Dart [RegExp] does
+/// not match a line terminator, and a bare trailing `\r` is one. So `RegExp(r'^\s*(\d+)\.\s+(.*)$')`
+/// — which is how [_numberedUnder] finds the constitution's ten principles — matches every line
+/// of an LF checkout and **no** line of a CRLF one, because the line ends `...principle\r` and
+/// `(.*)$` cannot reach across the `\r` to satisfy `$`. A pattern written `(.*?)\s*$` survives,
+/// because `\s*` eats the `\r` itself. That asymmetry is why half the assertions in this file
+/// failed on Windows and half passed, which is the worst possible shape for a portability bug:
+/// it looks like a flaky or wrong expectation rather than a checkout setting.
+///
+/// Every document in this repository is stored with LF (`git ls-files --eol`), and a Windows
+/// runner checks them out with CRLF because the repository has no `.gitattributes` pinning
+/// `text=auto`. Normalising at the read means a `.gitattributes` added later changes nothing
+/// here, and a document that genuinely contains a lone `\r` still does, because only a `\r`
+/// immediately before a `\n` is touched.
 String _textOf(String path) {
   final cached = _cache[path];
   if (cached != null) return cached;
@@ -1089,8 +1244,15 @@ String _textOf(String path) {
       '$path is missing; this test must run from the repository root',
     );
   }
-  return _cache[path] = file.readAsStringSync();
+  return _cache[path] = _normaliseLineEndings(file.readAsStringSync());
 }
+
+/// Rewrites CRLF to LF, and leaves every other byte alone.
+///
+/// Named rather than inlined so a test can assert it directly. Only a `\r` that is immediately
+/// before a `\n` is touched, so a document containing a lone carriage return — an old-Mac line
+/// ending, or a `\r` inside a fenced block — keeps it.
+String _normaliseLineEndings(String text) => text.replaceAll('\r\n', '\n');
 
 /// The headings of a document, with their leading hashes dropped and their text slugified
 /// the way a reader types it: `## 5.1 Platform policy` is read as "Platform policy".
@@ -1386,12 +1548,86 @@ bool _isTierTwo(String cell) {
 /// Read rather than hard-coded so the CODEOWNERS check survives a rename. `.git/config` is
 /// read directly instead of running `git remote`, because this file starts no process: it
 /// runs in the blocking chain on three operating systems and needs no tool on the PATH.
+///
+/// Two things this has to get right, and both were wrong:
+///
+/// - **The remote may be HTTPS.** `actions/checkout` writes
+///   `url = https://github.com/<org>/<repo>`, while a developer's clone is usually
+///   `git@github.com:<org>/<repo>`. A pattern that only understood the SSH form returned null on
+///   every CI runner and passed on every laptop, which is the definition of a gate that verifies
+///   nothing where it matters. Every spelling git writes is accepted below, and
+///   `GITHUB_REPOSITORY` is deliberately *not* used as a fallback: the remote is the repository's
+///   own record of where it lives, and an env var that happens to be set in CI is a second source
+///   of truth that could disagree with it.
+/// - **`.git` may be a file.** In a linked worktree `.git` is a file holding `gitdir: <path>`, so
+///   `File('.git/config')` does not exist and the check would fail there too. Both shapes are
+///   resolved, and neither involves a subprocess.
+///
+/// Returns null when the remote cannot be read at all, which the caller reports rather than
+/// treating as a pass: a gate that cannot see the value it is checking must say so.
 String? _organisationLogin() {
-  final config = File('.git/config');
-  if (!config.existsSync()) return null;
-  final match = RegExp(r'url\s*=\s*(?:ssh://)?git@github\.com[:/]([^/]+)/')
-      .firstMatch(config.readAsStringSync());
+  final config = _gitConfig();
+  if (config == null) return null;
+  return _organisationFromConfig(config);
+}
+
+/// The organisation a git config's `origin` URL names, or null.
+///
+/// Split out from [_organisationLogin] so it can be exercised against every URL form without a
+/// remote, a repository or a subprocess — which is the only reason a regression here can be
+/// caught by a test rather than by noticing a red pipeline.
+String? _organisationFromConfig(String config) {
+  // The owner is the path segment after the host, for every form git writes:
+  //   git@github.com:org/repo.git      ssh://git@github.com/org/repo.git
+  //   https://github.com/org/repo.git   https://user@github.com/org/repo.git
+  final match = RegExp(
+    r'url\s*=\s*(?:(?:ssh|https?)://)?(?:[^@/\s]+@)?github\.com[:/]([^/\s]+)/',
+  ).firstMatch(config);
   return match?.group(1);
+}
+
+/// The text of the repository's git config, resolved from the `.git` entry at [dotGitPath].
+///
+/// Three layouts, and a check that knows only the first one works on a developer's machine and
+/// nowhere else:
+///
+/// - a normal checkout, where `.git` is a directory holding `config`;
+/// - a linked worktree, where `.git` is a *file* holding `gitdir: <path>` — and that gitdir has
+///   **no** `config` in it. It has a `commondir` file naming, as a path relative to itself, the
+///   directory that does. Reading `<gitdir>/config` returns nothing at all, which is the mistake
+///   the first version of this function made and the reason it is spelled out here;
+/// - a submodule, which is a directory like the first case and needs nothing special.
+///
+/// The parameter exists so a test can point this at a fixture. Resolving a worktree touches the
+/// filesystem in a way nothing else in this file does, and the layout it must handle is not
+/// visible from the repository root — so an untested version of this returns null in exactly the
+/// situation it was written for, which is what the first version did.
+String? _gitConfig([String dotGitPath = '.git']) {
+  final dotGit = File(dotGitPath);
+  String gitDir;
+  if (dotGit.existsSync()) {
+    final pointer = RegExp(
+      r'^\s*gitdir:\s*(\S+)\s*$',
+      multiLine: true,
+    ).firstMatch(dotGit.readAsStringSync())?.group(1);
+    if (pointer == null) return null;
+    gitDir = pointer;
+  } else if (Directory(dotGitPath).existsSync()) {
+    gitDir = dotGitPath;
+  } else {
+    return null;
+  }
+
+  // Git writes forward slashes into `commondir`, which Windows accepts, and the `..` segments
+  // are resolved by the filesystem rather than by string surgery here.
+  final common = File('$gitDir/commondir');
+  if (common.existsSync()) {
+    final relative = common.readAsStringSync().trim();
+    if (relative.isNotEmpty) gitDir = '$gitDir/$relative';
+  }
+
+  final config = File('$gitDir/config');
+  return config.existsSync() ? config.readAsStringSync() : null;
 }
 
 /// `<pattern>: <owner>` for every rule in CODEOWNERS, comments and blanks removed.
