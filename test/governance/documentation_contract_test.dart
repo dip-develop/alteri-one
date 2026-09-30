@@ -103,8 +103,15 @@ const _failClosedRecords = <String, String>{
 /// Not a general "no degradation anywhere" rule. Every occurrence of *degrade* or *fallback*
 /// in the tree is either a prohibition or unrelated to isolation — `dart build cli` is a
 /// legitimate build fallback, and the fallback locale is English. What must never appear is a
-/// sentence granting a weaker mode, and these are the ways that sentence gets written. Each
-/// one is a phrase a contributor could add while honestly believing it was helpful.
+/// sentence granting a weaker mode, and these are the ways that sentence gets written.
+///
+/// This list is the *narrow* half of the check and the structural half is what carries it —
+/// see the sandbox-conditional assertion below. A phrase list only catches the wordings
+/// somebody thought of in advance, and the claim that matters is the one nobody thinks of:
+/// it is written in a hurry, by someone trying to make the feature work. The list is kept
+/// because a specific phrasing is unambiguous in a way the structural pattern is not, and
+/// because a list of concrete sentences is a thing a reviewer can read and agree or argue
+/// with. It is not a checklist of every way the claim can be made.
 const _weakerModeClaims = <String>[
   'sandbox is optional',
   'sandbox optional',
@@ -813,6 +820,39 @@ void main() {
             '${offenders.join('; ')}. An unavailable sandbox, broker, signature or '
             'dependency is a refusal — ADR-0003, "Forbidden: degrading a sandbox".',
       );
+
+      // The same property, read structurally rather than as a phrase list.
+      //
+      // A sentence that makes a sandbox conditional and then describes a permissive outcome
+      // is the shape of the claim, however it is worded: "if no sandbox is available the
+      // plugin still runs", "when the sandbox is missing, the tool continues". A phrase
+      // list only catches the wordings somebody thought of in advance, and the whole point
+      // is that nobody will think of this one — it is written in a hurry, by someone who
+      // wants the feature to work.
+      //
+      // Negation-aware for the same reason the platform check is: "if no sandbox is
+      // available, the plugin refuses" is the rule, not a violation of it, and a check that
+      // cannot tell the two apart is not a check. The refusal vocabulary here is deliberately
+      // its own — see [_refusalOutcome] for why it cannot be the platform check's.
+      final permissive = <String>[];
+      for (final path in _markdownFiles()) {
+        for (final sentence in _sentencesOf(_textOf(path))) {
+          if (sentence.inAlternatives) continue;
+          final text = sentence.text;
+          if (!_conditionalOnSandbox.hasMatch(text)) continue;
+          if (!_permissiveOutcome.hasMatch(text)) continue;
+          if (_refusalOutcome.hasMatch(text)) continue;
+          permissive.add('${_basename(path)}: ${text.trim()}');
+        }
+      }
+      expect(
+        permissive,
+        isEmpty,
+        reason:
+            'these sentences make a sandbox conditional and then describe a permissive '
+            'outcome: ${permissive.join(' | ')}. There is no condition under which a '
+            'plugin runs unsandboxed; the outcome is a refusal.',
+      );
     });
 
     test('every record that defines the rule still states it', () {
@@ -1018,7 +1058,7 @@ void main() {
       // so exempting bullets would exempt the rule along with the claims.
       final claims = <String>[];
       for (final path in _markdownFiles()) {
-        for (final sentence in _sentencesOf(_textOf(path), path)) {
+        for (final sentence in _sentencesOf(_textOf(path))) {
           if (sentence.inAlternatives) continue;
           if (!_claimsTierTwoOn(sentence.text)) continue;
           if (_negation.hasMatch(sentence.text)) continue;
@@ -1110,18 +1150,27 @@ List<String> _bulletsIn(String text) {
 /// The text a bullet carries after naming its alternative, or null if it only names it.
 ///
 /// The name is the emphasised run at the head of the bullet — `**Isolate-based
-/// sandboxing.**` — or, failing that, everything up to the first sentence break. What
-/// remains is the reason. A bullet whose name runs to the end has no reason, and that is
-/// the case worth catching: a list of options with no verdict on any of them.
+/// sandboxing.**`. What follows it is the reason. A bullet whose name runs to the end has
+/// no reason, and that is the case worth catching: a list of options with no verdict on any
+/// of them.
+///
+/// Split on the same sentence boundaries as everything else, so a version number or an
+/// initial inside the name does not truncate the reason to nothing.
 String? _reasonBeyondTheName(String bullet) {
   final emphasised = RegExp(r'\*\*(.+?)\*\*').firstMatch(bullet);
-  final tail = emphasised == null ? bullet : bullet.substring(emphasised.end);
+  if (emphasised == null) {
+    // No emphasised name. Whatever follows the first sentence is still a reason.
+    final sentences = _splitSentences(bullet);
+    if (sentences.isEmpty) return null;
+    final rest = sentences.skip(1).join(' ');
+    final reason = rest.replaceAll(RegExp(r'[*_`]'), '').trim();
+    return reason.isEmpty ? null : reason;
+  }
 
-  // A period that ends a sentence, rather than one inside an abbreviation or a version.
-  final stop = RegExp(r'(?<!\b[A-Z])\.\s').firstMatch(tail);
-  var reason = stop == null ? tail : tail.substring(stop.end);
-
-  reason = reason.replaceAll(RegExp(r'[*_`]'), '').trim();
+  final tail = bullet.substring(emphasised.end);
+  final sentences = _splitSentences(tail.trim());
+  final rest = sentences.isEmpty ? '' : sentences.first;
+  final reason = rest.replaceAll(RegExp(r'[*_`]'), '').trim();
   return reason.isEmpty ? null : reason;
 }
 
@@ -1469,16 +1518,19 @@ bool _claimsTierTwoOn(String sentence) {
 /// alternatives section.
 ///
 /// Sentence-scoped, and that scope is the whole point. A *line* window is too wide: the
-/// line "Tier 2 is supported on macOS and Windows" is followed by "The result is an
-/// explicit visible refusal", so a line-plus-neighbour window finds the refusal and passes
-/// the claim. A *document* window is too wide in the other direction: the same file
-/// correctly says the platform is unsupported somewhere else, and a document search can
-/// never fail. Only the sentence distinguishes them — the claim and its own negation are in
-/// the same sentence when the author wrote the negation, and in different sentences when
-/// they did not.
+/// line "Tier 2 runs on both. The" is followed by "result is an explicit visible refusal",
+/// so a line-plus-neighbour window finds the refusal and passes the claim. A *document*
+/// window is too wide in the other direction: the same file correctly calls the platform
+/// unsupported further down, and a document search can then never fail. Only the sentence
+/// separates them — the claim and its own negation are in one sentence when the author wrote
+/// the negation, and in two when they did not.
 ///
-/// Line breaks are folded into the sentence, because a wrapped sentence in these documents
-/// spans two or three lines and the negation is routinely on the second.
+/// So a sentence ends at a full stop *wherever* the full stop falls, not at a line break.
+/// These documents wrap at about eighty columns, so a wrapped sentence routinely spans three
+/// lines with its negation on the last; ending a sentence at the line break would put the
+/// claim in one unit and the refusal in another and flag every honest sentence. Two other
+/// boundaries do end a unit: a new bullet, because a list item is its own thought, and a
+/// table row, because a table is read as a table.
 final class _Sentence {
   _Sentence(this.text, {required this.inAlternatives});
 
@@ -1486,59 +1538,128 @@ final class _Sentence {
   final bool inAlternatives;
 }
 
-List<_Sentence> _sentencesOf(String document, String path) {
+List<_Sentence> _sentencesOf(String document) {
   final out = <_Sentence>[];
   var inAlternatives = false;
   var inFence = false;
-  final buffer = StringBuffer();
+  final block = StringBuffer();
 
-  void flush() {
-    final text = buffer.toString().trim();
+  void flushBlock() {
+    final text = block.toString().trim();
+    block.clear();
     if (text.isEmpty) return;
-    out.add(_Sentence(text, inAlternatives: inAlternatives));
-    buffer.clear();
+    for (final sentence in _splitSentences(text)) {
+      out.add(_Sentence(sentence, inAlternatives: inAlternatives));
+    }
   }
 
   for (final line in document.split('\n')) {
     final trimmed = line.trim();
 
     if (RegExp(r'^\s*(```|~~~)').hasMatch(line)) {
-      flush();
+      flushBlock();
       inFence = !inFence;
       continue;
     }
     if (inFence) continue;
 
-    if (!inFence) {
-      final heading = RegExp(r'^(#{1,6})\s+(.*?)\s*$').firstMatch(trimmed);
-      if (heading != null) {
-        flush();
-        inAlternatives = heading
-            .group(2)!
-            .toLowerCase()
-            .startsWith('alternatives considered');
-        continue;
-      }
-      // A bullet or a table row is its own unit: a list item ends at the line break even
-      // without a full stop, and prose after it belongs to the next item.
-      if (RegExp(r'^\s*([-*+]|\d+\.)\s+').hasMatch(line)) flush();
+    final heading = RegExp(r'^(#{1,6})\s+(.*?)\s*$').firstMatch(trimmed);
+    if (heading != null) {
+      flushBlock();
+      inAlternatives = heading
+          .group(2)!
+          .toLowerCase()
+          .startsWith('alternatives considered');
+      continue;
     }
 
-    if (buffer.isNotEmpty) buffer.write(' ');
-    buffer.write(trimmed);
-
-    // A full stop ends the sentence. Not a colon and not a semicolon: those introduce a
-    // clause of the same claim, and splitting on them would let a claim hide behind its
-    // own explanation.
-    if (trimmed.endsWith('.') ||
-        trimmed.endsWith('!') ||
-        trimmed.endsWith('?')) {
-      flush();
+    if (trimmed.startsWith('|')) {
+      flushBlock();
+      out.add(_Sentence(trimmed, inAlternatives: inAlternatives));
+      continue;
     }
+
+    if (RegExp(r'^\s*([-*+]|\d+\.)\s+').hasMatch(line)) flushBlock();
+
+    if (block.isNotEmpty) block.write(' ');
+    block.write(trimmed);
   }
-  flush();
+  flushBlock();
   return out;
 }
+
+/// Splits a block of prose into sentences on `.`, `!` and `?` followed by a space.
+List<String> _splitSentences(String block) {
+  final out = <String>[];
+  var start = 0;
+
+  for (var i = 0; i < block.length; i++) {
+    final character = block[i];
+    if (character != '.' && character != '!' && character != '?') continue;
+    if (i + 1 < block.length && block[i + 1] != ' ') continue;
+    if (_closesAnAbbreviation(block, i)) continue;
+
+    final sentence = block.substring(start, i + 1).trim();
+    if (sentence.isNotEmpty) out.add(sentence);
+    start = i + 1;
+  }
+
+  final tail = block.substring(start).trim();
+  if (tail.isNotEmpty) out.add(tail);
+  return out;
+}
+
+/// Whether the punctuation at [index] ends an abbreviation rather than a sentence.
+///
+/// Two cases, both common in this tree: a digit before the stop — a version, an error code,
+/// a section number, as in "ADR-0003." — and a lone capital at a word start, as in "J. R. R.".
+/// Splitting either would separate a claim from the sentence that qualifies it and turn one
+/// honest sentence into two suspicious ones.
+bool _closesAnAbbreviation(String block, int index) {
+  if (index > 0 && _isDigitCodeUnit(block.codeUnitAt(index - 1))) return true;
+  if (index >= 2 &&
+      block[index - 1] == ' ' &&
+      _isUpperCodeUnit(block.codeUnitAt(index - 2)) &&
+      (index < 3 || !_isUpperCodeUnit(block.codeUnitAt(index - 3)))) {
+    return true;
+  }
+  return false;
+}
+
+bool _isDigitCodeUnit(int unit) => unit >= 0x30 && unit <= 0x39;
+bool _isUpperCodeUnit(int unit) => unit >= 0x41 && unit <= 0x5a;
+
+/// A sentence whose outcome depends on a sandbox being there or not.
+final _conditionalOnSandbox = RegExp(
+  r'(if|when|unless|without|where)\b[^\n]{0,60}\bsandbox\b'
+  r'|\bsandbox\b[^\n]{0,60}\b(is|are)\s+(not\s+)?(available|present|missing|'
+  r'unavailable|established)\b'
+  r'|\bno\s+sandbox\b'
+  r'|\bsandbox\s+(is\s+)?(unavailable|missing|cannot\s+be\s+established|'
+  r'fails?|failed)\b',
+  caseSensitive: false,
+);
+
+/// A sentence that lets the operation proceed anyway.
+final _permissiveOutcome = RegExp(
+  r'\b(still\s+)?(runs?|running|proceeds?|proceed|continues?|continue|'
+  r'carries\s+on|works?|operates?|executes?|starts?)\b'
+  r'|\bdegrade|\bfall\s*back|\bweaker\b|\bwarns?\b|\boptional\b',
+  caseSensitive: false,
+);
+
+/// The words that make a permissive outcome a refusal instead.
+///
+/// Deliberately narrower than [_negation], and not interchangeable with it. The conditional
+/// phrase itself contains a negation — "if *no* sandbox is available" — and reusing the
+/// platform check's vocabulary here would treat the condition as the refusal and pass the
+/// claim. What has to be present is a refusal, not a negated noun.
+final _refusalOutcome = RegExp(
+  r'refus|abort|denied|deny|block|stop|exit\b|error|fail|'
+  r'''cannot|can\s+not|will\s+not|won't|does\s+not|do\s+not|'''
+  r'never|forbidden|prohibited|no\s+degraded|not\s+start',
+  caseSensitive: false,
+);
 
 /// The words that turn a mention into a refusal. A sentence saying "supported on macOS"
 /// *and* carrying one of these is stating the rule, not breaking it — and the sentence is

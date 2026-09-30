@@ -9,8 +9,10 @@
 # argument is that prose needs a mechanical check. Run it when the contract changes, and
 # when anyone wonders whether the contract is real.
 #
-# It rewrites tracked files, so it refuses to run against a dirty tree and it restores on
-# every exit path. See "Safety" below for why both are load-bearing rather than cautious.
+# It rewrites tracked files, so it restores on every exit path, it refuses to run against a
+# dirty tree, and it repairs a previous run that was killed outright. See "Safety" below; all
+# three are load-bearing rather than cautious, and the third exists because a trap does not
+# fire when the process is waiting on a child that is not going to return.
 
 set -uo pipefail
 
@@ -18,6 +20,16 @@ root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root" || exit 1
 
 test_file="test/governance/documentation_contract_test.dart"
+
+# A *fixed* work directory, not `mktemp -d`.
+#
+# A per-run temporary directory cannot be found by the next invocation, and the next
+# invocation is the only thing that can repair a killed run. A fixed path under the system
+# temporary directory — never inside the repository, where `dart format` and the documentation
+# checker would both try to read it — means a leftover is discoverable.
+work="${TMPDIR:-/tmp}/alterione-mutation-check"
+backup="$work/backup"
+marker="$work/in-progress"
 
 # The only files this harness is allowed to rewrite. A mutation aimed at anything outside
 # this list is refused, so a typo in a label cannot send the rewrite at a real file.
@@ -37,7 +49,6 @@ targets=(
 
 pass=0
 fail=0
-mutated=()
 
 is_target() {
   local candidate="$1" known
@@ -47,37 +58,77 @@ is_target() {
   return 1
 }
 
-# Restore from git rather than from a copy taken before the mutation.
-#
-# A copy is the obvious approach and it is wrong: the restore then overwrites whatever the
-# file has become, including a genuine edit made while the harness was running. `git
-# checkout --` restores the committed state, which is exactly the state the clean-tree check
-# below promised when it started.
-restore() { git checkout -- "$1" 2>/dev/null; }
+# A backup key that cannot collide. Basename is not enough: SECURITY.md and
+# docs/security/threat-model.md are different files, and a shared key would restore one over
+# the other.
+backup_key() { echo "$1" | tr '/' '_'; }
 
-# Safety: restore everything on every exit path, including an interrupt.
+# Restore from the copy taken immediately before the mutation.
 #
-# A harness that leaves the tree dirty after being cancelled becomes a tool for losing work,
-# and the damage shows up later as a documentation defect that nobody can explain.
+# The copy, not `git checkout --`: the restore has to put back exactly the bytes the harness
+# was about to change, so that a genuine edit made while the harness was running is *not*
+# discarded. Git cannot promise that — `git checkout --` throws away uncommitted work, which
+# is why the clean-tree check below is not optional.
+restore() {
+  local saved="$backup/$(backup_key "$1")"
+  if [ -f "$saved" ]; then
+    cp "$saved" "$1"
+  else
+    rm -f "$1"
+  fi
+}
+
+# Safety: restore every mutated file on every exit path, and clear the marker.
+#
+# The marker is written before the first mutation and removed here, so a directory left behind
+# means a run that did not reach its own cleanup. It is a claim, not a lock — a killed process
+# cannot run a trap if it was `SIGKILL`ed, and bash defers the trap while waiting on a child
+# that is not returning. The repair below is what actually covers that case.
 cleanup() {
-  for target in "${mutated[@]:-}"; do
-    [ -n "$target" ] && restore "$target"
+  for target in "${targets[@]}"; do
+    [ -f "$backup/$(backup_key "$target")" ] && restore "$target"
   done
+  rm -f "$marker"
+  rm -rf "$work"
   return 0
 }
 trap cleanup EXIT INT TERM
 
+# Safety: repair a previous run that was killed.
+#
+# This is the case a trap cannot handle and the reason the work directory has a fixed name. A
+# harness that mutates tracked files and is killed outright leaves the tree dirty, and the
+# damage surfaces much later as a documentation defect nobody can trace — which is exactly
+# what happened the first time this ran. The marker is the only evidence left, so it is
+# checked before anything else and the operator is told.
+if [ -e "$marker" ]; then
+  echo "a previous run of this harness was killed before it could restore the tree."
+  echo "Restoring the files it recorded, from the copies it left behind:"
+  echo
+  for target in "${targets[@]}"; do
+    saved="$backup/$(backup_key "$target")"
+    if [ -f "$saved" ]; then
+      restore "$target"
+      echo "  restored  $target"
+    fi
+  done
+  echo
+  echo "If the list above is empty, nothing was mutated. Check 'git status' before"
+  echo "continuing; a file mutated and then committed is not recoverable from here."
+  echo
+  rm -rf "$work"
+fi
+
 # Safety: refuse a dirty tree.
 #
-# Every mutation is undone with `git checkout --`, which discards uncommitted work in the
-# file it touches. On a clean tree that is lossless, because the file matches HEAD. On a
-# dirty tree it is not, and the loss would be silent.
+# The restore copies bytes back over the file, so on a file with uncommitted work the harness
+# would silently discard that work. On a clean tree the copy is lossless.
 if ! git diff --quiet -- "${targets[@]}"; then
   echo "refusing to run: a file this harness rewrites has uncommitted changes:"
   git diff --name-only -- "${targets[@]}" | sed 's/^/  /'
   echo
-  echo "Commit or stash them first. The restore is 'git checkout --', which discards"
-  echo "uncommitted work in the file it touches, so a dirty tree would lose it silently."
+  echo "Commit or stash them first. The restore overwrites the file, so a dirty tree"
+  echo "would lose that work silently."
   exit 1
 fi
 
@@ -85,6 +136,8 @@ if ! command -v dart >/dev/null 2>&1; then
   echo "refusing to run: dart is not on PATH."
   exit 1
 fi
+
+mkdir -p "$backup" || exit 1
 
 # mutate <path> <python-expression-over-text> <label>
 #
@@ -105,6 +158,17 @@ mutate() {
     fail=$((fail + 1))
     return
   fi
+
+  # Back up before the mutation, never after. The copy is what cleanup restores, so it has to
+  # hold the original bytes; taking it later would faithfully preserve the damage.
+  cp "$target" "$backup/$(backup_key "$target")" || {
+    echo "ERROR    $label (could not back up $target)"
+    fail=$((fail + 1))
+    return
+  }
+  # Recorded before the first write, so a run killed between here and its own cleanup is
+  # still repairable by the next invocation.
+  touch "$marker"
 
   if ! TARGET="$target" EXPR="$expression" python3 - <<'PY'
 import os
@@ -138,8 +202,6 @@ PY
     return
   fi
 
-  mutated+=("$target")
-
   if dart test "$test_file" >/dev/null 2>&1; then
     echo "MISSED   $label"
     fail=$((fail + 1))
@@ -149,7 +211,6 @@ PY
   fi
 
   restore "$target"
-  mutated=("${mutated[@]:0:${#mutated[@]}-1}")
 }
 
 echo "Falsifying $test_file"
