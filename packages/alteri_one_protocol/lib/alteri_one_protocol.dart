@@ -13,7 +13,8 @@
 /// | task `0.4` | The envelope, its JSON codec, the version types and the error taxonomy |
 /// | task `0.5` | Framing: `Content-Length`, the 8 MiB cap, the 8 KiB header cap, backpressure |
 /// | task `0.6` | `$/cancelRequest`, `$/progress`, `core.initialize` and the session |
-/// | tasks `0.7`, `0.8` | The in-process and stdio transports |
+/// | task `0.7` | The in-process transport: a channel port, a deterministic pair, the transport |
+/// | task `0.8` | The stdio transport |
 ///
 /// Nothing is declared before the task that specifies it, so that no declaration is written
 /// twice or written against a spec that moved. In particular there is no `Session` here:
@@ -54,4 +55,5 @@ export 'src/error.dart';
 export 'src/framing.dart';
 export 'src/handshake.dart';
 export 'src/json.dart';
+export 'src/transport.dart';
 export 'src/version.dart';
