@@ -106,3 +106,20 @@ subprojects.
   tool surface. The rule is one implementation per tool id, not one subproject per tool.
 - **Make the GUI a plugin.** Rejected: a GUI is a host, not an extension. Letting it be
   a plugin would put a user interface one policy mistake away from a capability request.
+- **Nest `tools/`, `injections/` and `plugins/` under `packages/`.** Rejected, and not
+  for want of tooling: on the pinned Dart 3.13.4 a nested glob does resolve — both
+  `packages/*/*` and `packages/**` reach `packages/tools/fs` in `dart pub workspace
+  list` — so the cost is design, not feasibility. The parent directory is what encodes
+  a package's subproject type, and it is a safety property rather than a label:
+  `injections/skill/` is authority-free by construction and `tools/fs/` may declare
+  capabilities, so nesting moves that from one path segment to two at the point where a
+  contributor is most likely to guess wrong, which is the objection the first entry
+  above already makes. It also breaks the three-way symmetry the four roots hold on
+  purpose: the same four names appear in the source tree, in the `alterione.yaml`
+  sections and in the installed product, and the release assembly maps between them by
+  name. The mechanical rules would get weaker rather than stronger, because the
+  allowed-dependency table in `overview.md` §3 and the hard-coded membership in
+  `workspace_contract_test.dart` are both keyed on the subproject root and nesting turns
+  each of them into a path pattern. And it would erase the one distinction `packages/`
+  currently carries: nothing under it can be removed as a dependency, which is exactly
+  what an extension is.
