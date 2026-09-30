@@ -163,6 +163,15 @@ of use; the list is here so it is known before the build fails.
   change and say why in the commit.
 - The required status checks are job **names**: `Detect repository phase` and `Documentation and
   governance`. Renaming either job in `ci.yml` silently unblocks the branch.
+- **A `dart` or `gh` that aborts with a core dump is usually out of PIDs, not broken.** The first
+  line is `Could not start thread DartWorker: 11 (Resource temporarily unavailable)` and a frame
+  like `VmInteropHandler.setEnvironmentVariable` further down is a *symptom* — it is wherever the
+  process happened to be, not the cause. Check `cat /sys/fs/cgroup/pids.current` against `pids.max`
+  and `for f in /proc/[0-9]*/status; do awk '/^State:/{print $2}' "$f"; done | sort | uniq -c`
+  before believing a stack. A container capped at 512 with a few hundred `Z` cannot start a Dart VM
+  at all, and reaping is pid 1's job — so a `dart test` that dumps makes the next one worse. Two
+  ways out: `git -c pack.threads=1 -c core.preloadIndex=false push` (git needs few threads), and
+  `GOMAXPROCS=1 GOGC=off gh …` (`gh` is Go and sizes its GC workers from the core count).
 
 ## Documentation rules
 
