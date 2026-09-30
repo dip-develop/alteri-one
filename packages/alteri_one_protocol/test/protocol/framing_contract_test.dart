@@ -1130,6 +1130,12 @@ EventEnvelope eventFixture() => EventEnvelope(
   meta: _meta,
   topic: 'core.trace',
   data: JsonMap(<String, Object?>{'step': 1}),
+  // A trace id, because the decoder now requires one. `engine.md` §4 says every event carries
+  // at least `eventId` and `traceId`, and the envelope's own documentation says a frame with no
+  // `traceId` is refused — so an event fixture without one is not a frame, and a framing test
+  // that round-trips it was asserting that a frame decodes which is not one. The subject here is
+  // the byte boundary; the member is a precondition of having a frame to split.
+  traceId: 'trace_01f4a9c2',
 );
 
 // ---------------------------------------------------------------------------------------------
