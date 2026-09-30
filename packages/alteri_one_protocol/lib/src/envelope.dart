@@ -138,19 +138,6 @@ final class EnvelopeMeta {
   /// How long the response took, when the responder measured it.
   final int? latencyMs;
 
-  /// The same `meta` with [deadlineMs] attached, for a request that carries one.
-  EnvelopeMeta withDeadline(int? deadlineMs) => EnvelopeMeta(
-    proto: proto,
-    moduleVersion: moduleVersion,
-    deadlineMs: deadlineMs,
-    idempotencyKey: idempotencyKey,
-    latencyMs: latencyMs,
-  );
-
-  /// Whether this `meta` is compatible with [session], per the post-handshake invariant.
-  bool isCompatibleWith(SessionVersionInvariant session) =>
-      session.accepts(proto);
-
   @override
   bool operator ==(Object other) =>
       other is EnvelopeMeta &&

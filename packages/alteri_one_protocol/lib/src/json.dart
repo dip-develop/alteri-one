@@ -102,9 +102,9 @@ final class JsonMap {
 
   /// A copy with [other] layered over this one.
   ///
-  /// Members of [other] win. Both sides are already normalised, so the merge cannot introduce
-  /// a value that is not JSON. Used by the codec to build a payload from optional parts, where
-  /// absent is not the same as empty.
+  /// Members of [other] win. Both sides are already normalised, so a merge cannot introduce a
+  /// value that is not JSON — there is nothing to re-check. Used by the codec to build a frame
+  /// from the members every variant writes plus its own, where absent is not the same as empty.
   JsonMap merge(JsonMap other) {
     final merged = <String, Object?>{..._value, ...other._value};
     return JsonMap._(Map<String, Object?>.unmodifiable(merged));
@@ -164,9 +164,6 @@ final class JsonList {
       path: '\$$index',
     );
   }
-
-  /// The element at [index], or null when the index is out of range.
-  Object? at(int index) => index < _value.length ? _value[index] : null;
 
   @override
   bool operator ==(Object other) =>

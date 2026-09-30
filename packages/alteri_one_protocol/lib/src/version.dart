@@ -27,9 +27,11 @@
 /// Neither can be built from the other's value, so "the fields are not interchangeable" is a
 /// property of the types rather than a sentence in a review checklist.
 ///
-/// The `protoVersionRange` constraint is deliberately absent: it is sent in
-/// `core.initialize` and belongs to the handshake, which arrives with the control task. What
-/// arrives here is the version *value* the invariant is stated in terms of.
+/// The `protoVersionRange` constraint is deliberately absent, and so is anything that
+/// *evaluates* one. The range is sent in `core.initialize`; whether a peer satisfies it is the
+/// handshake's decision, and that is `-32050`'s business rather than a version value's. What
+/// arrives here is the version *value* the invariant is stated in terms of, and nothing that
+/// would have to be written again once the handshake exists.
 library;
 
 // Two shapes here are dictated by the pinned SDK rather than chosen, and both would be
@@ -72,12 +74,6 @@ final class ProtoMajor {
 
   /// The number as it appears on the wire.
   int get value => _value;
-
-  /// Whether two peers declaring these majors can talk.
-  ///
-  /// Equality, and nothing subtler. JSON-RPC has no partial compatibility within a major, and
-  /// inventing a rule for it here would be inventing a rule the specification does not have.
-  bool isCompatibleWith(ProtoMajor other) => _value == other._value;
 
   @override
   bool operator ==(Object other) =>
@@ -213,19 +209,6 @@ final class ProtoVersion implements Comparable<ProtoVersion> {
     // A release outranks any pre-release of the same core version.
     return isRelease ? 1 : -1;
   }
-
-  /// The range this implementation accepts, as sent in `core.initialize`.
-  ///
-  /// The whole major: a peer on any `1.y.z` interoperates, and one on `2` or `0` does not.
-  /// Expressed as a value rather than a literal so the handshake, the documentation fixture and
-  /// the contract test cannot state it three different ways.
-  ///
-  /// The range itself is a *string* and stays one. What satisfies it belongs to the handshake:
-  /// a peer sends this, the host decides, and that decision — including whether a pre-release
-  /// is eligible at all — is `-32050`'s business, not a version value's. Nothing here parses a
-  /// range, so nothing here can be wrong about one.
-  static String get currentRange =>
-      '>=${current.major}.0.0 <${current.major + 1}.0.0';
 
   @override
   bool operator ==(Object other) =>

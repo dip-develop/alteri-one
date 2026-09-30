@@ -493,6 +493,68 @@ void main() {
       expect(violation.code, JsonRpcErrorCode.invalidRequest);
       expect(violation.path, r'$.jsonrpc');
     });
+
+    test('a meta carrying a member this version does not define is refused', () {
+      // `meta` is inside the frame, so a lenient `meta` would be the one place a peer could
+      // put something the protocol does not describe and have it dropped without a word. It is
+      // also the block most likely to grow: the specification adds optional members to `meta`
+      // over time, and a member this version does not know is a frame from a future one — so
+      // the refusal is what makes a version bump observable instead of silent.
+      for (final member in const [
+        'negotiatedProtoVersion',
+        'protoVersionRange',
+        'traceId',
+      ]) {
+        final frame = _frameWith('request');
+        (frame['meta']! as Map<String, Object?>)[member] = '1.0.0';
+
+        final violation = _refuse(frame);
+        expect(
+          violation.code,
+          JsonRpcErrorCode.invalidRequest,
+          reason: '`meta.$member` is not defined by this version',
+        );
+        expect(violation.path, r'$.meta.' + member);
+      }
+    });
+
+    test('every member EnvelopeMeta declares is one the codec accepts', () {
+      // The two places that enumerate `meta` are a class and a set of strings, and nothing
+      // keeps them in step. This is the assertion that keeps them in step: each field of
+      // [EnvelopeMeta] is written into a frame and decoded back, so a member added to the class
+      // and forgotten on the wire fails here rather than in a peer's session.
+      final withEveryMember = RequestEnvelope(
+        module: 'core',
+        meta: EnvelopeMeta(
+          proto: ProtoMajor(1),
+          moduleVersion: ProtoVersion(major: 1, minor: 0, patch: 0),
+          deadlineMs: 300000,
+          idempotencyKey: 'run_01',
+          latencyMs: 120,
+        ),
+        id: FrameId('req_1'),
+        method: 'core/run',
+      );
+      final encoded = encodeFrame(withEveryMember);
+      for (final member in const [
+        'proto',
+        'moduleVersion',
+        'deadlineMs',
+        'idempotencyKey',
+        'latencyMs',
+      ]) {
+        expect(
+          encoded,
+          contains('"$member"'),
+          reason: '`$member` was not encoded',
+        );
+      }
+      expect(
+        decodeEnvelope(encoded),
+        equals(withEveryMember),
+        reason: 'a `meta` member that does not survive a round trip is not on the wire',
+      );
+    });
   });
 
   group('the error taxonomy', () {

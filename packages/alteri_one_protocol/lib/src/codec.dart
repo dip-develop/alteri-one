@@ -196,6 +196,19 @@ void _requireIdPresence(JsonMap frame, EnvelopeType type, _KnownFields known) {
   );
 }
 
+/// The members `meta` may carry.
+///
+/// Enumerated rather than derived, so that a member added to [EnvelopeMeta] without a
+/// decision about the wire is a *visible* omission: the compiler will not catch a set of string
+/// literals, but a reviewer reading this next to the class will.
+const _metaMembers = <String>{
+  'proto',
+  'moduleVersion',
+  'deadlineMs',
+  'idempotencyKey',
+  'latencyMs',
+};
+
 FrameId _readId(JsonMap frame, EnvelopeType type) {
   final value = frame['id'];
   if (value is! String || value.isEmpty) {
@@ -319,6 +332,21 @@ AlteriOneError _readError(JsonMap error) {
 EnvelopeMeta _readMeta(Object? value) {
   if (value is! JsonMap) {
     throw _invalid(r'$.meta', 'is ${_quoted(value)}, expected a JSON object');
+  }
+
+  // Strict here too, not only at the frame level. A frame rejects a member no variant defines,
+  // and `meta` is inside the frame — so a `meta` that accepted an unknown member would be the
+  // one place a peer could put something the protocol does not describe and have it silently
+  // dropped. It is also the block most likely to grow: the specification adds optional members
+  // to `meta` over time, and a member this version does not know is a frame from a future one.
+  for (final key in value.toMap().keys) {
+    if (_metaMembers.contains(key)) continue;
+    throw _invalid(
+      '\$.meta.$key',
+      'is not a member of `meta` in this version of the protocol. A member this version does '
+          'not define is dropped, and a silently dropped one is how two peers disagree about what '
+          'was sent',
+    );
   }
 
   final proto = value['proto'];
