@@ -51,6 +51,7 @@
 library;
 
 import '../l10n/catalogue.dart';
+import '../core/namespace.dart' as core show toolIdGrammar;
 import 'api_version.dart';
 import 'diagnostic.dart';
 import 'document.dart';
@@ -1249,9 +1250,22 @@ const int toolCallsPerStepCap = 16;
 final RegExp profileNameGrammar = RegExp(r'^[a-z][a-z0-9_]*$');
 
 /// The tool-id grammar: a namespace and an operation, `fs.read`.
-final RegExp toolIdGrammar = RegExp(r'^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$');
+///
+/// **Not restated here.** It was, and the two copies were the same pattern with two different
+/// reasons attached, which is how they drifted — the core's copy narrowed the event-topic sibling
+/// to two segments while this one narrowed nothing, and the divergence was invisible until
+/// `core.dart` and `profile.dart` were both exported and the analyzer reported an ambiguous
+/// name. The grammar is a fact about identifiers, it is written down once in
+/// `concepts.md` §2, and it now lives in one place: `src/core/namespace.dart`, which is the
+/// subsystem that dispatches on it. Re-exported from `profile.dart` so a caller that has only
+/// the profile surface still finds it.
+final RegExp toolIdGrammar = core.toolIdGrammar;
 
 /// The provider-id grammar, a profile-local name for one chain entry.
+///
+/// Deliberately identical to [profileNameGrammar] and separately declared, because the two answer
+/// different documents: one is an identifier in a YAML schema and the other is a name inside
+/// `model.providers`. If the two ever diverge this is where the divergence should be visible.
 final RegExp providerIdGrammar = RegExp(r'^[a-z][a-z0-9_]*$');
 
 /// The `apiVersion`s this build reads.
