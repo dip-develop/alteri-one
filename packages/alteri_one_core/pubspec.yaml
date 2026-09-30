@@ -14,6 +14,17 @@ dependencies:
   alteri_one_platform: ^0.1.0
   alteri_one_protocol: ^0.1.0
 
+  # The profile parser and the localisation catalogue. Both are pure Dart, which is the whole
+  # reason they may live in the core: `package:yaml` and `package:intl` never import `dart:io`
+  # from the libraries this package reaches, so `dart compile js` of the browser surface still
+  # resolves them. The first third-party runtime dependencies in a product library — ADR-0022
+  # records why they are here rather than in the composition root, and why the
+  # generated-accessor half of configuration.md §7 is deferred rather than built for a
+  # catalogue that has no user-facing text yet.
+  intl: ^0.20.2
+  source_span: ^1.10.2
+  yaml: ^3.1.4
+
 # `test` is a dev_dependency, not a dependency, for the same reason it is in
 # `alteri_one_platform`: task 0.10's acceptance command is
 # `melos exec --scope=alteri_one_core -- dart test`, and the workspace contract test requires a
