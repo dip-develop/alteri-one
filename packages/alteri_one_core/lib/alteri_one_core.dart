@@ -64,3 +64,11 @@ export 'src/provider.dart'
         AlteriOneTextDelta,
         AlteriOneToolCallDelta,
         AlteriOneUsage;
+
+/// The versioned configuration document. See `lib/profile.dart` for what the pipeline is and
+/// why its order is fixed.
+export 'profile.dart';
+
+/// The localisation catalogue every `DiagnosticCode` is rendered through. See `lib/l10n.dart`
+/// for why it is a library of its own rather than part of the profile surface.
+export 'l10n.dart';

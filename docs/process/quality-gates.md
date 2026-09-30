@@ -39,7 +39,7 @@ These are tests, not lint config, so that they are falsifiable and greppable.
 
 | Gate | Where (owning task) | Checks |
 |---|---|---|
-| Workspace contract | `test/workspace/workspace_contract_test.dart` (`0.1`) | Exact package membership, `resolution: workspace`, committed lockfile, no legacy Melos config, dependency rules |
+| Workspace contract | `test/workspace/workspace_contract_test.dart` (`0.1`) | Exact package membership, `resolution: workspace`, committed lockfile, no legacy Melos config, dependency rules; every third-party **runtime** dependency is on an allowlist; every product library resolves for a **web build** |
 | Extension subproject layout | `test/workspace/extension_subprojects_test.dart` (`0.28`) | The four workspace globs; every package under `tools/`, `injections/` and `plugins/` declared in `alterione.yaml` or `enabled: false`; no `alteri_one_*` package depends on an app |
 | Quality-gate contract | `test/ci/quality_gates_contract_test.dart` (`0.2`) | Every gate command exists and carries its flag; every job that runs the chain is a three-OS matrix and runs the chain in order; every package with tests declares its timeouts; coverage is collected and is not a required check |
 | Documentation contract | `test/governance/documentation_contract_test.dart` (`0.3`) | Required records exist, are reachable and carry their required sections; the vulnerability reporting channel is private and named; every ADR is indexed and has its four sections with a rejected alternative; CODEOWNERS has no org login and no stale pattern; Tier 2 without fail-closed is prohibited |
@@ -49,7 +49,7 @@ These are tests, not lint config, so that they are falsifiable and greppable.
 | **Install, verify and atomicity** | `test/install/install_pipeline_integration_test.dart` (`0.30`) | Install from the fixture release; manifest signature and per-file digests verified; a tampered `dartrantime` or `alterione.aot` refused with exit `9`; a failed install leaves the previous tree byte-identical; a second install is a no-op that re-verifies |
 | **Launcher on `PATH`** | `test/install/launcher_naming_integration_test.dart` (`0.31`) | The generated `alterione` script resolves its own directory, runs the release from an arbitrary working directory and honours `ALTERIONE_HOME` |
 | **`alteri_one` in the release** | `test/install/launcher_naming_integration_test.dart` (`0.31`) | No installed path, launcher, update script, `manifest.json` payload or default configuration value contains `alteri_one`; the release assembly fails if one does |
-| Localisation contract | in `test/profile/profile_contract_test.dart` (`0.11`) | No Cyrillic literal outside fixtures; every `DiagnosticCode` has a catalogue entry |
+| Localisation contract | in `test/profile/profile_contract_test.dart` (`0.11`) | No Cyrillic literal outside the catalogue and outside fixtures; every `DiagnosticCode` has an entry in `en` **and** `ru`, with the same key set and the same placeholders; every code in the types is in `error-codes.md` §3's table and every code in that table is in the types |
 | Canonical serialisation | `test/transcript/canonical_serialisation_test.dart` (`0.20`) | Digest stability across clocks, paths and key orders |
 | **Site stays a landing page** | `site/` build in `.github/workflows/pages.yml` | The site renders, and `site/pubspec.yaml` carries no `flutter:` embedding key; the deployed output contains `CNAME` and `index.html` |
 | **Site output is small** | the *Drop development output* step in `pages.yml` | `jaspr build` leaves the resolved package tree beside the HTML; the workflow deletes it and the output is a few hundred kilobytes, not tens of megabytes |
@@ -61,6 +61,19 @@ purpose: a website build must not be able to fail a product release, or the reve
 
 The telemetry allowlist and the localisation contract exist because two north-star goals —
 zero telemetry, and no hard-coded user-facing strings — are otherwise unverifiable claims.
+
+**The localisation contract's one exemption is a file, not a pattern.** Cyrillic is permitted in
+exactly two places: a test fixture, and
+`packages/alteri_one_core/lib/src/l10n/messages.dart`, which *is* the catalogue. The catalogue is
+the destination for Russian text rather than an exception to the rule — a Russian string anywhere
+else is exactly the defect the rule exists to find — and the exemption is written as one
+hard-coded path, so a catalogue that goes missing is a **failure** rather than a scan that
+quietly widens. A path pattern, or a marker comment, would rot silently: both keep passing after
+the thing they were protecting has moved. Two further conditions make the gate more than a grep:
+every `DiagnosticCode` needs an entry in `en` **and** `ru` with the same key set and the same
+`{placeholder}` names, and the codes in the types must equal `error-codes.md` §3's table. A
+catalogue key present in one locale and missing from the other is a message that silently
+degrades to English at runtime, which no compiler reports.
 
 The four bold gates exist because each of them protects a property the tree asserts in prose
 and would otherwise lose silently:
@@ -81,6 +94,17 @@ and would otherwise lose silently:
   the user-visible name is the one the user types, the one a bug report quotes and the one
   that ends up in a support thread. See
   [ADR-0016](../decisions/0016-product-naming.md).
+- **Web resolution.** `architecture/overview.md` §3's "no `dart:io` in `protocol` or `core`" is
+  a promise about a *build*, and a promise about a build is only as good as something that
+  resolves a build's imports. Task `0.11` was the first task to give a product library a
+  third-party runtime dependency, which made the promise newly falsifiable: `package:intl` has
+  two libraries that import `dart:io` and it is the reachability from `intl.dart` that keeps
+  them out, not an absence anyone can see by reading the import. The gate walks each product
+  library's closure **as a web build resolves it** — following the conditional branch a
+  browser takes and not the `dart:io` branch a VM takes — so `alteri_one_platform` may ship
+  native adapters without an exemption, and a dependency that quietly makes the core
+  uncompilable for the web fails a test rather than a release. See
+  [ADR-0022](../decisions/0022-core-runtime-dependencies.md).
 
 The documentation contract is not in that list because it protects no *implementation*
 property — it protects the records the other gates are described by. It exists for the same

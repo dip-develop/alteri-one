@@ -4,10 +4,21 @@
      Anything durable belongs in docs/process/task-breakdown.md or a GitHub issue; if an
      item lives in both places, each one points at the other. -->
 
-- [ ] One install-root layout, not two: `install-and-update.md` §2 and `workspace-layout.md` §4
+- [x] One install-root layout, not two: `install-and-update.md` §2 and `workspace-layout.md` §4
       disagree and the difference is where a user's memory lives — issue #18
 - [x] Task `0.10`: `IdGenerator` with a counter-based seeded mode and a real CRC-32 identity block,
       `FakeClock`, the provider port, and `FakeProvider` with its read-only script and transcript
+- [x] Task `0.11`: the versioned `kind: Profile` schema, `${ENV_VAR}` interpolation, the migration
+      registry, the four-level precedence merge with origins, the `Paths`-backed locator, and the
+      l10n catalogue with `en` and `ru` — ADR-0022
+- [ ] `intl_translation` and generated l10n accessors: `configuration.md` §7.1 says user-facing text
+      comes "through generated accessors" and the catalogue is hand-written. ADR-0022 defers this to
+      `0.17`, which is the first task with user-facing prose; the catalogue is already shaped so
+      generated accessors replace the lookup without changing a caller
+- [ ] The closure gate resolves a web build with one hand-written condition evaluator
+      (`_satisfiableOnWeb` in the workspace contract test). It understands `dart.library.io` and
+      treats an unrecognised condition as satisfiable, which is conservative; `dart compile js` on
+      the core is the independent check and it is not in CI yet — the TODO below says so
 - [ ] `AlteriOneProvider.chat` takes no `deadline` or `cancel` yet; task `0.14` adds both when it
       owns `Deadline` and `CancelToken`, per `providers.md` §1 — stated at the port's declaration
 - [ ] CI compiles the browser surface (`dart compile js`); `alteri_one_platform`'s central claim is

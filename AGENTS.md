@@ -271,7 +271,8 @@ Trust the executable sources over prose:
 
 - `README.md` says "No packages exist yet" — no longer true of `alteri_one_protocol`,
   `alteri_one_platform` or `alteri_one_core`, which carry the envelope, framing, both transports,
-  the six platform ports and the provider port. `site/` is a real, buildable package.
+  the six platform ports, the provider port and the whole profile subsystem. `site/` is a real,
+  buildable package.
 - `alteri_one_platform` has **no `StoragePort` implementation yet**: `HiveCeStorage` is task `1.1`'s
   (ADR-0004), so the port is declared, the contract test satisfies it with a local double, and the
   browser surface does not mirror it. The contract test's *own* fakes are still local to
@@ -283,6 +284,15 @@ Trust the executable sources over prose:
   exist yet is the declaration-written-twice failure this repository is built to avoid. §3's
   concern is retrofitting after *clients* exist; there are none. **Task `0.14` adds both** — two
   required named parameters against two in-tree implementations, which is the cheap direction.
+- **`alteri_one_core` is the only product library with a third-party runtime dependency** — `yaml`,
+  `source_span` and `intl`, all since task `0.11` and all recorded in
+  [ADR-0022](docs/decisions/0022-core-runtime-dependencies.md). They are pure Dart and that is the
+  whole reason they may live there; the workspace contract test now walks every product library's
+  resolved closure **the way a web build resolves it**, so a dependency that quietly makes the
+  core uncompilable for the browser fails a test instead of a release. `intl` has two libraries
+  that import `dart:io` (`intl_standalone.dart` and `date_symbol_data_file.dart`) and the property
+  that keeps them out is that neither is reachable from `intl.dart` — so import
+  `package:intl/intl.dart` and nothing else.
 - [quality-gates.md](docs/process/quality-gates.md) lists most gates as active. The
   documentation, governance, Cyrillic, naming, workspace-contract, quality-gate-contract,
   coverage and melos chain gates run today; `test/ci/telemetry_allowlist_test.dart` is named
@@ -485,6 +495,56 @@ Trust the executable sources over prose:
 - **A transport never decodes a frame, not even to write a diagnostic.** The close-time loss
   message names a *byte count* rather than a request id for this reason, and the contract test
   asserts it: naming the id would mean decoding, which is the one thing §7.1 forbids.
+- **A `sealed class` with state cannot be an enum's superclass on the pinned SDK.** The three
+  shapes that look equivalent are not. An enum's constructor **cannot** have a `super` initializer
+  ("`super_in_enum_constructor`"), the superclass's implicit `super()` takes no arguments, and a
+  super *parameter* (`super.area`) is rejected with
+  `super_formal_parameter_without_associated_positional`. So `enum Foo extends DiagnosticCode` with
+  fields in the base class does not compile at all. The only working shape is
+  `implements` + each enum declaring its own fields — which is what `alteri_one_protocol`'s
+  `ErrorCode` already does, and the cost is the same: each enum restates the members.
+- **A named capture group `(?<name>…)` makes `match.group('name')` a compile error on this
+  analyzer.** It types the call as the `group(int)` overload, so every use of the name is
+  "The argument type 'String' can't be assigned to the parameter type 'int'". Use positional
+  groups and a comment naming each index.
+- **A class whose only member is `const C(this.a, this.b);` is not accepted here** — the analyzer
+  reports `initializing_formal_for_non_existent_field` for the parameters. Declare the fields
+  explicitly. Every other class in the tree already does, which is why the shape reads as fine
+  until you write the one class with nothing else in it.
+- **`DiagnosticCode` is a `sealed class` in the *core*, not the protocol package**, and that is a
+  layering rule rather than a placement preference. `config.unknown_field` and `framing.oversize`
+  are things an operator reads; neither is negotiated with anything, and `alteri_one_protocol`
+  cannot import the core. The framing code raises a `ProtocolViolation` with a wire code and a
+  path, and the host that logs it is what turns that into a `DiagnosticCode`.
+- **A diagnostic carries a code and placeholder *values*, never a sentence.** `ConfigDiagnostic` has
+  no `error:` constructor parameter and no `error` field, and that absence is
+  `configuration.md` §7.2 in one shape. A validator that wants to say "expected at most 16" puts
+  that in `expected:` and the catalogue renders it. Adding an `error` parameter would put a
+  string literal back at every call site and make a Russian diagnostic impossible.
+- **`${ENV_VAR}` is refused in `apiKeyEnv` even when the variable is set**, and it is refused
+  because the field *names* a variable and never carries a value. Testing it with the variable
+  present is the only version of the test that means anything: with it absent, `config.missing_env`
+  fires first and the name-only rule is never reached.
+- **A `sealed class`'s `toString` is not inherited by an enum that `implements` it**, so each of
+  the ten `DiagnosticCode` enums restates `String toString() => code;`. The codes are never
+  compared with a custom `operator ==`: enums have identity equality, and equality on the
+  *spelling* would make two entries claiming one string interchangeable and hide the very
+  duplication the `error-codes.md` §3 comparison exists to find.
+- **`package:clock`'s barrel does `export 'src/../clock.dart'`.** So a walk over an import closure
+  that keys a "have I been here" set on the path **as written** recurses until the stack gives
+  out — two spellings of one file never match. The workspace contract test's web-resolution walk
+  canonicalises with `package:path` before the visited check, and that is the reason `path` is a
+  root `dev_dependency`.
+- **A conditional directive's default branch is the *fallback*, not a branch.**
+  `export 'a.dart' if (C) 'b.dart';` means a build satisfying `C` uses `b.dart` and every other
+  build uses `a.dart` — never both. Following the default unconditionally makes
+  `alteri_one_platform`'s `src/native.dart` look reachable from a browser, and following every
+  branch reaches both files and reports the same false failure. Parse the whole line into one
+  default plus ordered `if` clauses and take the first the target satisfies.
+- **The ADR-0016 naming gate bites identifiers you write for a product-spelled *value*.**
+  `const String alterioneManifestFileName = 'alterione.yaml';` fails the product-spelling check
+  even though the value is exactly right, because the gate reads code with comments and strings
+  stripped. It is `productManifestFileName` with the value `'alterione.yaml'`.
 - **The cancelled request's id is `params.id`, and there is no frame-level `id` to find.** A
   notification has none — `NotificationEnvelope` has no field for one and the codec refuses one —
   so a receiver reaching for `frame.id` cancels nothing and the symptom is a run that ignores
