@@ -285,14 +285,16 @@ Trust the executable sources over prose:
   `test:offline` and `install:release` scripts are declared and will fail until the packages
   they scope to exist; a Melos script whose scope matches no package exits `0` without doing
   anything, so their presence proves nothing yet.
-- `alteri_one_protocol` carries the envelope (task `0.4`) and the framing (task `0.5`): the
-  four variants, the codec, the version types, the error taxonomy, `Content-Length` framing, the
-  8 MiB frame cap, the 8 KiB header cap and a bounded outbound queue. Two SDK facts are baked
+- `alteri_one_protocol` carries the envelope (task `0.4`), the framing (task `0.5`) and the
+  control plane (task `0.6`): the four variants, the codec, the version types, the error
+  taxonomy, `Content-Length` framing, the 8 MiB frame cap, the 8 KiB header cap, a bounded
+  outbound queue, `$/cancelRequest`, `$/progress` and `core.initialize`. Two SDK facts are baked
   into its shapes and will bite anyone rewriting them — **`sealed interface` does not parse on
-  the pinned 3.13.4**, so `ErrorCode` is a `sealed class`; and an **`extension type` has one
-  constructor and may not override an `Object` member**, so `ProtoMajor` and `FrameId` are final
-  classes. Also: a `JsonMap` is a wrapper, so `jsonEncode` cannot see through it — use
-  `encodeFrame`, not `jsonEncode(frame.toJson())`.
+  the pinned 3.13.4**, so `ErrorCode`, `HandshakeOutcome` and every other union is a `sealed
+  class`; and an **`extension type` has one constructor and may not override an `Object`
+  member**, so `ProtoMajor`, `FrameId` and `CancelReason` are final classes. Also: a `JsonMap` is
+  a wrapper, so `jsonEncode` cannot see through it — use `encodeFrame`, not
+  `jsonEncode(frame.toJson())`.
 - **Two framing traps, both of which the contract test caught the hard way.** A header block
   ending in `\r\n\r\n` splits on `\r\n` into **two** trailing empty elements, not one — the
   blank line *and* the split's own artefact — and getting that wrong refuses every well-formed
@@ -303,6 +305,34 @@ Trust the executable sources over prose:
 - **`FrameLimits.capped` is the check that holds in every build.** Its `assert`s are
   debug-only, so a `FrameLimits` above a hard cap is *clamped* rather than honoured — "negotiate
   lower, never higher" is a property of the reader, not of whoever wrote the configuration.
+  `SessionLimits.capped` (task `0.6`) repeats the arrangement for the two limits the handshake
+  negotiates and framing does not own, and `SessionLimits.minimum` deliberately does *not* clamp,
+  so a caller cannot fold the hard cap in twice by accident.
+- **The cancelled request's id is `params.id`, and there is no frame-level `id` to find.** A
+  notification has none — `NotificationEnvelope` has no field for one and the codec refuses one —
+  so a receiver reaching for `frame.id` cancels nothing and the symptom is a run that ignores
+  Ctrl-C. This is the easiest thing to get wrong in `control.dart` and the first thing its
+  contract test asserts.
+- **A refused handshake is an `error` response, never a result carrying `accepted: false`.** §1
+  makes `result` and `error` mutually exclusive, so protocol.md §4's "terminates the handshake
+  with `accepted: false` and `-32050`" cannot be one frame holding both. The refusal is the error
+  response and `accepted: false` is what the *negotiator* concludes; `accepted` appears in a
+  result only as `true`, and a result carrying `false` is `-32600`. Every refusal cause is
+  `-32050` with the cause in `error.data.reason`, because the handshake negotiates and does not
+  grant — a capability asked for *after* it is `-32042`.
+- **`HandshakeAccepted.invariant` is the only library code that builds a
+  `SessionVersionInvariant`.** That is the promise `envelope.dart` makes from task `0.4`, and it
+  is why `InitializeResult` has no `invariant` getter of its own. A test may still build one to
+  exercise `require`; the point is that "an agreement happened" has exactly one source here.
+- **`ProtoVersion.toString` writes `-preRelease` and `+build` independently.** It used to emit
+  the pair together, so a version with build metadata and no pre-release rendered as
+  `1.0.0-+build.7` — not semver, and rejected by that same file's parser. Found by task `0.6`'s
+  range test, which is the first thing to build a version carrying build metadata.
+- **The `warn+degrade` path is a loop, not a `return`.** `negotiateHandshake` check 6 is the only
+  check whose cause is degradable, so `consider(...)` returns null there precisely when the
+  handshake is meant to continue; checks 1–5 call `refuse(...)`, which cannot. Writing check 6 as
+  `return consider(...)!` compiles and throws a null-check error in the middle of the one path
+  that is supposed to work — it is a real crash, not a lint.
 
 ## Where to start reading
 
