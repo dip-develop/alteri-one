@@ -213,12 +213,9 @@ final class CapabilityProbe {
   /// [ProviderRefusal] when the profile's credential is missing — the second before any request,
   /// because a request with no `Authorization` header is answered with a 401 whose message is
   /// about authentication rather than about the thing that is actually wrong.
-  /// [observedPromptCaching] is the provider's own record of what a real turn has reported — see
-  /// this file's documentation for why it is an argument and not something the exchange holds.
   Future<ProbeOutcome> run({
     required ProviderRef ref,
     required AlteriOneClock clock,
-    bool observedPromptCaching = false,
   }) async {
     ChatExchange.checkBaseUrl(ref);
     if (ref.needsCredential &&
@@ -288,10 +285,15 @@ final class CapabilityProbe {
         parallelTools: found[ModelFeature.parallelTools] ?? false,
         streaming: streaming,
         jsonMode: found[ModelFeature.jsonMode] ?? false,
-        // Not concluded by a probe — see this file's documentation. A real turn's usage is the
-        // only evidence there is, so the flag is what the caller has observed rather than
-        // something the handshake looked for.
-        promptCaching: observedPromptCaching,
+        // **`false`, unconditionally, and that is the honest answer.** Not concluded by a probe
+        // — see this file's documentation. An earlier version took it as an argument, on the
+        // theory that the provider would pass in what it had observed; the provider cannot, because
+        // `runProbe` memoises and the handshake therefore always completes *before* the first turn
+        // that could observe anything. A parameter that is `false` at its only call site is a
+        // lie with an extra step. The observation is applied on read, by
+        // `OpenAiCompatibleProvider._withObservation`, so there is exactly one place it can be
+        // stale and that place is not this.
+        promptCaching: false,
         seed: found[ModelFeature.seed] ?? false,
         contextWindow: exchange.declaredContextWindow(ref),
       ),

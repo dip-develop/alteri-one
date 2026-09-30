@@ -497,12 +497,16 @@ final class _ValidationContext {
             ConfigDiagnosticCode.configInvalidSchema,
             fieldPath,
             field: value,
-            expected:
-                'a feature a probe can establish: '
-                '${requireableModelFeatures.map((f) => f.wireName).join(', ')}. '
-                'promptCaching is declared on the capability matrix and observed from a real '
-                'turn\'s usage, but no request can make an endpoint report it, so requiring it '
-                'would refuse the provider for ever',
+            // The list and nothing else: `configuration.md` §7.2 says a diagnostic carries
+            // placeholder *values* and the catalogue writes the sentence, and this entry's
+            // `{expected}` is interpolated by a translator — so an English explanation here would
+            // arrive in the `ru` catalogue half-translated. That a comment may not even *name*
+            // such a sentence is `configuration.md` §7.4's rule about non-catalogue sources, and
+            // the profile contract test enforces it. Why `promptCaching` is absent from the list
+            // is in [ModelFeature.promptCaching] and in [requireableModelFeatures].
+            expected: requireableModelFeatures
+                .map((f) => f.wireName)
+                .join(', '),
           );
           continue;
         }

@@ -206,13 +206,23 @@ final class ChatExchange {
   /// [ref] is accepted and unused so a future that reads a per-model window has somewhere to put
   /// it; `ProviderRef` carries none today because `config-schema.md` §2's provider entry does
   /// not declare one, which `TODO.md` records.
+  ///
+  /// A [ConfigDiagnostic] and not an [ArgumentError], and the reason is that this is the
+  /// *configuration* vocabulary every other fault in this package already speaks: the provider's
+  /// constructor throws them, `doctor` collects them, and the CLI prints them. An `ArgumentError`
+  /// here would be a third thing to catch on a path that already has two, and it would be the one
+  /// no diagnostic sweep would see.
   int declaredContextWindow(ProviderRef ref) {
     if (contextWindow <= 0) {
-      throw ArgumentError.value(
-        contextWindow,
-        'contextWindow',
-        'providers.md §2 requires a positive context window; zero is not a small window, it is '
-            'a value nobody declared',
+      throw ConfigDiagnostic(
+        code: ConfigDiagnosticCode.configInvalidSchema,
+        path: 'model.providers',
+        values: <String, Object?>{
+          'field': 'contextWindow',
+          'expected':
+              'a positive number of tokens; providers.md §2 validates it, and a '
+              'window of zero is not a small window, it is a value nobody declared',
+        },
       );
     }
     return contextWindow;

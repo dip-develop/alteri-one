@@ -31,8 +31,17 @@
 ///
 /// ## What is exported, and what a caller should reach for
 ///
-/// The port and its DTOs, the provider, and the three things a caller genuinely has to name: the
-/// probe's [ProbeOutcome] (because §2.1's cache stores it) and the two failure types.
+/// The port and its DTOs, the provider, and what a caller genuinely has to name: the probe's
+/// [ProbeOutcome] (because §2.1's cache stores it) and the **three** failure types.
+///
+/// The three are distinct on purpose, and a caller that wants to handle "the turn did not happen"
+/// catches only one of them:
+///
+/// | Type | Means | The caller's move |
+/// |---|---|---|
+/// | [ProviderRefusal] | the turn failed, with a wire code | report it; §6 decides a retry |
+/// | [ProviderProbeException] | the probe could not conclude | try again later |
+/// | [ProviderStatusException] | a non-2xx, with the taxonomy code already attached | the probe reads its code; a turn maps it to a [ProviderRefusal] |
 ///
 /// The wire and the SSE reader are **not** exported — they are the provider's internals, and a
 /// test that drove them directly would be a test of a private arrangement rather than of the

@@ -568,10 +568,9 @@ final class AlteriOneToolCallDelta extends AlteriOneChatChunk {
   /// **Required on the wire for a streaming delta, and absent on a batch one.** The field exists
   /// in the streaming shape only; a non-streaming completion's `tool_calls` entries carry
   /// `{id, type, function}` and their position in the array *is* the index, so the adapter that
-  /// folds a batch response into the same frame synthesises one from the position. A null here
-  /// therefore means an endpoint that sent a single index-less fragment, which the assembler
-  /// reads as call 0 — sound for one fragment and nothing else, which is why that adapter does
-  /// not rely on it.
+  /// folds a batch response into the same frame synthesises one from the position. An endpoint
+  /// that sends a single index-less fragment is read as call 0 by the assembler — sound for one
+  /// fragment and nothing else, which is why that adapter synthesises rather than relying on it.
   final int index;
 
   /// The call's id, on the fragment that opens it.

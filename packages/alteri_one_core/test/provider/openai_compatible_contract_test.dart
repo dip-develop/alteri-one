@@ -38,15 +38,19 @@
 //
 // ## Why the internals are imported by path
 //
-// The wire, the SSE reader and the assembler are deliberately **not** exported from
+// The wire and the SSE reader are deliberately **not** exported from
 // `package:alteri_one_core/provider.dart` — a test that drove them directly would be a test of a
-// private arrangement. Three things are reached here and the reason is given at the point of
-// reach: `SseReader` and `assembledCall` have rules that cannot be observed from outside (a
-// reader is fed text, a call is a pure function of four scalars) and each rule is worth one
-// test of its own rather than one large test through the provider that happens to cover it.
-// `OpenAiCompatibleProvider.maxSseLineBytes` is the third: a test that grew its own over-long
-// line would be exercising a bound it chose rather than the bound the provider imposes — and the
-// class *is* exported, so reaching for a member of it is not reaching past the surface.
+// private arrangement. Two library members are reached by path here, and the reason is given at
+// the point of reach: `SseReader` and `SseFormatException` have rules that cannot be observed from
+// outside (a reader is fed text) and each is worth one test of its own rather than one large test
+// through the provider that happens to cover it.
+//
+// Two things that look like they are reached by path are not, and the difference matters when a
+// reader is deciding what the public surface is. `assembledCall` and
+// `OpenAiCompatibleProvider.maxSseLineBytes` both come from the barrel: the first because a caller
+// validating an argument object has to be able to name it, the second because the class is
+// exported and a test that grew its own over-long line would be exercising a bound it chose
+// rather than the bound the provider imposes.
 //
 // ## No `package:http`, and no real endpoint
 //
@@ -66,14 +70,19 @@ import 'dart:io' show Directory, File;
 
 import 'package:alteri_one_core/core.dart' show toolIdGrammar;
 import 'package:alteri_one_core/profile.dart'
-    show ConfigDiagnostic, ModelFeature, ProviderDiagnosticCode, ProviderRef;
+    show
+        ConfigDiagnostic,
+        ConfigDiagnosticCode,
+        ModelFeature,
+        ProviderDiagnosticCode,
+        ProviderRef;
 import 'package:alteri_one_core/provider.dart';
 import 'package:alteri_one_platform/alteri_one_platform.dart';
 import 'package:alteri_one_protocol/alteri_one_protocol.dart'
-    show DomainErrorCode, JsonRpcErrorCode;
+    show DomainErrorCode, ErrorCode, JsonRpcErrorCode;
 import 'package:test/test.dart';
 
-// The two internals this file reaches past the public surface, for the reason its header gives.
+// The one library this file reaches past the public surface, for the reason its header gives.
 import 'package:alteri_one_core/src/provider/sse.dart'
     show SseFormatException, SseReader;
 import 'package:alteri_one_core/src/provider/wire.dart'
@@ -1349,11 +1358,24 @@ void main() {
             ),
           ),
           throwsA(
-            isA<ConfigDiagnostic>().having(
-              (d) => d.values['expected'],
-              'values.expected',
-              contains('promptCaching is observed from a real turn'),
-            ),
+            isA<ConfigDiagnostic>()
+                .having(
+                  (d) => d.code,
+                  'code',
+                  ConfigDiagnosticCode.configInvalidSchema,
+                )
+                .having((d) => d.values['field'], 'values.field', 'requires')
+                .having(
+                  (d) => d.values['expected'],
+                  'values.expected',
+                  // The message carries the *list*, not a sentence about the exception
+                  // (`configuration.md` §7.2), so this is the whole of what a `ru` operator
+                  // reads about the rule.
+                  allOf(
+                    contains('streaming'),
+                    isNot(contains('promptCaching')),
+                  ),
+                ),
           ),
         );
         expect(
@@ -1449,6 +1471,52 @@ void main() {
             'the one response that arrived with a body nobody read was cancelled, not left '
             'dangling',
       );
+
+      // **And the other half: a body that *was* read is not counted.** Without this, a double
+      // that called `onAbandoned` unconditionally would leave the assertion above green — half
+      // the machinery untested, and the defect it would hide is a provider that aborts every
+      // response it is also reading.
+      final read = _Endpoint();
+      read.reply(
+        status: 200,
+        contentType: eventStreamContentType,
+        frames: <String>[
+          _frame(<String, Object?>{
+            'choices': <Object?>[
+              <String, Object?>{
+                'index': 0,
+                'delta': <String, Object?>{'content': 'read'},
+                'finish_reason': 'stop',
+              },
+            ],
+          }),
+          _frame(<String, Object?>{
+            'choices': const <Object?>[],
+            'usage': <String, Object?>{
+              'prompt_tokens': 1,
+              'completion_tokens': 1,
+            },
+          }),
+          streamDoneSentinel,
+        ],
+      );
+      await _providerFor(read)
+          .chat(
+            AlteriOneRequest(
+              messages: AlteriOneConversation(<AlteriOneMessage>[
+                AlteriOneMessage(role: AlteriOneRole.user, content: 'hi'),
+              ]),
+            ),
+            model: 'test-model',
+          )
+          .toList();
+      expect(
+        read.bodiesCancelled,
+        0,
+        reason:
+            'a body read to its end was not abandoned, and the counter does not confuse the '
+            'two',
+      );
     });
 
     test('an unreachable endpoint fails the probe rather than reporting seven falses', () async {
@@ -1477,76 +1545,91 @@ void main() {
       expect(provider.capabilities, isNull);
     });
 
-    test(
-      'a context window is validated as positive and never measured',
-      () async {
-        // §2 says exactly that much: *"`contextWindow` is validated as a positive number."*
-        // Measuring it would mean a request with an N-token prompt for every N, and the answer
-        // would be the endpoint's billing behaviour rather than its capability.
-        final endpoint = _Endpoint();
-        endpoint.reply(
-          status: 200,
-          contentType: eventStreamContentType,
-          frames: <String>[streamDoneSentinel],
-        );
-        final provider = _providerFor(
-          endpoint,
-          ref: _ref(requires: const <ModelFeature>{ModelFeature.streaming}),
-        );
-        final capabilities = await provider.probe();
-        expect(
-          capabilities.contextWindow,
-          ChatExchange.defaultContextWindow,
-          reason:
-              'a profile that declares nothing gets the conservative default, and the probe '
-              'does not go measuring it',
-        );
-        // The override the exchange documents, driven rather than assumed: §2's matrix belongs to
-        // an `endpoint + model` *pair*, so a window a composition root knows cannot be a
-        // `static const`.
-        final wide = _Endpoint();
-        wide.reply(
-          status: 200,
-          contentType: eventStreamContentType,
-          frames: <String>[streamDoneSentinel],
-        );
-        final roomy = OpenAiCompatibleProvider(
-          ref: _ref(requires: const <ModelFeature>{ModelFeature.streaming}),
-          exchange: ChatExchange(
-            client: wide,
-            apiKey: 'k',
-            contextWindow: 128000,
+    test('a context window is declared per pair, and one of zero is refused', () async {
+      // §2 says exactly that much: *"`contextWindow` is validated as a positive number."*
+      // Measuring it would mean a request with an N-token prompt for every N, and the answer
+      // would be the endpoint's billing behaviour rather than its capability.
+      final endpoint = _Endpoint();
+      endpoint.reply(
+        status: 200,
+        contentType: eventStreamContentType,
+        frames: <String>[streamDoneSentinel],
+      );
+      final provider = _providerFor(
+        endpoint,
+        ref: _ref(requires: const <ModelFeature>{ModelFeature.streaming}),
+      );
+      final capabilities = await provider.probe();
+      expect(
+        capabilities.contextWindow,
+        ChatExchange.defaultContextWindow,
+        reason:
+            'a profile that declares nothing gets the conservative default, and the probe '
+            'does not go measuring it',
+      );
+      // The override the exchange documents, driven rather than assumed: §2's matrix belongs to
+      // an `endpoint + model` *pair*, so a window a composition root knows cannot be a
+      // `static const`.
+      final wide = _Endpoint();
+      wide.reply(
+        status: 200,
+        contentType: eventStreamContentType,
+        frames: <String>[streamDoneSentinel],
+      );
+      final roomy = OpenAiCompatibleProvider(
+        ref: _ref(requires: const <ModelFeature>{ModelFeature.streaming}),
+        exchange: ChatExchange(
+          client: wide,
+          apiKey: 'k',
+          contextWindow: 128000,
+        ),
+        clock: FakeClock(),
+      );
+      expect((await roomy.probe()).contextWindow, 128000);
+      // And a declared non-positive one is refused outside a debug build, where an `assert`
+      // would have been the whole of the check — as a `ConfigDiagnostic`, because that is the
+      // vocabulary every other configuration fault in this package speaks and the one `doctor`
+      // collects. An `ArgumentError` here would be a third type on a path that has two.
+      expect(
+        () => ChatExchange(
+          client: wide,
+          apiKey: 'k',
+          contextWindow: 0,
+        ).declaredContextWindow(_ref()),
+        throwsA(
+          isA<ConfigDiagnostic>().having(
+            (d) => d.values['field'],
+            'values.field',
+            'contextWindow',
           ),
+        ),
+      );
+      // And it is refused at construction, which is the path a caller actually reaches: the
+      // exchange validates nothing on its own and the provider is the boundary.
+      expect(
+        () => OpenAiCompatibleProvider(
+          ref: _ref(),
+          exchange: ChatExchange(client: wide, apiKey: 'k', contextWindow: 0),
           clock: FakeClock(),
-        );
-        expect((await roomy.probe()).contextWindow, 128000);
-        // And a declared non-positive one is refused outside a debug build, where an `assert`
-        // would have been the whole of the check.
-        expect(
-          () => ChatExchange(
-            client: wide,
-            apiKey: 'k',
-            contextWindow: 0,
-          ).declaredContextWindow(_ref()),
-          throwsA(isA<ArgumentError>()),
-        );
-        expect(
-          () => AlteriOneModelCapabilities(
-            tools: true,
-            parallelTools: true,
-            streaming: true,
-            jsonMode: true,
-            promptCaching: true,
-            seed: true,
-            contextWindow: 0,
-          ),
-          throwsA(isA<AssertionError>()),
-          reason:
-              'a context window of zero is a broken probe, and the constructor is the only '
-              'point at which a caller can be stopped',
-        );
-      },
-    );
+        ),
+        throwsA(isA<ConfigDiagnostic>()),
+      );
+      expect(
+        () => AlteriOneModelCapabilities(
+          tools: true,
+          parallelTools: true,
+          streaming: true,
+          jsonMode: true,
+          promptCaching: true,
+          seed: true,
+          contextWindow: 0,
+        ),
+        throwsA(isA<AssertionError>()),
+        reason:
+            'a context window of zero is a broken probe, and the constructor is the only '
+            'point at which a caller can be stopped',
+      );
+    });
 
     test(
       'cached tokens flip promptCaching, because a request cannot',
@@ -1717,6 +1800,81 @@ void main() {
       },
     );
 
+    test('a non-2xx on the turn path is a taxonomy code, and redacted', () async {
+      // §1 says HTTP and transport errors are mapped into the taxonomy. The transport half is
+      // caught in the reader; the HTTP half arrives from `ChatExchange.post` as a
+      // `ProviderStatusException`, and a turn has no use for the distinction the probe makes of
+      // it — it simply failed, with the code the taxonomy already gave the status. A caller that
+      // had to catch three exception types to learn a turn did not happen has lost the one thing
+      // the taxonomy is for.
+      for (final entry in <(int, ErrorCode)>[
+        (429, DomainErrorCode.rateLimited),
+        (401, DomainErrorCode.providerUnavailable),
+        (400, JsonRpcErrorCode.invalidParams),
+      ]) {
+        final endpoint = _Endpoint();
+        endpoint.reply(
+          status: entry.$1,
+          contentType: 'application/json',
+          jsonBody: <String, Object?>{
+            'error': <String, Object?>{'message': 'refused'},
+          },
+        );
+
+        await expectLater(
+          _providerFor(endpoint)
+              .chat(
+                AlteriOneRequest(
+                  messages: AlteriOneConversation(<AlteriOneMessage>[
+                    AlteriOneMessage(role: AlteriOneRole.user, content: 'hi'),
+                  ]),
+                ),
+                model: 'test-model',
+              )
+              .toList(),
+          throwsA(
+            isA<ProviderRefusal>().having((r) => r.code, 'code', entry.$2),
+          ),
+          reason:
+              'the code error-codes.md §1 gives ${entry.$1} to the code error-codes.md §1 gives it',
+        );
+      }
+
+      // And the endpoint's own explanation is redacted: §1 says the response body survives
+      // "only in redacted diagnostics", and a provider's error body echoes the request — which
+      // carries the conversation, which may carry what a user typed. A key-shaped value must not
+      // survive that, and the message is the string most likely to reach a log.
+      final leaky = _Endpoint();
+      leaky.reply(
+        status: 401,
+        contentType: 'application/json',
+        jsonBody: <String, Object?>{
+          'error': <String, Object?>{'message': 'the key was sk-abcdefgh12345'},
+        },
+      );
+      try {
+        await _providerFor(leaky)
+            .chat(
+              AlteriOneRequest(
+                messages: AlteriOneConversation(<AlteriOneMessage>[
+                  AlteriOneMessage(role: AlteriOneRole.user, content: 'hi'),
+                ]),
+              ),
+              model: 'test-model',
+            )
+            .toList();
+        fail('a 401 must refuse the turn');
+      } on ProviderRefusal catch (refusal) {
+        expect(refusal.message, isNot(contains('sk-abcdefgh12345')));
+        expect(refusal.message, contains('[redacted]'));
+        expect(
+          refusal.toString(),
+          isNot(contains('sk-abcdefgh12345')),
+          reason: 'toString is what a log line is built from',
+        );
+      }
+    });
+
     test(
       'a request asking for a capability the pair lacks is refused, not sent',
       () async {
@@ -1782,13 +1940,15 @@ void main() {
       final spec = File(
         '${_repositoryRoot().path}/docs/architecture/providers.md',
       ).readAsStringSync();
-      // **The names come *out* of the document and are driven through the code in the tests
-      // above**, which is what makes this a cross-check rather than a presence check. An earlier
-      // version asserted `spec.contains('`stop`')` and would have passed on an implementation
-      // that had dropped `stop` from `finish()` entirely — the document and the code are both
-      // inputs and nothing compared them. `registry_dispatch_contract_test.dart` does exactly
-      // this for `overview.md` §5's table, with a guard that a parser reading nothing would
-      // otherwise compare an empty list against nothing and pass.
+      // **The set is compared for equality, so a fourth name fails.** An earlier version asserted
+      // `spec.contains('`stop`')` three times, which cannot fail on a fourth name at all: add
+      // `content_filter` to §3.2's list and every assertion still passed. The names in the code
+      // are mapped by the tests above; what is pinned *here* is that §3.2 names these three and
+      // no others, so an endpoint reporting a fourth one is refused rather than guessed at.
+      // `registry_dispatch_contract_test.dart` makes the same equality for `overview.md` §5's
+      // table, and states the guard that a parser reading nothing would compare an empty list
+      // against nothing — which the `isNot(contains('CostBudget'))` above is this file's
+      // version of.
       // **Bounded by its own heading and by the next**, so a parser that read nothing would
       // produce an empty set and fail the equality below rather than compare nothing with
       // nothing. `registry_dispatch_contract_test.dart` states the same guard for the same reason.

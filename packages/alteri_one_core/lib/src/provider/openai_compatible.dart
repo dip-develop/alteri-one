@@ -121,6 +121,10 @@ final class OpenAiCompatibleProvider implements AlteriOneProvider {
         },
       );
     }
+    // The context window is validated here as well as at the read, and the reason is the same as
+    // `promptCaching` below: this constructor is the last point at which a caller can be stopped,
+    // and a value of zero would otherwise wait until the first turn to announce itself.
+    exchange.declaredContextWindow(ref);
     if (ref.needsCredential &&
         (exchange.apiKey == null || exchange.apiKey!.isEmpty)) {
       throw ConfigDiagnostic(
@@ -142,11 +146,11 @@ final class OpenAiCompatibleProvider implements AlteriOneProvider {
         path: 'model.providers',
         values: <String, Object?>{
           'field': 'requires',
-          'expected':
-              'a feature a probe can establish: '
-              '${requireableModelFeatures.map((f) => f.wireName).join(', ')}. promptCaching is '
-              'observed from a real turn rather than probed, so requiring it would refuse this '
-              'provider for ever',
+          // The list, not a sentence — `configuration.md` §7.2, and the same reason as the
+          // validator's copy of this check.
+          'expected': requireableModelFeatures
+              .map((f) => f.wireName)
+              .join(', '),
         },
       );
     }
@@ -196,6 +200,12 @@ final class OpenAiCompatibleProvider implements AlteriOneProvider {
   /// **Null rather than an optimistic value**, and that is §2's rule read from the other side: the
   /// cached result (task `2.1`) reads this, and a provider that answered before probing would give
   /// a cache nothing to write.
+  /// The handshake's record, **as it was when the handshake ran**.
+  ///
+  /// The raw outcome and not the folded matrix: [AlteriOneProvider.probe] is the folded one, and
+  /// this is what §2.1's cache would persist — a *record* with a `probedAt` to age it by, which
+  /// is the point of having one. A caller that wants "what can this pair do, including what a
+  /// turn has since observed" reads [capabilities] or awaits [probe], not this.
   ProbeOutcome? get lastProbe => _last;
 
   /// The last probe's capabilities, with the caching observation folded in, or null.
@@ -245,9 +255,20 @@ final class OpenAiCompatibleProvider implements AlteriOneProvider {
   /// [ProbeOutcome] is not returned here: the port's return type is the matrix, and the metadata
   /// a cache needs (task `2.1`) is reachable through [lastProbe] without widening the interface
   /// every other implementation has to satisfy.
+  ///
+  /// **The folded matrix, not [ProbeOutcome]'s.** `runProbe` memoises and the handshake therefore
+  /// completes before the first turn, so the stored record's `promptCaching` is necessarily the
+  /// handshake's own answer — `false`, because the handshake could not conclude it. Handing that
+  /// out would make `probe()` and [capabilities] disagree about one fact and the stale one is the
+  /// one [AlteriOneProvider.probe] gives `doctor` and task `2.1`'s cache. Folding on read is the
+  /// whole fix: there is one place the observation is applied and no path that can skip it.
   @override
-  Future<AlteriOneModelCapabilities> probe() async =>
-      (await runProbe()).capabilities;
+  Future<AlteriOneModelCapabilities> probe() async {
+    final known = capabilities;
+    if (known != null) return known;
+    await runProbe();
+    return capabilities!;
+  }
 
   /// The probe, with the metadata §2 says the outcome is stored with.
   ///
@@ -269,17 +290,7 @@ final class OpenAiCompatibleProvider implements AlteriOneProvider {
 
   Future<ProbeOutcome> _runProbe() async {
     try {
-      final outcome = await _probe.run(
-        ref: ref,
-        clock: clock,
-        // The observation travels **in** rather than being read off a field: an exchange is
-        // shared configuration (a client, a credential, a timeout) and a cached-token count is
-        // per-run state that belongs to the provider that made the turn. An earlier version had
-        // it as a `final bool` on the exchange that nothing ever set, so a re-probe reported
-        // `false` while `capabilities` reported `true` — two accessors of one fact, disagreeing,
-        // and the stale one being what a §2.1 cache would have persisted.
-        observedPromptCaching: _observedPromptCaching,
-      );
+      final outcome = await _probe.run(ref: ref, clock: clock);
       _last = outcome;
       return outcome;
     } finally {
@@ -325,8 +336,8 @@ final class OpenAiCompatibleProvider implements AlteriOneProvider {
             contextWindow: exchange.declaredContextWindow(ref),
           );
     }
-    // **The folded value, not the probe's frozen one**, so a `requires: [promptCaching]` that a
-    // previous turn established is satisfied by the evidence rather than re-probed for it.
+    // The folded value, so a capability a previous turn established is satisfied by the evidence
+    // rather than by a handshake that could never have found it.
     final probed = await runProbe();
     final resolved = _withObservation(probed.capabilities);
     final missing = <ModelFeature>[
@@ -390,8 +401,9 @@ final class OpenAiCompatibleProvider implements AlteriOneProvider {
   /// A caller that cancels the subscription cancels the exchange: [HttpResponse.body]'s contract
   /// says an abandoned body aborts the request, and abandoning the stream is what abandons it.
   /// That is what makes a cancellation cheap before task `0.14` owns `CancelToken` — and it is
-  /// also why the `finally` in [_readTurn] exists, so the connection is released on the normal
-  /// path too.
+  /// why nothing here has to be cleaned up by hand. The connection goes back to the pool because
+  /// the body is read to its end on the normal path and cancelled on every path that is not; the
+  /// `try` clauses in [_readTurn] map failures, they do not release anything.
   Stream<AlteriOneChatChunk> _turn(
     AlteriOneRequest request,
     String model,
@@ -442,26 +454,44 @@ final class OpenAiCompatibleProvider implements AlteriOneProvider {
       );
     }
 
-    final response = await exchange.post(
-      ref: ref,
-      body: chatRequestBody(
-        model: model,
-        messages: <Map<String, Object?>>[
-          for (final message in request.messages.messages) wireMessage(message),
-        ],
-        // **Ask for a stream only when the probe said the pair has one.** §3 makes streaming the
-        // contract, and §3 also provides the adapter for an endpoint without it — so a `true`
-        // here for an endpoint that cannot stream would produce a body this reader would reject
-        // as `-32700` instead of the single final chunk the adapter is for.
-        stream: capabilities.streaming,
-        maxOutputTokens: request.maxOutputTokens ?? ref.maxOutputTokens,
-        maxTokensKey: exchange.maxTokensKey,
-        seed: seed,
-        temperature: ref.temperature,
-        jsonMode: request.jsonMode,
-      ),
-      expectStream: capabilities.streaming,
-    );
+    final HttpResponse response;
+    try {
+      response = await exchange.post(
+        ref: ref,
+        body: chatRequestBody(
+          model: model,
+          messages: <Map<String, Object?>>[
+            for (final message in request.messages.messages)
+              wireMessage(message),
+          ],
+          // **Ask for a stream only when the probe said the pair has one.** §3 makes streaming the
+          // contract, and §3 also provides the adapter for an endpoint without it — so a `true`
+          // here for an endpoint that cannot stream would produce a body this reader would reject
+          // as `-32700` instead of the single final chunk the adapter is for.
+          stream: capabilities.streaming,
+          maxOutputTokens: request.maxOutputTokens ?? ref.maxOutputTokens,
+          maxTokensKey: exchange.maxTokensKey,
+          seed: seed,
+          temperature: ref.temperature,
+          jsonMode: request.jsonMode,
+        ),
+        expectStream: capabilities.streaming,
+      );
+    } on ProviderStatusException catch (status) {
+      // **A non-2xx on the turn path is a taxonomy code too.** `ChatExchange.post` hands a status
+      // back as a [ProviderStatusException] because the *probe* needs to tell "the endpoint said
+      // no" from "somebody declined to answer" — a distinction it makes by the code. A turn has no
+      // such question to ask: it simply failed, and the answer is the code the taxonomy already
+      // gave the status. Mapping it here is what stops a caller from needing a third exception
+      // type to learn that a turn did not happen, which is the argument the `TransportFailure`
+      // catch below makes for the other half of §1's sentence.
+      throw ProviderRefusal(
+        status.code,
+        'the provider refused the model turn with ${status.status}'
+        '${status.excerpt.isEmpty ? '' : ': ${status.excerpt}'}',
+        cause: status,
+      );
+    }
 
     yield* _readTurn(response);
   }
@@ -686,36 +716,47 @@ final class OpenAiCompatibleProvider implements AlteriOneProvider {
 
   /// [delta] with an `index` on every `tool_calls` entry, taken from its position.
   ///
-  /// A no-op when there are no tool calls or when the entries already carry an `index`, so a
-  /// **conformant** batch response — one that volunteers indices, which the streaming shape does
-  /// and this one need not — keeps whatever it sent rather than having its numbering replaced.
-  /// Positions are only assigned where the field is absent, and a gap in an otherwise-present
-  /// index sequence is respected rather than closed: an endpoint that says 0 and 2 meant two
-  /// calls at 0 and 2, and renumbering them to 0 and 1 would be this function inventing an
-  /// answer.
+  /// **All or nothing, and the "all" is the point.** The rule is: if **any** entry carries an
+  /// `index`, the endpoint is speaking the indexed dialect and this function does not touch the
+  /// array; if **none** does, it synthesises from position. A middle case does not exist that is
+  /// safe to guess at, and an earlier version guessed:
+  ///
+  /// - keeping a volunteered index while synthesising a *position* for its neighbour merged them.
+  ///   `[{index: 1, …call-a}, {…call-b}]` became indices `1` and `1` — the same failure this
+  ///   function exists to prevent, reproduced one level up, and the turn died with `-32602`
+  ///   naming the second tool for a parse error the product had caused;
+  /// - synthesising above `max(existing)` instead would *invent* an index the endpoint never used,
+  ///   which is a different way of answering a question the array already answered.
+  ///
+  /// So a partially-indexed array is passed through as it arrived, and the assembler reads the
+  /// one entry with no index as call 0 — which is the sound reading for a single fragment and the
+  /// best available one for a partial array, and is better than corrupting the entries that *were*
+  /// indexed correctly.
   static Map<String, Object?> _withCallIndices(Map<String, Object?> delta) {
     final calls = delta['tool_calls'];
     if (calls is! List<Object?>) return delta;
-    var rewritten = false;
-    final indexed = <Map<String, Object?>>[];
-    for (var position = 0; position < calls.length; position++) {
-      final call = calls[position];
-      if (call is! Map<String, Object?>) {
-        // Not a shape this rewrite can fix. Left alone rather than dropped: the assembler reports
-        // a fragment it cannot read as `-32602` naming the tool, which is a better answer than
-        // silently discarding a call the model asked for.
-        indexed.add(const <String, Object?>{});
-        continue;
-      }
-      if (call.containsKey('index')) {
-        indexed.add(call);
-        continue;
-      }
-      rewritten = true;
-      indexed.add(<String, Object?>{'index': position, ...call});
-    }
-    if (!rewritten) return delta;
-    return <String, Object?>{...delta, 'tool_calls': indexed};
+    final maps = <Map<String, Object?>>[
+      for (final call in calls)
+        if (call is Map<String, Object?>) call,
+    ];
+    if (maps.isEmpty) return delta;
+    if (maps.any((call) => call.containsKey('index'))) return delta;
+    return <String, Object?>{
+      ...delta,
+      'tool_calls': <Map<String, Object?>>[
+        for (var position = 0; position < calls.length; position++)
+          if (calls[position] is Map<String, Object?>)
+            <String, Object?>{
+              'index': position,
+              ...calls[position]! as Map<String, Object?>,
+            }
+          else
+            // Not a shape this rewrite can fix, and left as it arrived rather than dropped: the
+            // assembler reports a fragment it cannot read as `-32602` naming the tool, which is a
+            // better answer than silently discarding a call the model asked for.
+            <String, Object?>{},
+      ],
+    };
   }
 
   @override

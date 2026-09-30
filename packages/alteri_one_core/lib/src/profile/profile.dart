@@ -112,7 +112,14 @@ enum ModelFeature {
   /// The endpoint honours a JSON-mode response format.
   jsonMode('jsonMode'),
 
-  /// The endpoint honours a stable seed.
+  /// The endpoint reports cached input tokens, so a warm turn costs what a warm turn costs.
+  ///
+  /// **Not a request-side acceptance, and that is the whole distinction.** A probe cannot conclude
+  /// it — nothing in a request makes an endpoint report
+  /// `usage.prompt_tokens_details.cached_tokens` — so it is observed from a real turn's usage
+  /// and is therefore **not** in `model.providers[].requires`: a requirement no probe can check
+  /// would refuse the pair for ever. `requireableModelFeatures` in the profile validator names the
+  /// five that can be, and both it and the provider's constructor refuse this one.
   promptCaching('promptCaching'),
 
   /// The endpoint honours a numeric seed.
@@ -125,11 +132,12 @@ enum ModelFeature {
 
   /// The feature with [wireName], or null.
   ///
-  /// A lookup rather than `values.byName`, and the reason is that the two disagree:
-  /// `parallelTools` is the YAML spelling and `parallelTools` is also the enum name, but
-  /// `promptCaching` is the YAML spelling of a feature whose Dart name has to be spelled
-  /// differently to avoid a collision. The wire name is what the catalogue and the diagnostics
-  /// print, so the lookup is on the wire name and there is exactly one table.
+  /// A lookup rather than `values.byName`, and the reason is that the two *can* disagree and the
+  /// wire name is the one the catalogue and the diagnostics print — so a profile is read by the
+  /// spelling a user wrote and a diagnostic interpolates the same spelling. An earlier version of
+  /// this comment justified the lookup by claiming a member whose Dart name differs from its wire
+  /// name; there is no such member and the lookup stands on the first reason alone. One table
+  /// either way, and the table is [wireName].
   static ModelFeature? forWireName(String wireName) {
     for (final feature in values) {
       if (feature.wireName == wireName) return feature;
