@@ -72,6 +72,8 @@
 /// [FakeProvider]: fakes/fake_provider.dart
 library;
 
+import 'dart:convert';
+
 /// What a provider can do, for one specific `endpoint + model` pair.
 ///
 /// §2's shape verbatim, and `final class` with a `const` constructor because it is a value: two
@@ -233,27 +235,131 @@ enum AlteriOneRole {
   tool,
 }
 
+/// One tool call the model asked for, assembled.
+///
+/// The counterpart of [AlteriOneToolCallDelta] and, like it, the reason §3.2's assembly rules
+/// are writable at all. A delta is a *fragment* keyed by [AlteriOneToolCallDelta.index]; this is
+/// the whole call, and it is what a conversation carries so that a second turn can put it back on
+/// the wire.
+///
+/// **`arguments` is the JSON text, not a decoded value, and that is a decision rather than an
+/// omission.** §3.2 says the accumulated bytes "are parsed as JSON exactly once, after the stream
+/// ends, into the typed DTO" — the *provider* parses, because a call whose arguments do not parse
+/// is `-32602` and a refusal, and a refusal needs the raw text to name. A value decoded here
+/// would be a second place that could fail, and would make a message un-constructible from a
+/// malformed call, which is exactly the state the loop has to be able to hand back to the model
+/// as a `-32602` it can recover from (`error-codes.md` §1: `-32602` **feeds to the model**).
+///
+/// The decode is therefore lazy and **null-returning** in [decodedArguments], and the *one* place
+/// it happens eagerly is §3.2's assembly, in the provider. Two places to parse would be two places
+/// to disagree about what a fragment of JSON is.
+final class AlteriOneToolCall {
+  /// A call to [name] with [arguments] as JSON text.
+  ///
+  /// [id] and [name] are required and non-empty because §3.1 maps both onto required wire
+  /// fields, and [arguments] is required because a call with no argument object is not a call this
+  /// engine can dispatch — `tools.md` §1.2 validates arguments against a declared schema before
+  /// any tool code runs, and a schema cannot be validated against nothing.
+  const AlteriOneToolCall({
+    required this.id,
+    required this.name,
+    required this.arguments,
+  }) : assert(
+         id != '',
+         'a tool call with no id cannot have its outcome attributed',
+       ),
+       assert(name != '', 'a tool call with no name dispatches nowhere'),
+       assert(
+         arguments != '',
+         'a tool call with no argument text is not a call: §3.2 buffers the argument bytes and '
+         'an empty buffer is a model turn that asked for a tool without saying what with',
+       );
+
+  /// The call's id, which its outcome is correlated by.
+  final String id;
+
+  /// The tool being called, as a tool id such as `fs.read`.
+  final String name;
+
+  /// The arguments, as the JSON text the model produced.
+  ///
+  /// Verified to be valid JSON by whoever assembled the call — the provider, in §3.2's one parse
+  /// — and by nothing here, so that a message can still be built from a call that did not parse
+  /// and the `-32602` can be shown to the model.
+  final String arguments;
+
+  /// The arguments decoded, or null when [arguments] is not valid JSON.
+  ///
+  /// A convenience for the loop and the tools, and deliberately a *null* rather than a throw: a
+  /// malformed call is data the engine must be able to report, and a getter that threw would make
+  /// the reporting path the thing that has to catch.
+  Map<String, Object?>? get decodedArguments {
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(arguments);
+    } on FormatException {
+      return null;
+    }
+    return decoded is Map<String, Object?> ? decoded : null;
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is AlteriOneToolCall &&
+      other.id == id &&
+      other.name == name &&
+      other.arguments == arguments;
+
+  @override
+  int get hashCode => Object.hash(id, name, arguments);
+
+  @override
+  String toString() =>
+      'AlteriOneToolCall($id, $name, ${arguments.length} chars)';
+}
+
 /// One message in a conversation sent to a model.
 ///
-/// A `final class` with a [role] and an optional [toolCallId], and the pair is **validated in the
-/// constructor** rather than left to convention. The reason is that the invalid combinations are
-/// not obvious and the wire cannot express them: a `role: tool` message without a `tool_call_id`
-/// cannot be matched to the call that asked for it, and a `tool_call_id` on a user message is a
-/// field the model would see and could not interpret. §3.1's mapping to `tool_call_id` is a
-/// *required* wire field for a tool message, so an uncorrelated one arrives as a message the
-/// model cannot attribute — and it would either ignore it or answer the wrong call. The
-/// constructor is the only point at which a caller can be stopped.
+/// A `final class` with a [role], an optional [toolCallId] and optional [toolCalls], and the
+/// combination is **validated in the constructor** rather than left to convention. The reason is
+/// that the invalid combinations are not obvious and the wire cannot express them: a
+/// `role: tool` message without a `tool_call_id` cannot be matched to the call that asked for it,
+/// a `tool_call_id` on a user message is a field the model would see and could not interpret, and
+/// `tool_calls` on anything but an assistant message is a wire field in a slot that does not carry
+/// one. §3.1's mapping to `tool_call_id` is a *required* wire field for a tool message, so an
+/// uncorrelated outcome arrives as a message the model cannot attribute — and it would either
+/// ignore it or answer the wrong call. The constructor is the only point at which a caller can be
+/// stopped.
+///
+/// [toolCalls] arrived with task `0.13` rather than with task `0.10`, and the reason is that §3.1
+/// is *this* task's table: an assistant turn that called tools cannot be put back on the wire
+/// without them, so a provider built without the field could not complete a second turn and the
+/// mapping would have been half-written until a later task finished it.
 final class AlteriOneMessage {
   /// A message with [role] and [content].
-  const AlteriOneMessage({
+  ///
+  /// **Not `const`, and the reason is the second assert.** A const constructor's assert must be
+  /// a *potentially constant* expression, and `toolCalls.isEmpty` is a getter with a body — the
+  /// analyzer rejects it as an "invalid constant value" rather than quietly skipping the check.
+  /// The alternative would be to compare against the canonical empty list by identity, which
+  /// passes for `const []` and fails for the `[]` any non-const caller writes, so a
+  /// perfectly-valid message would trip the assert. Dropping `const` is the cheap direction: a
+  /// message is built once per turn, and the three other value types in this file keep theirs.
+  AlteriOneMessage({
     required this.role,
     required this.content,
     this.toolCallId,
+    this.toolCalls = const <AlteriOneToolCall>[],
   }) : assert(
          (role == AlteriOneRole.tool) == (toolCallId != null),
          'a tool message needs the tool_call_id it answers, and no other role may carry one: '
          '§3.1 maps the id onto the wire as a required field, so an uncorrelated outcome would '
          'reach the model as a message it cannot attribute',
+       ),
+       assert(
+         toolCalls.isEmpty || role == AlteriOneRole.assistant,
+         'only an assistant turn carries tool_calls: §3.1 puts them in the message the model '
+         'produced, and no other role has a slot for them on the wire',
        );
 
   /// Who produced this message.
@@ -270,20 +376,47 @@ final class AlteriOneMessage {
   /// The tool call this message answers, for [AlteriOneRole.tool] messages, and null otherwise.
   final String? toolCallId;
 
+  /// The calls this turn made, for an assistant turn that made any.
+  ///
+  /// **Order is `index` order, and it is a contract rather than an accident.**
+  /// [AlteriOneChatResult.toolCallIds] says the same, and the reason is §3.2: deltas are
+  /// concatenated *"in `index` order, not arrival order"*. A conversation assembled in arrival
+  /// order would send a tool outcome against a call the model did not make in that position, and
+  /// the symptom would be a model that answers a different question.
+  final List<AlteriOneToolCall> toolCalls;
+
   @override
   bool operator ==(Object other) =>
       other is AlteriOneMessage &&
       other.role == role &&
       other.content == content &&
-      other.toolCallId == toolCallId;
+      other.toolCallId == toolCallId &&
+      _sameCalls(other.toolCalls, toolCalls);
 
   @override
-  int get hashCode => Object.hash(role, content, toolCallId);
+  int get hashCode =>
+      Object.hash(role, content, toolCallId, Object.hashAll(toolCalls));
 
   @override
   String toString() =>
       'AlteriOneMessage(${role.name}'
-      '${toolCallId == null ? '' : ', $toolCallId'}): $content';
+      '${toolCallId == null ? '' : ', $toolCallId'}'
+      '${toolCalls.isEmpty ? '' : ', ${toolCalls.length} calls'}): $content';
+}
+
+/// Structural list equality for [AlteriOneToolCall], without `package:collection`.
+///
+/// Written out rather than imported because the workspace carries no lints package and adding
+/// one to reach `listEquals` would put a dependency in the core's runtime graph — a *published*
+/// package — for a six-line function. [identityHashCode] is only a fast path: two lists holding
+/// equal calls in the same order must be equal, and `identical` cannot be the whole test.
+bool _sameCalls(List<AlteriOneToolCall> a, List<AlteriOneToolCall> b) {
+  if (identical(a, b)) return true;
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
 }
 
 /// The conversation so far, from the system instructions down.

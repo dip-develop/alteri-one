@@ -10,6 +10,31 @@
       and the shipped `initializeMethod` is dotted (`core.initialize`). Task `0.12` resolves a
       namespace as the **leading segment** so all three route, which works around an ambiguity
       rather than deciding it. Picking one separator changes a documented contract
+- [ ] A **401 or 403 has no error code of its own.** `providers.md` §1 says HTTP errors are mapped
+      into the taxonomy, and the taxonomy has no code for "the credential was rejected", so task
+      `0.13` maps it to `-32001` `Provider unavailable`. That is right for §5's *failover* and
+      wrong for §6's *retry*: `-32001` carries `retry: withBackoff`, and re-attempting a rejected
+      key with backoff is not a thing to do. The chain moving on is the behaviour the taxonomy
+      already gets right; the circuit breaker that stops it re-trying the *same* entry is §5's
+      and is a later task. `error-codes.md` §1.1 says a variant of an existing failure mode is a
+      **diagnostic** and not a number, so the candidate is a `provider.unauthorized`-style
+      diagnostic; the operator decides
+- [ ] `contextWindow` and `promptCaching` are the two flags the probe does **not** conclude, and
+      `config-schema.md` §2's provider entry has no field to set either from:
+      - `contextWindow` is a declared number, validated as positive per `providers.md` §2 ("is
+        validated as a positive number") and defaulted by `ChatExchange.defaultContextWindow` to
+        4096. Measuring it would cost a request with an N-token prompt for every N
+      - `promptCaching` is a *response-side* observation: nothing in a request makes an endpoint
+        report `prompt_tokens_details.cached_tokens`, so the first turn that reports a non-zero
+        count sets it. A schema field for it, or a documented "unknown", would let a profile say
+        what it knows
+- [ ] §3.1's **tool-definition** mapping (`ToolDescriptor` → `tools[].function.*`) is not built,
+      because `ToolDescriptor` is `tools.md` §1 and arrives with the tool contract. Task `0.13`
+      sends a request with **no** `tools` member, and the *probe* declares a tool of its own —
+      `alterione_capability_probe`, deliberately **not** a legal tool id, since `toolIdGrammar`
+      requires a dot and a probe declaration carrying a real id would put one in the model's
+      vocabulary that the registry has no owner for. `AlteriOneRequest` gains the `tools` field
+      with the tool contract, not before
 - [ ] An event's `provenance`: `engine.md` §4 says `host | user | model | tool | plugin`, and
       `concepts.md` §3 says there is **one** label system with seven values. Task `0.12` uses
       `concepts.md`'s seven and maps the five coarsely onto them, with `plugin` having no distinct
@@ -23,6 +48,8 @@
       registry, the four-level precedence merge with origins, the `Paths`-backed locator, and the
       l10n catalogue with `en` and `ru` — ADR-0022
 - [x] Task `0.12`: the extension registry, the event bus and the prefix dispatcher
+- [x] Task `0.13`: the OpenAI-compatible provider — the wire request, an incremental SSE reader,
+      §3.2's five assembly rules, the batch adapter, and §2's capability probe
 - [ ] `intl_translation` and generated l10n accessors: `configuration.md` §7.1 says user-facing text
       comes "through generated accessors" and the catalogue is hand-written. ADR-0022 defers this to
       `0.17`, which is the first task with user-facing prose; the catalogue is already shaped so

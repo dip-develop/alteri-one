@@ -12,9 +12,10 @@
 ///
 /// Task `0.1` creates the package and its boundary. Task `0.10` adds the provider port and
 /// the `FakeProvider` double. Task `0.11` adds the versioned profile document and the
-/// localisation catalogue. Task `0.12` adds the registry, the event bus and the dispatcher —
-/// the OpenAI-compatible provider arrives with `0.13`, the control primitives with `0.14` and
-/// the walking skeleton with `0.15`.
+/// localisation catalogue. Task `0.12` adds the registry, the event bus and the dispatcher.
+/// Task `0.13` adds the OpenAI-compatible provider — the wire, the streaming reader, §3.2's
+/// assembly and the capability probe. The control primitives arrive with `0.14` and the walking
+/// skeleton with `0.15`.
 ///
 /// ## The registry's size is not fixed at compile time
 ///
@@ -59,20 +60,10 @@ library;
 
 export 'src/fakes/fake_provider.dart'
     show FakeProvider, FakeProviderKey, RecordedTurn, ScriptedTurn;
-export 'src/provider.dart'
-    show
-        AlteriOneChatChunk,
-        AlteriOneChatResult,
-        AlteriOneConversation,
-        AlteriOneFinishReason,
-        AlteriOneMessage,
-        AlteriOneModelCapabilities,
-        AlteriOneProvider,
-        AlteriOneRequest,
-        AlteriOneRole,
-        AlteriOneTextDelta,
-        AlteriOneToolCallDelta,
-        AlteriOneUsage;
+
+/// The provider port and the OpenAI-compatible implementation of it. See `lib/provider.dart` for
+/// why the wire lives in the core rather than in a package of its own.
+export 'provider.dart';
 
 /// The versioned configuration document. See `lib/profile.dart` for what the pipeline is and
 /// why its order is fixed.
