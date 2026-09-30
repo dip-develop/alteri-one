@@ -150,12 +150,61 @@ void main() {
         final allowed = _allowedDependencies[member.value.name];
         if (allowed == null)
           continue; // `apps/*` may compose everything public.
+
+        // Runtime *and* development, on purpose. A dev dependency on a sibling package is
+        // still a link in the graph: it puts two packages in one compilation unit, it can
+        // create a cycle that `dart pub` would resolve and a reader would not expect, and it
+        // lets a package reach a sibling's internals from its tests. A *toolchain* dependency
+        // is outside this list entirely, which is what task 0.4 exposed: `alteri_one_protocol`
+        // needs `test` to run its own acceptance command, and the table correctly says it may
+        // depend on nothing.
         expect(
           member.value.workspaceDependencies.toSet().difference(allowed),
           isEmpty,
           reason:
               '${member.key} depends on a package the table does not allow it to '
               'depend on',
+        );
+      }
+    });
+
+    test('a development dependency is a build or test tool, and nothing else', () {
+      // The gap task 0.4 opened, and it is worth closing explicitly rather than by making the
+      // table bigger. A `dev_dependencies` entry on a package outside this workspace cannot
+      // reach the shipped artefact, so the §3 table has nothing to say about it — but an
+      // unlisted one is still a third-party package entering the resolution, and the only
+      // reason it is acceptable is that it is a tool. `_toolchain` is that list, and it is
+      // short on purpose: adding to it is how a real dependency would get in through the back
+      // door, so each entry has to be a build or test runner that nothing links against.
+      for (final member in workspace.members.values) {
+        expect(
+          member.externalDevDependencies.where(
+            (name) => !_toolchain.contains(name),
+          ),
+          isEmpty,
+          reason:
+              '${member.path} has a development dependency that is not a build or test '
+              'tool. The §3 table governs in-repository dependencies; a third-party one is '
+              'governed by this list, and adding a name to it should be reviewed as '
+              'deciding that a package enters the resolution',
+        );
+      }
+    });
+
+    test('a package with tests declares the runner', () {
+      // `dart test` in a package without `test` on `dev_dependencies` fails to resolve rather
+      // than failing a test, and the failure is a toolchain error in CI with no indication of
+      // which package caused it. The acceptance commands in the task breakdown are run with
+      // `melos exec --scope=<package>`, so this is the difference between a task's acceptance
+      // criterion running and not running.
+      for (final member in workspace.members.values) {
+        if (!Directory('${member.path}/test').existsSync()) continue;
+        expect(
+          member.declaredDevDependencies,
+          contains('test'),
+          reason:
+              '${member.path} has a test/ directory and does not declare `test` on '
+              'dev_dependencies, so its tests cannot resolve',
         );
       }
     });
@@ -221,6 +270,37 @@ void main() {
   });
 
   group('the boundary rules in the sources', () {
+    test('the boundary rules are checked against a lib/ that exists', () {
+      // The guard on the guard. The rules below read `lib/` rather than the whole package,
+      // because a test is not shipped and is allowed to read a file off disk. A package whose
+      // `lib/` were empty or renamed would make them all vacuously true — the same shape of
+      // defect as a workspace glob that matches nothing, which `dart pub get` refuses for
+      // exactly this reason. So the premise is asserted rather than assumed.
+      for (final member in workspace.members.values) {
+        final lib = Directory('${member.path}/lib');
+        expect(
+          lib.existsSync(),
+          isTrue,
+          reason:
+              '${member.path} has no lib/ directory, so its import rules would pass without '
+              'reading anything',
+        );
+        expect(
+          _dartFilesIn(lib),
+          isNotEmpty,
+          reason: '${member.path}/lib contains no Dart source',
+        );
+        expect(
+          File('${member.path}/lib/${member.name}.dart').existsSync(),
+          isTrue,
+          reason:
+              '${member.path} has no lib/${member.name}.dart. A package is imported by its '
+              'own name, so the file named after the package is its entry point, and it is '
+              'what makes the import rules reachable at all',
+        );
+      }
+    });
+
     test('no library imports dart:io where the specification forbids it', () {
       // `dart:io` never appears in protocol or core. The web implementation of
       // alteri_one_platform is what keeps that rule real rather than aspirational.
@@ -284,6 +364,29 @@ const _expectedMembers = <String>[
 /// everything public in the workspace, because the composition root is what composes. An
 /// absent key is a finding, not a permission — a new package must be added here and to the
 /// document in the same change.
+/// The names of every workspace member, for a manifest that is being read on its own.
+///
+/// A top-level value rather than a lookup through [_Workspace], because a [_Member] is
+/// constructed while the workspace is still being discovered and cannot reach the map it is
+/// being added to.
+final workspaceNames = <String>{};
+
+/// Development dependencies that are build or test tools rather than something a package links
+/// against.
+///
+/// Deliberately small. A name here is a package the §3 dependency table stops seeing, so each
+/// entry has to be something that cannot end up in a shipped artefact: a test runner, a build
+/// runner, or a codegen tool. `yaml` is here because the contract tests parse manifests with
+/// it — a test may not use a transitive dependency, and promoting it to an explicit
+/// dev_dependency is how that is done without it entering any runtime graph.
+const _toolchain = <String>{
+  'test',
+  'test_api',
+  'build',
+  'build_runner',
+  'yaml',
+};
+
 const _allowedDependencies = <String, Set<String>?>{
   'alteri_one_protocol': <String>{},
   'alteri_one_platform': <String>{'alteri_one_protocol'},
@@ -334,17 +437,82 @@ final class _Member {
     return _extensionRoots.contains(root);
   }
 
-  /// Direct dependencies that are packages of this workspace, sorted.
+  /// Direct dependencies on packages *of* this workspace, sorted.
+  ///
+  /// Runtime and development together. Both are links in the graph a reader reasons about: a
+  /// dev dependency on a sibling puts two packages in one compilation unit and can create a
+  /// cycle, so the §3 table governs this list and not only the runtime half of it.
   List<String> get workspaceDependencies {
     final dependencies = <String>{
       ...?_stringKeys(pubspec['dependencies']),
       ...?_stringKeys(pubspec['dev_dependencies']),
     };
-    return dependencies.where((name) => name != this.name).toList()..sort();
+    return dependencies
+        .where((name) => name != this.name && workspaceNames.contains(name))
+        .toList()
+      ..sort();
   }
 
-  /// Every library URI imported or exported by this package's own sources.
+  /// Direct dependencies on packages *outside* this workspace, sorted.
+  ///
+  /// Split by whether the target is a workspace member, because the two answer different
+  /// questions. A workspace dependency is part of the product's graph and the §3 table decides
+  /// it. An external one is third-party code; as a dev dependency it is a build or test tool
+  /// that cannot end up in a shipped artefact, which is what [_toolchain] lists.
+  List<String> get externalDependencies {
+    final declared = <String>{
+      ...?_stringKeys(pubspec['dependencies']),
+      ...?_stringKeys(pubspec['dev_dependencies']),
+    };
+    return declared
+        .where((name) => name != this.name && !workspaceNames.contains(name))
+        .toList()
+      ..sort();
+  }
+
+  /// Declared development dependencies that are not packages of this workspace, sorted.
+  List<String> get externalDevDependencies {
+    final declared = _stringKeys(pubspec['dev_dependencies']);
+    if (declared == null) return const [];
+    return declared
+        .where((name) => name != this.name && !workspaceNames.contains(name))
+        .toList()
+      ..sort();
+  }
+
+  /// Every declared development dependency, toolchain or not, sorted.
+  List<String> get declaredDevDependencies =>
+      [...?_stringKeys(pubspec['dev_dependencies'])]..sort();
+
+  /// Every library URI imported or exported by this package's `lib/` sources.
+  ///
+  /// `lib/` and not the whole package, and the distinction is the point of the rule rather
+  /// than a loophole in it. What the boundary protects is the *shipped* surface: a library that
+  /// imports `dart:io` cannot be compiled for the web, which is the whole reason
+  /// `alteri_one_platform` has a web implementation. A test is not shipped, is never linked
+  /// into the product, and is allowed to read a file off disk — a contract test that
+  /// cross-checks a library against a table in `docs/` has to, and forbidding it would mean
+  /// either shipping a second copy of that table or giving up the check.
+  ///
+  /// A `dart:io` import in `lib/` is still caught, so nothing about the property is weakened:
+  /// a test cannot become part of the artefact.
   Set<String> get imports {
+    final found = <String>{};
+    final lib = Directory('$path/lib');
+    if (!lib.existsSync()) return found;
+    for (final file in _dartFilesIn(lib)) {
+      for (final match in _importPattern.allMatches(file.readAsStringSync())) {
+        found.add(match.group(1)!);
+      }
+    }
+    return found;
+  }
+
+  /// Every library URI imported or exported anywhere in the package, tests included.
+  ///
+  /// For the checks that are about the *repository* rather than the artefact — which
+  /// subproject a file belongs to, for instance. The dependency rules use [imports].
+  Set<String> get importsIncludingTests {
     final found = <String>{};
     for (final file in _dartFilesIn(Directory(path))) {
       for (final match in _importPattern.allMatches(file.readAsStringSync())) {
@@ -467,7 +635,11 @@ final class _Workspace {
     final members = <String, _Member>{};
     for (final glob in globs) {
       for (final path in _packagesUnder(glob)) {
-        members[path] = _Member(path, _readPubspec('$path/pubspec.yaml'));
+        final member = _Member(path, _readPubspec('$path/pubspec.yaml'));
+        members[path] = member;
+        // Recorded as it is found, so a manifest read later can tell a workspace sibling from
+        // a third-party package without going through the map that is still being built.
+        workspaceNames.add(member.name);
       }
     }
 
