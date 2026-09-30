@@ -41,7 +41,7 @@ These are tests, not lint config, so that they are falsifiable and greppable.
 |---|---|---|
 | Workspace contract | `test/workspace/workspace_contract_test.dart` (`0.1`) | Exact package membership, `resolution: workspace`, committed lockfile, no legacy Melos config, dependency rules |
 | Extension subproject layout | `test/workspace/extension_subprojects_test.dart` (`0.28`) | The four workspace globs; every package under `tools/`, `injections/` and `plugins/` declared in `alterione.yaml` or `enabled: false`; no `alteri_one_*` package depends on an app |
-| Quality-gate contract | `test/ci/quality_gates_contract_test.dart` (`0.2`) | Every gate command exists and the OS matrix is complete |
+| Quality-gate contract | `test/ci/quality_gates_contract_test.dart` (`0.2`) | Every gate command exists and carries its flag; every job that runs the chain is a three-OS matrix and runs the chain in order; every package with tests declares its timeouts; coverage is collected and is not a required check |
 | Documentation contract | `test/governance/documentation_contract_test.dart` (`0.3`) | Required documents and ADR sections; Tier 2 without fail-closed is prohibited |
 | Manifest contract | `test/config/manifest_contract_test.dart` (`0.29`) | `alterione.yaml` parses; an `apiVersion`/`kind` mismatch is refused; the three bind-time invariants hold against the resolved dependency graph |
 | Telemetry allowlist | `test/ci/telemetry_allowlist_test.dart` (`0.23`) | No analytics, crash-reporting or telemetry package in the resolved graph |
@@ -112,10 +112,19 @@ result. The job asserts the refusal rather than skipping, so a silent regression
 ## 4. Timeouts and coverage
 
 - A default per-test timeout of 30 s, with an explicit longer timeout for tests that spawn
-  processes or bind sockets.
-- Integration tests are tagged `integration`; offline e2e tests carry `offline-e2e`.
-- Coverage is configured and reported, but **not** gated at a percentage in v1. A
-  percentage gate that is met by generated code is worse than no gate.
+  processes or bind sockets. Both live in a `dart_test.yaml` **per package**: the setting does
+  not inherit, so a package that gains a `test/` directory needs its own, and
+  `test/ci/quality_gates_contract_test.dart` fails on a package that has tests and no file.
+- Integration tests are tagged `integration` and get 2 min; offline e2e tests carry
+  `offline-e2e` and get 5 min. The tags are declared *before* the tests that use them, because
+  a tag filter that matches nothing exits `0` — a timeout that arrives together with the first
+  socket-binding test arrives one failure late.
+- Coverage is configured and reported, but **not** gated at a percentage in v1. The `coverage`
+  job in [ci.yml](../../.github/workflows/ci.yml) collects VM coverage, formats it to lcov and
+  prints a summary; it is not a required status check, and the quality-gate contract test
+  fails if `coverage` ever appears in [repo-settings.json](../../repo-settings.json). A
+  percentage gate that is met by generated code is worse than no gate, and a required check is
+  a gate whatever the job is called.
 - Eval tests are tagged `eval` and are excluded from the blocking CI chain.
 
 ## 5. Before a release

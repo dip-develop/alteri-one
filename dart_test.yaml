@@ -1,0 +1,22 @@
+# Test timeouts for the root package, which owns the workspace-level contract tests.
+#
+# `dart_test.yaml` does not inherit: a package that gains a test/ directory needs its own, or
+# it gets the package:test default by accident rather than by decision. The quality-gate
+# contract test fails on a package that has tests and no file, and the same file names the
+# packages that have one.
+#
+# quality-gates.md §4: 30 s by default, an explicit longer timeout for tests that spawn
+# processes or bind sockets. A tag filter that matches nothing exits 0, so the longer timeouts
+# are declared before the tests that need them exist — otherwise the first socket-binding test
+# lands with a 30 s budget and fails on a Windows runner for wall-clock reasons alone.
+
+timeout: 30s
+
+tags:
+  integration:
+    timeout: 2m
+  offline-e2e:
+    timeout: 5m
+
+# `eval` is not in the blocking chain, so it is excluded from it by name rather than by
+# discipline: quality-gates.md §4.
