@@ -617,3 +617,75 @@ in-process transport is easy to get wrong.
 - **A frame that cannot be decoded is a protocol error, not a dropped frame.** The decoder
   answers `-32700` or `-32600` and the transport surfaces it; silently discarding an undecodable
   frame would leave the peer waiting for a response that is never coming.
+
+### 7.2 The stdio transport
+
+The `stdio` row is a process boundary, and this is what that row means in
+`alteri_one_protocol`'s `stdio.dart`. The gap between it and §7.1 is much narrower than the
+`Process` in the middle suggests, because §7.1's first decision already settles the framing: the
+**same** `FrameDecoder` and the **same** `FrameOutbox` carry every transport, so there is no stdio
+decoder, no stdio framing and no stdio dispatcher here to disagree with §2.1 about where a frame
+ends. What a process adds is a lifecycle and a second stream, and the decisions below are all about
+those two things.
+
+- **The adapter is a channel, and the transport above it is §7.1's, unchanged.** `StdioChannel` is
+  a `TransportChannel` over three injected surfaces — the child's stdout, a sink for its stdin, and
+  the close of that sink — and `StdioTransport` is the same `InProcessTransport` sitting on it. A
+  stdio decoder would be a second description of §2.1, and the second description is the one nobody
+  tested; "one envelope runs over three transports" is only true while there is one decoder.
+- **stdout carries frames and nothing else, and the diagnostics surface cannot reach it.** §2
+  requires diagnostics on stderr so they never mix into the protocol stream, and "we were careful"
+  is not a property a peer can verify. So the routing is structural rather than a rule to remember:
+  `StdioChannel` holds the child's stdin and stdout and has no diagnostics member at all, while
+  `StdioTransport` holds the child's stderr and its only byte-moving member is `send`, which frames
+  what it writes. Neither object can put a log line on the protocol stream, because neither holds
+  the other's sink. This is the real-world shape of the bug as well: a host cannot stop an extension
+  it did not write from printing to stdout, and the best it can do is fail the session on a codec
+  error rather than misinterpret the corruption. A child that does it gets `-32700` — a well-formed
+  frame boundary carrying something that is not a frame — and not a framing code, because the bytes
+  do not support a claim that the child's framing was corrupt.
+- **A chunk boundary means nothing; the decoder owns it.** A pipe hands over whatever the OS felt
+  like: a header split between its two `\r\n`s, a payload split inside a multi-byte character, three
+  frames in one read, and a megabyte that cannot arrive in one read at all. `Content-Length` counts
+  bytes precisely so that none of that is visible above `FrameDecoder`, and the adapter's only
+  obligation is to pass chunks through unchanged and never to assume a chunk is a frame. An
+  adapter that buffered "a line" would be an adapter that had quietly become an NDJSON reader, which
+  ADR-0002 calls a protocol error rather than a compatibility mode.
+- **`close()` releases the reader and signals the peer, and it never waits for the peer to exit.**
+  The two halves are separate because they fail separately. Releasing the reader is what stops a
+  closed channel holding a subscription to a live process's stdout — a channel that is closed and
+  still draining a pipe is the hanging reader, and it is invisible from the outside, because the
+  symptom is a CLI that cannot let go of the process it was talking to. Signalling the peer, by
+  closing its stdin so it sees EOF, is the only thing that makes a child blocked on a read stop
+  waiting, and it is what actually ends the child. *Waiting* is the part that must not happen:
+  a child that ignores EOF, or is stopped under a debugger, would make `close` hang for ever, and
+  `close` is what a `finally` block calls. Whether a process has exited is a bounded wait with a
+  policy and a timeout attached, and it belongs to the platform's process port (task `0.9`) — a
+  transport that cannot see a process has no business setting how long to wait for one.
+- **A peer whose output has ended refuses writes rather than accepting what nobody will read.** The
+  child's stdout ending is the one observation the adapter can make about a peer that is not a byte,
+  and it is the difference between a frame that is *placed* and a frame thrown into a pipe with no
+  reader. A channel that kept answering "taken" past that point would report a frame as delivered
+  when no reader will ever see it, which §2.2 forbids in the only terms it has: nothing taken,
+  nothing discarded, and the caller still holds the frame. So the write is refused, the transport
+  keeps the frame, and a loss is reported at close rather than swallowed. It is reported as
+  backpressure rather than as an error, because a process that died is an ordinary end of a session
+  and not a fault in the protocol.
+- **A child that stops mid-frame is a framing breach; one that stops on a boundary is not.** The end
+  of the peer's output is propagated as the end of the channel's incoming stream, so
+  the rule is §7.1's and not a new one: `FrameDecoder.endOfStream` is the only place an incomplete
+  frame is a failure. Mid-stream a partial frame is how every frame arrives; at the end of the
+  stream it is a peer that stopped halfway through a message, and the bytes buffered for it can
+  never become a frame. Treating that as a clean close would silently drop a response the parent
+  asked for and report a healthy session — and a process is where this actually happens, which is
+  why the distinction is worth stating on this row and not only on the in-memory one.
+- **A diagnostic that cannot be written is dropped, and it is not a frame.** The diagnostics
+  surface is not a protocol surface. It is not counted in `pendingBytes`, it is never retried, and a
+  sink that throws fails nothing: a log line is worth less than the session that reported it, and a
+  diagnostics writer that can fail a session is a way to lose a session over a lost log line. A
+  stderr pipe can be closed under a child, so this is reachable in production rather than a thought
+  experiment. §7's "a transport never changes policy or trust tier" reaches this far too — the
+  diagnostics surface is not a security boundary either, and a log line is not something to sanitise
+  on the way to a stream that a human reads.
+
+## 8. Errors

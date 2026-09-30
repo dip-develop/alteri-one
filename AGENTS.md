@@ -285,10 +285,11 @@ Trust the executable sources over prose:
   `test:offline` and `install:release` scripts are declared and will fail until the packages
   they scope to exist; a Melos script whose scope matches no package exits `0` without doing
   anything, so their presence proves nothing yet.
-- `alteri_one_protocol` carries the envelope (task `0.4`), the framing (task `0.5`) and the
-  control plane (task `0.6`): the four variants, the codec, the version types, the error
-  taxonomy, `Content-Length` framing, the 8 MiB frame cap, the 8 KiB header cap, a bounded
-  outbound queue, `$/cancelRequest`, `$/progress` and `core.initialize`. Two SDK facts are baked
+- `alteri_one_protocol` carries the envelope (task `0.4`), the framing (task `0.5`), the control
+  plane (task `0.6`) and both transports (tasks `0.7` and `0.8`): the four variants, the codec, the
+  version types, the error taxonomy, `Content-Length` framing, the 8 MiB frame cap, the 8 KiB header
+  cap, a bounded outbound queue, `$/cancelRequest`, `$/progress`, `core.initialize`, a channel port
+  with a deterministic pair, and the stdio adapter over it. Two SDK facts are baked
   into its shapes and will bite anyone rewriting them — **`sealed interface` does not parse on
   the pinned 3.13.4**, so `ErrorCode`, `HandshakeOutcome` and every other union is a `sealed
   class`; and an **`extension type` has one constructor and may not override an `Object`
@@ -318,7 +319,32 @@ Trust the executable sources over prose:
 - **`send` drains on every call, including one the queue refused.** Skipping the drain there
   looks like an optimisation and is a deadlock: a refused offer is exactly when the queue most
   needs draining, and with the drain skipped a full outbox plus a refusing channel never places
-  the held frame again.
+  the held frame again. Note the shape when the outbox is the thing refusing: `send` offers *before*
+  it drains, so the call that empties the queue can itself return `backpressured` for its own frame
+  while delivering the two behind it. That is correct, and the contract test asserts it as its own
+  observation rather than smoothing it over.
+- **The stdio adapter keeps its diagnostics sink out of the channel, and that is the only reason
+  a log line cannot reach stdout.** `StdioChannel` holds the child's stdin and stdout and has no
+  diagnostics member; `StdioTransport` holds the child's stderr and its only byte-moving member is
+  `send`, which frames. Neither object can put a log line on the protocol stream because neither
+  holds the other's sink — so the separation is a fact about the API, and the contract test asserts
+  it as an *absence* of members via `dart:mirrors`. Adding a `write` to `StdioTransport`, or a
+  `diagnostic` to `StdioChannel`, is the change that breaks §2's guarantee.
+- **`close()` must not wait for the child, and `isReading` is the observable that says so.** Closing
+  the child's stdin is what makes a child blocked on a read stop waiting, and it is awaited; the
+  child's *exit* is not, because `close` is what a `finally` block calls and a teardown that blocks
+  is one that hangs a CLI on Ctrl-C. The bounded wait for a process is `ProcessHost`'s (task `0.9`).
+  A released reader means the subscription field is cleared, not merely cancelled: `cancel` is
+  asynchronous, so a field left dangling reports a released reader as attached for a turn, and an
+  observable that is briefly wrong is worse than none.
+- **The stdio contract test spawns a real `dart` child, and that is not optional.** A
+  `StreamController` has no stdout separate from stderr, no child that exits, and no chunk
+  boundaries it did not choose, so the three properties task `0.8` names cannot be demonstrated with
+  one. The child is `test/transport/fixtures/stdio_child.dart` and it runs the product's own
+  `StdioTransport`, so the round trip exercises the shipped adapter at both ends. What a real pipe
+  *cannot* do on request — a boundary at a chosen byte — is driven through `_ScriptedPipe` in the
+  same file; a test claiming a real pipe split a frame on a particular byte would be asserting the
+  OS's scheduling. That is why the file carries the `integration` tag.
 - **A transport never decodes a frame, not even to write a diagnostic.** The close-time loss
   message names a *byte count* rather than a request id for this reason, and the contract test
   asserts it: naming the id would mean decoding, which is the one thing §7.1 forbids.

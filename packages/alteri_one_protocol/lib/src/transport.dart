@@ -488,11 +488,20 @@ final class _Link {
 
 /// A transport over one [TransportChannel]: frames out, frames in, and nothing else.
 ///
-/// [InProcessTransport] is the whole of the `ipc` row of §7. It holds a [FrameDecoder], a
-/// [FrameOutbox] and the controller a reader subscribes to, and it is deliberately not a
-/// dispatcher, a session or a handshake: nothing here decides anything about policy, trust tier
-/// or correlation. A `$/cancelRequest` arrives as an ordinary frame on `frames`, and whether it
-/// cancels anything is the dispatcher's finding, through the control plane of task `0.6`.
+/// [InProcessTransport] is the framed transport behind §7's `ipc` row and it is also the one
+/// behind §7's `stdio` row, which is what §7.1's first decision requires: a second decoder would
+/// be a second description of §2.1. The `ipc` row is therefore the *only* transport this class is
+/// named for, and it is the row that is entirely a channel; the stdio adapter of task `0.8` is
+/// [StdioChannel] plus the diagnostics surface of `StdioTransport`, sitting underneath this class
+/// unchanged. Its own name is a leftover of being the first one written, and it is stated here
+/// rather than papered over because a reader who finds `InProcessTransport` driving a pipe deserves
+/// to know that was the design and not a mistake.
+///
+/// It holds a [FrameDecoder], a [FrameOutbox] and the controller a reader subscribes to, and it is
+/// deliberately not a dispatcher, a session or a handshake: nothing here decides anything about
+/// policy, trust tier or correlation. A `$/cancelRequest` arrives as an ordinary frame on `frames`,
+/// and whether it cancels anything is the dispatcher's finding, through the control plane of task
+/// `0.6`.
 ///
 /// Four properties are worth stating, because each is a way this class is easy to get wrong:
 ///
