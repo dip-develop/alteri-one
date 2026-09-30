@@ -495,6 +495,41 @@ Trust the executable sources over prose:
 - **A transport never decodes a frame, not even to write a diagnostic.** The close-time loss
   message names a *byte count* rather than a request id for this reason, and the contract test
   asserts it: naming the id would mean decoding, which is the one thing §7.1 forbids.
+- **A namespace's grammar must admit `$`, or the control plane is unroutable.** The alternative
+  is `^[a-z][a-z0-9_]*` plus "`$/` is the constant `MethodNamespace.control`, reach it as a
+  constant" — and that is wrong in a way that passes every obvious test. `MethodNamespace.of`
+  takes a *method*, and the control plane's two methods are `$/cancelRequest` and `$/progress`, so
+  the constant existed, the seeded owner existed, `registry.owns(MethodNamespace.control)` was
+  `true`, and **no dispatch could ever reach it**: `MethodCall('$/cancelRequest')` threw and
+  `routeNotification` returned false. `overview.md` §5's middle row was dead code. Build the call
+  from the protocol package's own `cancelRequestMethod` constant in a test, never from a literal.
+- **A namespace's prefix and a record id's prefix cannot collide**, which is why nothing refuses a
+  namespace for being `mem` or `trace`. `concepts.md` §2's record-id grammar is `_(hex)+`, so the
+  underscore *binds a hex block* and a namespace is never a prefix of a record id. A comment here
+  once claimed the opposite and also said "`trace_` is not a valid namespace anyway" — false in
+  the same breath, since `_` is legal after a letter. The list is documentary, and the contract
+  test records the absence of a rule as a checked fact rather than leaving it as prose.
+- **The documents spell the namespace separator three ways**, and the code copes by taking the
+  leading segment: `protocol.md` §1 and `concepts.md` §2 use `/` (`core/run`, `core/step_completed`),
+  `overview.md` §5 and the tool ids use `.` (`<namespace>.*`, `web.search`), and the *shipped*
+  `initializeMethod` is dotted (`core.initialize`). Picking one is a change to a documented
+  contract, so `TODO.md` carries it as an operator decision rather than the code deciding.
+- **`engine.md` §4's event `provenance` and `concepts.md` §3's are two different label systems** —
+  five coarse words against seven values. `concepts.md`'s seven are the ones the code uses, because
+  ADR-0005 lists "a second label enum anywhere" under *Forbidden* and §3.1 requires labels to
+  survive transport unchanged, which a coarse event label would have to be mapped to at every
+  boundary. `plugin` deliberately has no distinct value: inventing one would be a second label
+  system and would be the one entry `concepts.md` §3.1's `Trust` derivation cannot answer.
+- **An event is redacted by construction or not at all.** `RedactedPayload.of(raw,
+  sensitivity:, redactor:)` takes a redactor as a parameter and **refuses** `Sensitivity.secret`
+  outright rather than redacting it, because a payload whose `.redacted()` call was forgotten is a
+  secret in a transcript, and `concepts.md` §3.1 says secret content must not reach memory,
+  transcript, logs, argv or a manifest *even in debug mode*. A function type rather than an
+  interface, so a "default no-op" implementation is not one method away.
+- **A bus with a `StreamController` per subscriber makes transcript order the event loop's.**
+  Delivery order is the order a transcript is written in and `observability.md` §2 compares
+  transcripts byte-for-byte, so `EventBus` is synchronous, in-process and has no `dart:async` at
+  all — the same argument the platform's clock documentation makes against a periodic timer.
 - **A `sealed class` with state cannot be an enum's superclass on the pinned SDK.** The three
   shapes that look equivalent are not. An enum's constructor **cannot** have a `super` initializer
   ("`super_in_enum_constructor`"), the superclass's implicit `super()` takes no arguments, and a
