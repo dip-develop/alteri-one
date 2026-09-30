@@ -85,13 +85,17 @@ notifications rather than a package.
 ## 3. Dependency rules
 
 The graph points from infrastructure towards capability and the composition root. Cycles
-are forbidden and are enforced by task `0.1`.
+are forbidden and are enforced by task `0.1`. The middle column is an allow-list rather
+than a description, so a third-party name in it is a decision and not a convenience: the
+`alterione` row is the only other one that names specific external packages, and the two
+in the core's row are the first any product library has carried. See
+[ADR-0022](../decisions/0022-core-runtime-dependencies.md).
 
 | Package | Allowed direct dependencies | Forbidden |
 |---|---|---|
 | `alteri_one_protocol` | `dart:core` and Dart-3-compatible pure-Dart libraries | `dart:io`, `dart:mirrors`, `dart:ffi`, any platform package |
 | `alteri_one_platform` | Conditional imports of `dart:io` and `package:web`; `alteri_one_protocol` where needed | Domain logic; any dependency on core |
-| `alteri_one_core` | `alteri_one_protocol`, `alteri_one_platform` | `dart:io` imported directly; `alteri_one_sandbox`; any extension package |
+| `alteri_one_core` | `alteri_one_protocol`, `alteri_one_platform`, and three pure-Dart third-party packages — [`package:yaml`, `package:source_span` and `package:intl`](../decisions/0022-core-runtime-dependencies.md) | `dart:io` imported directly; `alteri_one_sandbox`; any extension package |
 | `tools/*` | `alteri_one_protocol`, `alteri_one_core`, `alteri_one_platform` | Another extension's internals; being a dependency of core |
 | `injections/*` | `alteri_one_protocol`, and the label, context and deadline types | The policy engine, the capability registry, any memory write path; being a dependency of core |
 | `plugins/*` | `alteri_one_protocol`, `alteri_one_platform`, `alteri_one_core` | Being imported by core |
@@ -105,7 +109,11 @@ are forbidden and are enforced by task `0.1`.
 Three rules carry the most weight and are worth restating:
 
 - **`dart:io` never appears in `protocol` or `core`.** The web implementation of
-  `alteri_one_platform` does not relax this; it proves the rule is real.
+  `alteri_one_platform` does not relax this; it proves the rule is real. The two
+  third-party packages the core does carry are pure Dart on the import surface it
+  actually links — named per library in
+  [ADR-0022](../decisions/0022-core-runtime-dependencies.md) — which is what keeps this
+  rule a property of the build rather than of a grep.
 - **The sandbox host is wired by the composition root** (the CLI, in practice), never by
   the core. The core knows only a typed host interface and nothing about any particular
   OS sandbox.

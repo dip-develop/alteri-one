@@ -38,6 +38,7 @@ records below exist with their required sections.
 | [0019](0019-web-local-server.md) | The web target is a local server hosting a Flutter web GUI | Accepted | Phase 5 |
 | [0020](0020-project-website.md) | The project website is a static Jaspr site outside the pub workspace | Accepted | now |
 | [0021](0021-workspace-glob-list.md) | The workspace glob list names only subprojects that hold a package | Accepted | Phase 0 |
+| [0022](0022-core-runtime-dependencies.md) | The core carries a YAML parser and an l10n catalogue | Accepted | Phase 0 |
 
 ## Format
 
