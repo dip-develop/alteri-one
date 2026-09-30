@@ -10,6 +10,15 @@
       and the shipped `initializeMethod` is dotted (`core.initialize`). Task `0.12` resolves a
       namespace as the **leading segment** so all three route, which works around an ambiguity
       rather than deciding it. Picking one separator changes a documented contract
+- [ ] `alteri_one_platform`'s `ports_contract_test.dart` **fails on Windows** for the same reason
+      the core's l10n gate did: path separators. Two tests, both pre-existing and both red on
+      `develop` as well — `the install layout resolve refuses an absolute input instead of silently
+      replacing the root` expects a path ending in `state/default` and gets
+      `/srv/install/state/default`, and the ports test fails alongside it. Found while
+      verifying task `0.13`, which is why it is here rather than in the commit that fixes it:
+      `alteri_one_platform` is not this branch's package. Same fix — normalise the separator
+      before comparing, or assert on a `Uri`/`Path` rather than on a `String` — and the second is
+      the one that stops it recurring
 - [ ] A **401 or 403 has no error code of its own.** `providers.md` §1 says HTTP errors are mapped
       into the taxonomy, and the taxonomy has no code for "the credential was rejected", so task
       `0.13` maps it to `-32001` `Provider unavailable`. That is right for §5's *failover* and
