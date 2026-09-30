@@ -11,15 +11,17 @@
 /// | Arrives with | What |
 /// |---|---|
 /// | task `0.4` | The envelope, its JSON codec, the version types and the error taxonomy |
-/// | task `0.5` | Framing: `Content-Length`, the 8 MiB cap, backpressure |
+/// | task `0.5` | Framing: `Content-Length`, the 8 MiB cap, the 8 KiB header cap, backpressure |
 /// | task `0.6` | `$/cancelRequest`, `$/progress`, `core.initialize` and the session |
 /// | tasks `0.7`, `0.8` | The in-process and stdio transports |
 ///
 /// Nothing is declared before the task that specifies it, so that no declaration is written
-/// twice or written against a spec that moved. In particular there is no framing constant and
-/// no `Session` here: [SessionVersionInvariant] carries the post-handshake rule and is
-/// constructed by the handshake, because a version agreement that has not happened cannot be
-/// represented as a value with a null inside it.
+/// twice or written against a spec that moved. In particular there is no `Session` here:
+/// [SessionVersionInvariant] carries the post-handshake rule and is constructed by the handshake,
+/// because a version agreement that has not happened cannot be represented as a value with a null
+/// inside it. The framing limits do exist, because a frame's size has to be bounded before the
+/// handshake that negotiates them — a cap that arrived *with* the negotiation would be a cap that
+/// did not exist on the frames that negotiation was carried over.
 ///
 /// ## The four things this library guarantees
 ///
@@ -30,8 +32,14 @@
 /// - `meta.proto` is an integer major and `meta.moduleVersion` is a semver, as two types that
 ///   cannot be built from one another's value.
 ///
-/// The reasoning behind each, and the alternatives rejected, are in [ADR-0002] and
-/// [architecture/protocol.md] §1.
+/// Framing adds two more of the same kind. The boundary is a declared byte count, so a payload
+/// containing `\r\n\r\n` is one frame and a frame arriving a byte at a time is one frame. And a
+/// frame's size is bounded from its **header alone** — a peer that announces more than the cap
+/// has cost the receiver forty bytes, not eight megabytes — which is why [FrameDecoder] checks
+/// the number the header declares before it buffers any of the payload it claims.
+///
+/// The reasoning behind each, and the alternatives rejected, are in [ADR-0002],
+/// [architecture/protocol.md] §1 and §2.
 ///
 /// [architecture/overview.md]: ../../../../docs/architecture/overview.md
 /// [architecture/protocol.md]: ../../../../docs/architecture/protocol.md
@@ -42,5 +50,6 @@ library;
 export 'src/codec.dart' show decodeEnvelope, fromJsonMap;
 export 'src/envelope.dart';
 export 'src/error.dart';
+export 'src/framing.dart';
 export 'src/json.dart';
 export 'src/version.dart';
