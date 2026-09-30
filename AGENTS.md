@@ -285,13 +285,24 @@ Trust the executable sources over prose:
   `test:offline` and `install:release` scripts are declared and will fail until the packages
   they scope to exist; a Melos script whose scope matches no package exits `0` without doing
   anything, so their presence proves nothing yet.
-- `alteri_one_protocol` carries the envelope (task `0.4`): the four variants, the codec, the
-  version types and the error taxonomy. Two SDK facts are baked into its shapes and will bite
-  anyone rewriting them — **`sealed interface` does not parse on the pinned 3.13.4**, so
-  `ErrorCode` is a `sealed class`; and an **`extension type` has one constructor and may not
-  override an `Object` member**, so `ProtoMajor` and `FrameId` are final classes. Also: a
-  `JsonMap` is a wrapper, so `jsonEncode` cannot see through it — use `encodeFrame`, not
-  `jsonEncode(frame.toJson())`.
+- `alteri_one_protocol` carries the envelope (task `0.4`) and the framing (task `0.5`): the
+  four variants, the codec, the version types, the error taxonomy, `Content-Length` framing, the
+  8 MiB frame cap, the 8 KiB header cap and a bounded outbound queue. Two SDK facts are baked
+  into its shapes and will bite anyone rewriting them — **`sealed interface` does not parse on
+  the pinned 3.13.4**, so `ErrorCode` is a `sealed class`; and an **`extension type` has one
+  constructor and may not override an `Object` member**, so `ProtoMajor` and `FrameId` are final
+  classes. Also: a `JsonMap` is a wrapper, so `jsonEncode` cannot see through it — use
+  `encodeFrame`, not `jsonEncode(frame.toJson())`.
+- **Two framing traps, both of which the contract test caught the hard way.** A header block
+  ending in `\r\n\r\n` splits on `\r\n` into **two** trailing empty elements, not one — the
+  blank line *and* the split's own artefact — and getting that wrong refuses every well-formed
+  header. And when a payload spans chunks, the incoming chunk must be compared against the
+  **outstanding** bytes (`declared − already buffered`), never against the declared length:
+  conflating them emits every multi-chunk frame one bufferful short, which decodes as truncated
+  JSON on a stream whose frames are all correctly sized.
+- **`FrameLimits.capped` is the check that holds in every build.** Its `assert`s are
+  debug-only, so a `FrameLimits` above a hard cap is *clamped* rather than honoured — "negotiate
+  lower, never higher" is a property of the reader, not of whoever wrote the configuration.
 
 ## Where to start reading
 

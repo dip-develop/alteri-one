@@ -23,6 +23,7 @@
 - [x] `site/`: a single-page static Jaspr landing page, deployed to alteri.one — ADR-0020
 - [x] Task `0.3`: the documentation contract — required records, ADR format, fail-closed
 - [x] Task `0.4`: the versioned envelope, its codec and the error taxonomy
+- [x] Task `0.5`: `Content-Length` framing, the 8 MiB frame cap, the 8 KiB header cap and bounded backpressure
 - [ ] Site: install, extensions and documentation-index pages
 - [ ] Site: render `docs/` with `jaspr_content` rather than summarising it
 - [ ] Site: dark theme — `css.media` in the pinned Jaspr has no `prefers-color-scheme`

@@ -559,8 +559,10 @@ JsonMap errorForJson(AlteriOneError error) => JsonMap({
 /// writes its own conversion, and the two outcomes are both worse than one function here.
 ///
 /// The result is UTF-8-safe in the sense that matters: a payload may contain any character, and
-/// escaping it is `dart:convert`'s job. The framing layer decides how many *bytes* it is, and
-/// that is task `0.5`.
+/// escaping it is `dart:convert`'s job. How many *bytes* it is, and the header block that says
+/// so, is [encodeFramedFrame]'s job — a transport should reach for that rather than assemble a
+/// header, because `Content-Length` counts bytes and a character count is wrong for every frame
+/// carrying a non-ASCII string.
 String encodeFrame(AlteriOneEnvelope frame) =>
     jsonEncode(frame.toJson().toEncodable());
 
