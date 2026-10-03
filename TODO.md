@@ -104,9 +104,12 @@
 - [ ] Give the manifest job per-target directories; `merge-multiple` collides on `alterione.aot`
 - [ ] Decide the curated-mirror question for third-party Tier 1 extensions (open question 9)
 - [ ] Re-assert workspace membership in task 5.1 when `apps/gui` and `apps/web` land
-- [ ] Site: install, extensions and documentation-index pages
 - [ ] Site: render `docs/` with `jaspr_content` rather than summarising it
-- [ ] Site: dark theme — `css.media` in the pinned Jaspr has no `prefers-color-scheme`
+- [x] Site: install, extensions and documentation-index pages; Tailwind for the stylesheet,
+      and the site analysed, formatted and asserted in `pages.yml` — ADR-0023
+- [x] Site: dark theme. It was blocked because `css.media` in the pinned Jaspr has no
+      `prefers-color-scheme`; the Tailwind stylesheet is plain CSS and reaches it. It follows
+      the OS, with no toggle — a toggle is state, and this site has no client bundle
 - [x] The documentation checker is Dart (`tool/docs/check_doc_links.dart`), not Python; the Python one is gone
 - [x] The web target is a locally running server hosting a Flutter web GUI — ADR-0019
 - [x] `site/`: a single-page static Jaspr landing page, deployed to alteri.one — ADR-0020

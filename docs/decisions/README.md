@@ -39,6 +39,7 @@ records below exist with their required sections.
 | [0020](0020-project-website.md) | The project website is a static Jaspr site outside the pub workspace | Accepted | now |
 | [0021](0021-workspace-glob-list.md) | The workspace glob list names only subprojects that hold a package | Accepted | Phase 0 |
 | [0022](0022-core-runtime-dependencies.md) | The core carries a YAML parser and an l10n catalogue | Accepted | Phase 0 |
+| [0023](0023-site-tailwind.md) | The website is styled with Tailwind, compiled by the standalone CLI | Accepted | now |
 
 ## Format
 
