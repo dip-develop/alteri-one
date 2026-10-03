@@ -1,0 +1,245 @@
+/* The stylesheet for alteri.one.
+ *
+ * Tailwind v4 is configured here, in CSS, rather than in tailwind.config.js. The
+ * input file is `web/styles.tw.css`; the standalone `tailwindcss` CLI compiles it to
+ * `web/styles.css`, and `jaspr build` copies that into the output next to the rendered
+ * HTML. `web/styles.css` is generated and is not committed — see .gitignore and
+ * docs/decisions/0023-site-tailwind.md.
+ *
+ * Why the CLI and not `jaspr_tailwind`: every published version of that package depends
+ * on `build_modules >=5.0.0`, and every published version of `build_modules` caps its SDK
+ * at `<3.13.0-z`, so it cannot resolve on this project's Dart 3.13.4. The decision, and
+ * the alternatives, are in ADR-0023.
+ *
+ * Why no webfont: the project's third north-star goal is zero bytes of telemetry unless
+ * it is explicitly opted into, and a font served by a third party is a request to a third
+ * party on the project's own domain. A system stack costs nothing, blocks nothing and
+ * cannot phone anywhere. See ADR-0023.
+ *
+ * `@source` is declared explicitly. Naming it switches off Tailwind's automatic source
+ * detection, so the set of scanned files is exactly the two directories this package
+ * owns and cannot drift when a directory is added above site/.
+ */
+
+@import 'tailwindcss';
+
+@source '../lib';
+@source '.';
+
+@theme {
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+
+  /* The brand scale is fixed in both colour schemes: it is a hue, not a surface.
+     #2F6F4F is the accent the site shipped before Tailwind, and #7FCBA4 is the stroke
+     in static/favicon.svg, so the mark and the page stay one colour. */
+  --color-brand-50: #f0f9f3;
+  --color-brand-100: #d9f0e2;
+  --color-brand-200: #b6e1c8;
+  --color-brand-300: #86cba6;
+  --color-brand-400: #52ad82;
+  --color-brand-500: #2f6f4f;
+  --color-brand-600: #275c43;
+  --color-brand-700: #204a36;
+  --color-brand-800: #1b3b2c;
+  --color-brand-900: #162d23;
+  --color-brand-950: #0c1913;
+
+  /* A cool neutral. The page text was #14181F before Tailwind and still is, as
+     --color-ink in both schemes' light values. */
+  --color-ink-50: #f7f8f9;
+  --color-ink-100: #eef0f3;
+  --color-ink-200: #dde1e7;
+  --color-ink-300: #c3cad4;
+  --color-ink-400: #98a3b3;
+  --color-ink-500: #6f7c8f;
+  --color-ink-600: #566274;
+  --color-ink-700: #454f5d;
+  --color-ink-800: #2b323d;
+  --color-ink-900: #14181f;
+  --color-ink-950: #0e1116;
+
+  /* Semantic surface tokens. Utilities compile to var(--color-*) and these are real
+     custom properties on :root, so the dark block below re-declares the same names
+     and every utility in the built stylesheet follows. That is why the site has one
+     class name per surface and no `dark:` twin of it. */
+  --color-canvas: #ffffff;
+  --color-canvas-subtle: #f6f7f8;
+  --color-surface: #ffffff;
+  --color-line: #e3e6ea;
+  --color-line-strong: #cfd4da;
+  --color-ink: var(--color-ink-900);
+  --color-ink-muted: #59637a;
+  --color-accent: var(--color-brand-500);
+  --color-accent-hover: var(--color-brand-600);
+  --color-on-accent: #ffffff;
+}
+
+/* One media query, one block. `dark:` in Tailwind v4 is `prefers-color-scheme` by
+ * default, so the media query here and the `dark:` variants in the components are two
+ * halves of the same switch and cannot disagree. docs/website.md §7 recorded the dark
+ * theme as blocked because `css.media` in the pinned Jaspr has no `prefers-color-scheme`
+ * — that was a limitation of CSS-in-Dart, and it is gone with this stylesheet.
+ *
+ * The block sits in @layer base rather than outside every layer, so the cascade is
+ * read off the file: base rules first, then the dark re-declaration of the same
+ * names, then components, then utilities. */
+@layer base {
+  /* On :root as well as body. The area outside the page is painted by the browser
+   * default, and a light default under a dark page is a white flash. */
+  :root {
+    color-scheme: light dark;
+    background-color: var(--color-canvas);
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* A visible focus ring is the one thing a marketing site cannot do without: the page
+   * is a pile of links and the browser default is frequently removed by preflight. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  ::selection {
+    background-color: var(--color-brand-200);
+    color: var(--color-brand-900);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --color-canvas: #0e1116;
+      --color-canvas-subtle: #101620;
+      --color-surface: #14181f;
+      --color-line: #232a35;
+      --color-line-strong: #333c4a;
+      --color-ink: #e6e9ee;
+      --color-ink-muted: #98a3b3;
+      --color-accent: #7fcba4;
+      --color-accent-hover: #9fd9bc;
+      --color-on-accent: #0c1913;
+    }
+
+    ::selection {
+      background-color: var(--color-brand-800);
+      color: var(--color-brand-100);
+    }
+  }
+}
+
+@layer components {
+  /* Long-form text. The pages are written as semantic HTML, and this is the one place
+   * that decides what a paragraph, a list or a link looks like inside it, so a page
+   * author writes `Prose([...])` and gets the treatment without restating it.
+   *
+   * The colours are semantic tokens, so this block needs no `dark:` twin. */
+  .prose {
+    color: var(--color-ink-muted);
+    font-size: 1.0625rem;
+    line-height: 1.75;
+  }
+
+  .prose > * + * {
+    margin-top: 1.15em;
+  }
+
+  .prose h2 {
+    color: var(--color-ink);
+    font-size: 1.375rem;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    line-height: 1.3;
+    margin-top: 2.25em;
+  }
+
+  .prose h3 {
+    color: var(--color-ink);
+    font-size: 1.0625rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin-top: 1.75em;
+  }
+
+  .prose strong {
+    color: var(--color-ink);
+    font-weight: 600;
+  }
+
+  .prose code {
+    background-color: var(--color-canvas-subtle);
+    border: 1px solid var(--color-line);
+    border-radius: 4px;
+    color: var(--color-ink);
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+    padding: 0.1em 0.35em;
+  }
+
+  .prose ul,
+  .prose ol {
+    padding-left: 1.35em;
+  }
+
+  .prose ul {
+    list-style: disc;
+  }
+
+  .prose ol {
+    list-style: decimal;
+  }
+
+  .prose li + li {
+    margin-top: 0.4em;
+  }
+
+  .prose li::marker {
+    color: var(--color-ink-400);
+  }
+}
+
+/* Two background textures, both pure CSS so the page ships no image request beyond the
+ * favicon. A hairline grid behind the hero and a single soft wash of the brand. */
+@utility paper-grid {
+  background-image:
+    linear-gradient(to right, var(--color-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--color-line) 1px, transparent 1px);
+  background-size: 4rem 4rem;
+  background-position: center;
+}
+
+@utility brand-wash {
+  background-image: radial-gradient(
+    60rem 30rem at 50% -10%,
+    color-mix(in oklab, var(--color-accent) 16%, transparent),
+    transparent 70%
+  );
+}
+
+/* Inline code that is the name of a file, a package or a field. Distinct from a fenced
+ * block, which is a block element with its own treatment. */
+@utility inline-code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  letter-spacing: -0.01em;
+  color: var(--color-ink);
+  background-color: var(--color-canvas-subtle);
+  border: 1px solid var(--color-line);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  white-space: nowrap;
+}
