@@ -15,7 +15,7 @@ gains the `deadline` and `cancel` parameters, since the run loop is the first ho
 
 | Package | State |
 |---|---|
-| `alteri_one_core` | real — registry, dispatcher, event bus, profile subsystem, the OpenAI-compatible provider and its port, `FakeProvider` (~13k lib / 8k test) |
+| `alteri_one_core` | real — registry, dispatcher, event bus, profile subsystem, the OpenAI-compatible provider and its port, `FakeProvider`, and the engine control primitives — `Deadline`, `CostBudget`, `StepBudget`, the stagnation detector, bound as `RunControls` (~13k lib / 10k test) |
 | `alteri_one_protocol` | real — envelope, codec, error taxonomy, framing, control plane, in-process + stdio transports (~7.2k / 8.0k) |
 | `alteri_one_platform` | real — six ports, five native adapters, browser surface, `FakeClock` (~3.7k / 2.5k) |
 | `alteri_one_cli`, `alterione`, `alteri_one_memory`, `alteri_one_injection_skill` | **boundary only** — one file, a doc comment and `library;`, no `test/` |

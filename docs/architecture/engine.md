@@ -245,10 +245,15 @@ written two plausible ways and the difference decides whether the invariant abov
   construction rather than producing a deadline that has already expired, since a caller that meant
   "unlimited" has said something the run does not permit.
 - **`CostBudget` is a ledger, and a ceiling is not a reservation.** It answers whether the next
-  estimated call *fits*, and only counts usage that has actually been reported. An estimate is
+  estimated call *fits*, and — with one exception — only counts usage that has actually been
+  reported. An estimate is
   checked before the call and the real usage settles after it, which is §4's "aggregated before
   the next step" — so a turn that costs more than it estimated leaves the ledger over its ceiling,
-  and that is correct: the ledger records what happened rather than what was hoped for.
+  and that is correct: the ledger records what happened rather than what was hoped for. The
+  exception is §5.1's reserve, which joins the ledger as spending the moment it is taken and is
+  replaced by the real usage when the child settles: the report an operator reads at `-32032` has
+  to mean "this much is committed", and the estimate is the only figure available before a child
+  reports anything.
 - **Tokens and USD are both ceilings and either one can end the run.** A run with a generous USD
   ceiling and a tight token ceiling stops on tokens. Treating the token figure as a derived
   display of the USD one would make the tighter of the two the only limit that exists.

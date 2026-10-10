@@ -4,6 +4,18 @@
      Anything durable belongs in docs/process/task-breakdown.md or a GitHub issue; if an
      item lives in both places, each one points at the other. -->
 
+- [ ] `engine.md` §2's **own loop reaches an exhausted deadline it never checked for**. The
+      pseudocode checks `deadline.isExpired` and then `await`s a policy evaluation before calling
+      `deadline.child(...)`, so the check and the call are not adjacent: a run whose model turn
+      takes 9.9s of a 10s budget and whose approval prompt takes the last 0.1s arrives at `child()`
+      with nothing left. `Deadline.child` used to throw `StateError` there on the reasoning that
+      "the loop checks `isExpired` before it starts a turn" — true only of a caller that was never
+      written, since §3 says an expired deadline is `Timeout(Duration.zero)` and a `StateError`
+      leaving the loop is neither one of §2's four terminal outcomes nor a result. Task `0.14` now
+      has `child()` return `min(perCall, 1µs)` on an exhausted parent, so the run reports its
+      timeout through the ordinary path; **the remaining question is whether §2's pseudocode should
+      be amended to re-check `isExpired` after any `await` that precedes a `child()` call**, so the
+      document and the code agree on where the boundary is drawn
 - [ ] The namespace **separator** is spelled three ways and the documents do not reconcile them:
       `protocol.md` §1 and `concepts.md` §2 use `/` (`core/run`, `core/step_completed`),
       `overview.md` §5 and `concepts.md` §2's tool ids use `.` (`<namespace>.*`, `web.search`),
