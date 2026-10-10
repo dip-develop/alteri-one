@@ -32,17 +32,19 @@
 /// |---|---|
 /// | task `0.10` | This port, its DTOs, `FakeProvider` |
 /// | task `0.13` | The OpenAI-compatible implementation, and §3.2's chunk assembly |
-/// | task `0.14` | `Deadline` and `CancelToken`, which §1 passes to `chat` |
+/// | task `0.14` | `Deadline` and `CancelToken`, the two types §1's signature names |
+/// | task `0.15` | The `deadline` and `cancel` parameters §1 passes to `chat` |
 /// | task `2.1` | `ProbeCache`, §2.1's on-disk probe cache, which this port does not see |
 ///
 /// **`chat` takes no `deadline` and no `cancel` yet**, and that is the honest consequence of the
 /// table rather than an oversight. §1's signature names `Deadline` and `CancelToken`, both of
-/// which task `0.14` specifies, and §3 makes streaming non-negotiable: *"Retrofitting the
+/// which task `0.14` specified, and §3 makes streaming non-negotiable: *"Retrofitting the
 /// interface after the first client exists changes every implementation, command factory and test
 /// double; streaming in the base contract costs almost nothing relative to its absence."* The
-/// rule §3 is protecting is about retrofitting after *clients* exist. There are none, so the
-/// parameters arrive with the types that own them, and the retrofit is two required named
-/// parameters against two in-tree implementations.
+/// rule §3 is protecting is about retrofitting after *clients* exist. There are none, and the
+/// first code holding a deadline and a token to pass in is task `0.15`'s run loop, so the
+/// parameters arrive with it. The retrofit is two required named parameters against two in-tree
+/// implementations.
 ///
 /// A caller that needs a bound today wraps the stream subscription, which is what the port's own
 /// documentation says to do: [AlteriOneClock]'s `delay` is not cancellable either, and a caller
@@ -667,9 +669,11 @@ abstract interface class AlteriOneProvider {
   /// The stream **must** end with exactly one [AlteriOneChatResult], and it must carry a usage
   /// (§3.2, §4). A stream that ends without one is an error, not a turn: §3.2's `-32603`.
   ///
-  /// **No `deadline` and no `cancel` yet.** §1's signature passes both and both are task `0.14`'s
-  /// `Deadline` and `CancelToken`; they arrive with the types that own them rather than as
-  /// parameters typed against something that does not exist. See this file's documentation.
+  /// **No `deadline` and no `cancel` yet.** §1's signature passes both, and both are the types
+  /// task `0.14` specified — `Deadline` and `CancelToken` are in `engine/control.dart` — so the
+  /// types exist and the *parameters* do not. They arrive with task `0.15`, the first code that
+  /// holds a deadline and a token to pass into a turn; a parameter typed against a value no
+  /// caller has is a ceremony, not a bound. See this file's documentation.
   ///
   /// [model] is named per call and not fixed on the provider, because §1's opening rule is that
   /// *every `endpoint + model` pair has its own capability matrix* — a provider holding one model

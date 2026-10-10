@@ -39,9 +39,11 @@
 ///
 /// ## No `deadline`, no `cancel`, and no retry
 ///
-/// §1's signature passes both, and both are task `0.14`'s [Deadline] and [CancelToken]. They
-/// arrive with the types that own them — two required named parameters against two in-tree
-/// implementations, which `provider.dart` documents as the cheap direction. What the *exchange*
+/// §1's signature passes both, and both are the types task `0.14` specified — [Deadline] and
+/// [CancelToken] are in `engine/control.dart` — so the types exist and the *parameters* do not.
+/// They arrive with task `0.15`, the first code that holds a deadline and a token to pass into a
+/// turn, and `provider.dart` documents why the cheap direction is to type them against two
+/// in-tree implementations rather than against something no caller has yet. What the *exchange*
 /// does have is [ChatExchange.timeout], a total budget on one exchange, so a hung endpoint cannot
 /// hold a step for ever even before the deadline exists.
 ///
@@ -400,10 +402,12 @@ final class OpenAiCompatibleProvider implements AlteriOneProvider {
   ///
   /// A caller that cancels the subscription cancels the exchange: [HttpResponse.body]'s contract
   /// says an abandoned body aborts the request, and abandoning the stream is what abandons it.
-  /// That is what makes a cancellation cheap before task `0.14` owns `CancelToken` — and it is
-  /// why nothing here has to be cleaned up by hand. The connection goes back to the pool because
-  /// the body is read to its end on the normal path and cancelled on every path that is not; the
-  /// `try` clauses in [_readTurn] map failures, they do not release anything.
+  /// That is the mechanism a [CancelToken] drives — its cancel handler cancels the subscription,
+  /// and cancelling the subscription is what releases the socket. The token itself arrives with
+  /// task `0.15`, the first run loop with something to cancel; the mechanism it will drive is
+  /// already here, and that is why nothing has to be cleaned up by hand. The connection goes back
+  /// to the pool because the body is read to its end on the normal path and cancelled on every
+  /// path that is not; the `try` clauses in [_readTurn] map failures, they do not release anything.
   Stream<AlteriOneChatChunk> _turn(
     AlteriOneRequest request,
     String model,

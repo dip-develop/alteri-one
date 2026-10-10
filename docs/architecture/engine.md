@@ -228,6 +228,48 @@ why automatic retries are counted as the same signature rather than as fresh att
 model that alternates between two arguments forever does not trip it, and is bounded by
 `maxSteps` instead.
 
+### 3.2 What each primitive guarantees
+
+§3.1 fixes the counters. This states what each primitive *is*, because four of the five can be
+written two plausible ways and the difference decides whether the invariant above holds.
+
+- **`Deadline` is derived from a monotonic clock and is always finite.** `Infinity` and "no
+  timeout" are not values it can hold, so a caller cannot construct the run §3 forbids. It
+  answers two questions — has the whole run expired, and how much time is left — and both come
+  from `clock.monotonicNow()`, never `now()`. A wall clock can jump backwards, and a deadline
+  compared against one would extend itself when NTP corrected the host.
+- **`Deadline.child(perCall)` returns `min(perCall, remaining)`, and a child can never extend its
+  parent.** Not "the child's own timeout", and not an error when the per-call timeout exceeds what
+  is left — a 30-second model timeout inside a run with 4 seconds remaining is a **4-second**
+  model timeout, and the run is what ends it. A `Duration` argument of zero or less is refused at
+  construction rather than producing a deadline that has already expired, since a caller that meant
+  "unlimited" has said something the run does not permit.
+- **`CostBudget` is a ledger, and a ceiling is not a reservation.** It answers whether the next
+  estimated call *fits*, and only counts usage that has actually been reported. An estimate is
+  checked before the call and the real usage settles after it, which is §4's "aggregated before
+  the next step" — so a turn that costs more than it estimated leaves the ledger over its ceiling,
+  and that is correct: the ledger records what happened rather than what was hoped for.
+- **Tokens and USD are both ceilings and either one can end the run.** A run with a generous USD
+  ceiling and a tight token ceiling stops on tokens. Treating the token figure as a derived
+  display of the USD one would make the tighter of the two the only limit that exists.
+- **Reserving for a child takes the parent's budget and never mints more.** §5.1's shared ledger
+  means a subagent's reserve is subtracted from the parent's remaining and settles back into the
+  same totals. A child therefore cannot cost more than the parent had left, and a reserve that is
+  never settled — because the child died — is returned, or the parent's budget would drift
+  downwards for a run that spent nothing.
+- **`CancelToken` is the protocol package's, re-exported, not a second implementation.** It
+  already cascades, already keeps the first reason, and already distinguishes a listener that
+  arrived late from one that was there; a core copy would be a second signal with subtly
+  different semantics and the composition of two would be undefined.
+- **The step limit and the stagnation detector are separate, and neither subsumes the other.** A
+  step limit bounds a run that is making progress slowly; the detector bounds one that is not
+  making progress at all. A model alternating between two arguments forever never repeats a
+  signature and so never trips the detector — that is what §3.1's `maxSteps` is for.
+- **A terminal control outcome is not a `ToolOutcome`.** `-32030`/`-32031`/`-32032` end the run;
+  a tool failure is something the model sees and can correct. Anything that lets a tool return a
+  budget or deadline exhaustion as an ordinary outcome has turned a terminal control decision into
+  a suggestion.
+
 ## 4. Events
 
 The canonical event stream contains:

@@ -78,6 +78,8 @@
 - [x] Task `0.12`: the extension registry, the event bus and the prefix dispatcher
 - [x] Task `0.13`: the OpenAI-compatible provider — the wire request, an incremental SSE reader,
       §3.2's five assembly rules, the batch adapter, and §2's capability probe
+- [x] Task `0.14`: the engine control primitives — `Deadline`, `CostBudget`, `StepBudget`, the
+      stagnation detector and the four bound together as `RunControls`
 - [ ] `intl_translation` and generated l10n accessors: `configuration.md` §7.1 says user-facing text
       comes "through generated accessors" and the catalogue is hand-written. ADR-0022 defers this to
       `0.17`, which is the first task with user-facing prose; the catalogue is already shaped so
@@ -86,8 +88,9 @@
       (`_satisfiableOnWeb` in the workspace contract test). It understands `dart.library.io` and
       treats an unrecognised condition as satisfiable, which is conservative; `dart compile js` on
       the core is the independent check and it is not in CI yet — the TODO below says so
-- [ ] `AlteriOneProvider.chat` takes no `deadline` or `cancel` yet; task `0.14` adds both when it
-      owns `Deadline` and `CancelToken`, per `providers.md` §1 — stated at the port's declaration
+- [ ] `AlteriOneProvider.chat` takes no `deadline` or `cancel` yet; `0.14` shipped `Deadline` and
+      `CancelToken` and task `0.15` adds the parameters, per `providers.md` §1 — stated at the
+      port's declaration
 - [ ] CI compiles the browser surface (`dart compile js`); `alteri_one_platform`'s central claim is
       that a web build resolves the refusal surface, and nothing keeps that true but this AGENTS.md note
 - [ ] `test/` directory layout: `testing-strategy.md` §2 says `unit/`, `contract/`, `integration/`,
