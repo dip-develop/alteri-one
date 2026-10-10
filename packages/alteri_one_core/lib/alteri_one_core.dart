@@ -82,10 +82,17 @@ export 'core.dart';
 /// stagnation detector, bound together so a run cannot be built without all four. See
 /// `lib/src/engine/control.dart` for `engine.md` §3.2 and why each one has two plausible
 /// spellings.
+///
+/// `CancelReason` and `CancelToken` are in the list because `RunControls.cancel` is one of the
+/// four and a caller holding only this barrel would otherwise get a member whose type it cannot
+/// name or construct — which would make "one `CancelToken` in the product" a thing stated in the
+/// documentation and not available in the import.
 export 'src/engine/control.dart'
     show
         BudgetExhausted,
         Cancelled,
+        CancelReason,
+        CancelToken,
         CostBudget,
         CostReserve,
         Deadline,

@@ -105,7 +105,9 @@ export 'package:alteri_one_protocol/alteri_one_protocol.dart'
 /// so a clock may be anywhere in its own timeline, and a deadline measured from the raw reading
 /// would be born expired on it.
 ///
-/// [FakeClock]: ../../../../alteri_one_platform/src/fakes/clock.dart
+/// [FakeClock] resolves through the import below — it is exported from the platform package's own
+/// barrel, so naming this package's `src/` path here would have been a relative link into another
+/// package, and one that breaks when that package moves a private file.
 final class Deadline {
   /// Creates a deadline of [limit] from [startedAt], reading time from [clock].
   ///
@@ -206,11 +208,27 @@ final class Deadline {
   ///
   /// Throws [ArgumentError] naming `perCall` when it is zero or negative, for §3.2's reason.
   ///
-  /// Throws [StateError] when this deadline has already expired, which is a *different* mistake
-  /// from a bad `perCall` and gets a different error: the argument was fine and the run is over.
-  /// The loop checks [isExpired] before it starts a turn (§2 checks it before every step), so
-  /// this is a caller that skipped that check, and a `Deadline` already born expired would have
-  /// to mean a limit of zero — the value §3.2 refuses at construction.
+  /// ## An exhausted parent yields the smallest legal child, not a throw
+  ///
+  /// An earlier version threw [StateError] here on the reasoning that "the loop checks [isExpired]
+  /// before it starts a turn (§2 checks it before every step), so this is a caller that skipped
+  /// that check". **§2's own pseudocode takes this path.** Its loop checks `isExpired` and then
+  /// `await`s a policy evaluation before reaching `deadline.child(...)`, so a run whose model turn
+  /// consumes 9.9 s of a 10 s budget and whose approval prompt takes the last 0.1 s arrives here
+  /// with nothing left. The check and the call are not adjacent, so "the caller skipped the check"
+  /// was true only of a caller that was never written.
+  ///
+  /// A throw there is worse than a very short deadline: §3 says an expired deadline is
+  /// `Timeout(Duration.zero)`, and a [StateError] leaving the loop is neither one of §2's four
+  /// terminal outcomes nor a result — it is a crash, on the run's own timeout path. So an
+  /// exhausted parent yields [Duration] **1µs** worth of child: the smallest duration that is not
+  /// the zero §3.2 refuses at construction, and one on which no work can complete. The child
+  /// expires on that microsecond and the loop's next boundary reports the timeout, which is what
+  /// §3 names and where §2 intended to be.
+  ///
+  /// "A child can never extend its parent" still holds in the only sense that has teeth: a child
+  /// never grants itself time the parent had. A microsecond is not time, it is the shortest legal
+  /// way to say *already over* in a type that will not represent zero.
   Deadline child(Duration perCall) {
     if (perCall <= Duration.zero) {
       throw ArgumentError.value(
@@ -220,18 +238,18 @@ final class Deadline {
             'construction rather than yielding a deadline that has already expired',
       );
     }
+    // Clamped rather than tested: an exhausted parent is *zero* left, and 1µs is the least that
+    // is not the zero §3.2 refuses. `min(perCall, …)` then applies exactly as below, so a
+    // per-call timeout smaller than a microsecond — which no Duration can be — is unreachable and
+    // needs no second branch.
     final left = remaining;
-    if (left == Duration.zero) {
-      throw StateError(
-        'this deadline has expired, so a child cannot be derived from it. Check isExpired '
-        'first: the run answers -32030 for the run itself, and a per-call timeout is the '
-        'wrong place to learn that',
-      );
-    }
+    final available = left == Duration.zero
+        ? const Duration(microseconds: 1)
+        : left;
     return Deadline(
       clock: _clock,
       startedAt: _clock.now(),
-      limit: perCall < left ? perCall : left,
+      limit: perCall < available ? perCall : available,
     );
   }
 
@@ -486,6 +504,12 @@ final class CostBudget {
       usdMicros: _toMicros(usd),
     );
     _reserves[reserve.reserveId] = reserve;
+    // The estimate enters `_usage` as spending rather than as a separate "committed" column, so
+    // `spentTokens` and `isExhausted` see it — see [isExhausted] for why that is the honest
+    // answer. The alternative is a ledger that understates itself while a child is in flight: the
+    // report an operator reads at -32032 has to mean "this much is committed", and the estimate
+    // is the only figure available before the child reports anything. Settling replaces it with
+    // the real usage, so the overstatement lasts exactly as long as the child does.
     _add(AlteriOneUsage(inputTokens: tokens), reserve.usdMicros);
     return reserve;
   }
@@ -524,22 +548,40 @@ final class CostBudget {
   /// than a throw because returning is what a teardown does on every path, including the ones
   /// where the child was cancelled before it ever started.
   bool releaseReserve(CostReserve reserve) {
-    final withheld = _reserves.remove(reserve.reserveId);
+    final withheld = _outstanding(reserve);
     if (withheld == null) return false;
+    _reserves.remove(reserve.reserveId);
     _release(withheld);
     return true;
   }
 
+  /// This budget's live entry for [reserve], or null when it has none.
+  ///
+  /// **Identity, not just the id.** [CostReserve.reserveId] is a counter local to one budget, so
+  /// *every* budget's first reserve is id 1 and a lookup keyed on it alone accepts a handle from
+  /// another budget whenever the ids happen to line up — which, for the first reserve of each, is
+  /// always. Two runs in one process would then refund or settle each other's live children, and a
+  /// tool that stashed a handle across a boundary could move money that was never its own. The
+  /// private constructor stops a handle being *minted*; this stops one being *borrowed*, which is
+  /// the half a caller actually controls.
+  CostReserve? _outstanding(CostReserve reserve) {
+    final held = _reserves[reserve.reserveId];
+    return held != null && identical(held, reserve) ? held : null;
+  }
+
   /// The live entry for [reserve], or a [StateError] naming what went wrong.
   CostReserve _take(CostReserve reserve, String action) {
-    final withheld = _reserves.remove(reserve.reserveId);
-    if (withheld != null) return withheld;
-    throw StateError(
-      'reserve ${reserve.reserveId} is not outstanding and cannot be $action. A reserve is '
-      'outstanding until it is settled or released once, and this budget does not know '
-      'this one — a reserve from another budget would settle a child against a ledger that '
-      'never paid for it',
-    );
+    final withheld = _outstanding(reserve);
+    if (withheld == null) {
+      throw StateError(
+        'reserve ${reserve.reserveId} is not outstanding and cannot be $action. A reserve is '
+        'outstanding until it is settled or released once, and this budget does not know '
+        'this one — a reserve from another budget would settle a child against a ledger that '
+        'never paid for it',
+      );
+    }
+    _reserves.remove(reserve.reserveId);
+    return withheld;
   }
 
   /// Takes [withheld]'s estimate back off the ledger.

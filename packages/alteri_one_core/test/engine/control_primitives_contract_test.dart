@@ -76,9 +76,9 @@ import 'dart:io';
 //
 // The import stays on `src/` for the reason the reference contract test states for its own file:
 // a rename or a move inside `lib/` should break this test rather than quietly make it assert a
-// property of internals. The barrel is exercised in its own right — the members this file pins
-// are the ones `alteri_one_core.dart` must re-export, and a name missing from that `show` list
-// is a gap no test importing `src/` can see.
+// property of internals. The barrel is exercised in its own right — see the group at the bottom of
+// this file — the members this file pins are the ones `alteri_one_core.dart` must re-export, and a
+// name missing from that `show` list is a gap no test importing `src/` can see.
 import 'package:alteri_one_core/src/engine/control.dart';
 
 // The token totals the ledger is built from, and the two document barrels: the first because
@@ -91,6 +91,11 @@ import 'package:alteri_one_core/profile.dart';
 import 'package:alteri_one_core/provider.dart';
 import 'package:alteri_one_platform/alteri_one_platform.dart';
 import 'package:alteri_one_protocol/alteri_one_protocol.dart';
+
+// The public barrel, imported for the one assertion that can only be made through it. Every other
+// import above reaches past it deliberately; this one does not, and the two together are what makes
+// the header comment true rather than aspirational.
+import 'package:alteri_one_core/alteri_one_core.dart' as barrel;
 import 'package:test/test.dart';
 
 void main() {
@@ -447,7 +452,7 @@ void main() {
       },
     );
 
-    test('the wall clock cannot move a deadline, and an expired one refuses children', () {
+    test('the wall clock cannot move a deadline, and an expired one cannot lend time', () {
       // Two claims from [AlteriOneClock]'s own documentation, and the reason `FakeClock` has a
       // third mutator at all. A wall clock that jumps forwards would expire a run early and one
       // that jumps backwards would extend it — NTP, a timezone change, a laptop resuming from
@@ -478,19 +483,59 @@ void main() {
       clock.advance(const Duration(seconds: 10));
       expect(deadline.isExpired, isTrue);
 
-      // §3.2's other refusal, and it is a `StateError` rather than an `ArgumentError` on purpose:
-      // the argument was fine and the run is over. §2 checks `isExpired` before it starts a turn,
-      // so this is a caller that skipped that check — and deriving a child here would be a
-      // deadline born expired, the exact value §3.2 refuses at construction.
+      // §2's own loop reaches this. Its pseudocode checks `isExpired` and then `await`s a policy
+      // evaluation before calling `deadline.child(...)`, so a run whose model turn takes 9.9s of a
+      // 10s budget and whose approval prompt takes the last 0.1s arrives here with nothing left.
+      // "The caller skipped the check" was true only of a caller that was never written.
+      //
+      // So an exhausted parent yields the smallest legal child rather than throwing. A `StateError`
+      // leaving the loop is neither one of §2's four terminal outcomes nor a result: §3 says an
+      // expired deadline is `Timeout(Duration.zero)`, and a crash is not that.
+      final exhaustedChild = deadline.child(const Duration(seconds: 1));
       expect(
-        () => deadline.child(const Duration(seconds: 1)),
-        throwsA(
-          isA<StateError>().having(
-            (error) => error.message,
-            'message',
-            allOf(contains('-32030'), contains('isExpired')),
-          ),
-        ),
+        exhaustedChild.limit,
+        const Duration(microseconds: 1),
+        reason:
+            'one microsecond: the shortest duration that is not the zero §3.2 refuses at '
+            'construction. A child is never given a limit of zero, and it is never given the '
+            'caller\'s second either -- the parent had none to give',
+      );
+      expect(
+        exhaustedChild.limit,
+        lessThan(const Duration(seconds: 1)),
+        reason:
+            'and still the clamp: the per-call timeout cannot survive an exhausted parent, '
+            'because min(perCall, available) is applied after the clamp, not before it',
+      );
+      expect(
+        exhaustedChild.isExpired,
+        isFalse,
+        reason:
+            'born with a microsecond rather than born dead, so the loop gets to run and the '
+            'child expires on its own boundary',
+      );
+      clock.advance(const Duration(microseconds: 1));
+      expect(
+        exhaustedChild.isExpired,
+        isTrue,
+        reason:
+            'and then the timeout is reported through the ordinary path, which is what §3 '
+            'names, rather than as an exception from the middle of the loop',
+      );
+      expect(
+        exhaustedChild.remaining,
+        Duration.zero,
+        reason: 'clamped at zero, never negative',
+      );
+
+      // §3.2's refusal of a zero or negative per-call timeout is untouched -- that is a bad
+      // argument and stays one, whatever state the parent is in.
+      expect(
+        () => deadline.child(Duration.zero),
+        throwsArgumentError,
+        reason:
+            'and it is refused on an exhausted parent too, so "no timeout" cannot be smuggled '
+            'in through the argument that §3.2 closes',
       );
     });
   });
@@ -741,7 +786,8 @@ void main() {
         reason: 'a refused reserve withholds nothing',
       );
       expect(budget.outstandingReserves, 0);
-      // A reserve from another budget is not this budget's business to settle.
+      // A reserve from another budget is not this budget's business to settle. Its own case is
+      // the next test, because it needs a ledger whose first reserve is still outstanding.
       final other = CostBudget(maxTokens: 1000);
       final foreign = other.reserve(tokens: 10, usd: 0.0);
       expect(
@@ -752,6 +798,77 @@ void main() {
         other.outstandingReserves,
         1,
         reason: 'and it is still outstanding over there',
+      );
+    });
+
+    test('a handle from another budget is refused even when its id collides', () {
+      // `reserveId` is a counter local to one budget, so **every** budget's first reserve is id
+      // 1 and two runs in one process collide on the first child rather than occasionally. That
+      // makes an id-keyed lookup accept a foreign handle exactly when it must not: the refund and
+      // the settle both remove by id, so run B's handle would release run A's live reservation
+      // while A's child is still holding it. The private constructor stops a handle being minted;
+      // this is the half a caller actually controls, which is handing one over.
+      //
+      // The premise is asserted rather than assumed. An earlier draft of this case ran against a
+      // ledger with no outstanding reserves, so the lookup missed and the throw came from
+      // emptiness — which a check against emptiness passes, against an implementation with no
+      // ownership test at all.
+      final mine = CostBudget(maxTokens: 1000);
+      final theirs = CostBudget(maxTokens: 1000);
+      final local = mine.reserve(tokens: 400, usd: 0.0);
+      final foreign = theirs.reserve(tokens: 400, usd: 0.0);
+      expect(
+        local.reserveId,
+        foreign.reserveId,
+        reason:
+            'the premise: both ledgers number from 1, so both handles name the same key. '
+            'If this ever stops being true this case is no longer testing what it claims to',
+      );
+      expect(
+        mine.outstandingReserves,
+        1,
+        reason: 'a live entry under that key',
+      );
+      expect(
+        () => mine.settleReserve(foreign, const AlteriOneUsage(), usd: 0.0),
+        throwsStateError,
+        reason:
+            'the ledger holds a live reserve under this key, so the refusal is the handle '
+            'being foreign and not the key being absent',
+      );
+      expect(
+        mine.releaseReserve(foreign),
+        isFalse,
+        reason:
+            'returning one is refused the same way, because it would refund the live '
+            "child's estimate while that child is still holding its own",
+      );
+      expect(
+        mine.outstandingReserves,
+        1,
+        reason: 'the local reserve survived both attempts, and a rejected call changes nothing',
+      );
+      expect(
+        mine.spentTokens,
+        400,
+        reason: 'the foreign handle neither consumed the live entry nor added its own usage',
+      );
+      expect(
+        theirs.outstandingReserves,
+        1,
+        reason: 'and the other ledger is untouched by the attempt',
+      );
+      // The owner still settles its own reserve normally, so the refusals above are about the
+      // handle and not about a ledger that has stopped working.
+      mine.settleReserve(
+        local,
+        const AlteriOneUsage(inputTokens: 40),
+        usd: 0.0,
+      );
+      expect(
+        mine.spentTokens,
+        40,
+        reason: 'the 400 withheld came off and the 40 actually used went on',
       );
     });
   });
@@ -1347,7 +1464,48 @@ void main() {
           StepLimitReached(:final steps) => 'steps $steps',
         };
         expect(rendered, isNotEmpty);
-        expect(rendered, isNot(contains('outcome')));
+        // **The variant's one field, typed.** The exhaustive switch above is the real proof — a
+        // fifth variant would not compile — so what is left to assert is the shape of each
+        // payload. An earlier draft asserted `isNot(contains('outcome'))` on the rendered string,
+        // which could not fail without the switch itself changing and which read as though the
+        // block proved more than it did. A field typed `AlteriOneToolOutcome` *would* fail here,
+        // and would fail at exactly the moment a tool's result became reachable.
+        //
+        // `(field, actual, expected)` records rather than one "any primitive" matcher, because a
+        // list of what is *allowed* is weaker than each field naming what it must *be*: a field
+        // typed `AlteriOneToolOutcome` would be absent from the allowed list rather than equal to
+        // any entry, and the line for its own variant says which type was expected instead. `Type`
+        // values are compared as types, not through `isA` — `actual` is a `Type`, and
+        // `isA<Duration>()` would ask whether the *value* is a Duration, which `Duration` is not.
+        //
+        // The switch below is exhaustive with no `default`, so a fifth variant fails to compile
+        // here rather than quietly contributing no rows — the same argument the outer switch makes.
+        final payloadTypes = switch (reason) {
+          Cancelled(:final reason) => <(String, Type, Type)>[
+            ('reason', reason.runtimeType, CancelReason),
+          ],
+          DeadlineExceeded(:final remaining) => <(String, Type, Type)>[
+            ('remaining', remaining.runtimeType, Duration),
+          ],
+          // Two figures, listed one at a time: a record has no single type object to name, and
+          // naming both is what pins "two spend figures and nothing else".
+          BudgetExhausted(:final spentTokens, :final spentUsd) =>
+            <(String, Type, Type)>[
+              ('spentTokens', spentTokens.runtimeType, int),
+              ('spentUsd', spentUsd.runtimeType, double),
+            ],
+          StepLimitReached(:final steps) => <(String, Type, Type)>[
+            ('steps', steps.runtimeType, int),
+          ],
+        };
+        for (final (field, actual, expected) in payloadTypes) {
+          expect(
+            actual,
+            expected,
+            reason:
+                '$reason.$field is a value the engine holds, so a tool cannot build one',
+          );
+        }
       }
 
       // **And there is no method anywhere on the surface that raises a ceiling.** §3: "Model,
@@ -1451,6 +1609,26 @@ void main() {
         isFalse,
         reason: 'no setter in control.dart, so no field can be rewritten from outside',
       );
+      // Third, and the one the list above cannot reach: no extension on any of the five. An
+      // extension is resolved statically rather than inherited, so `final class` does not stop one
+      // — `extension CostBudgetX on CostBudget { void raise(int by) { … } }` compiles, is callable
+      // by anyone holding the type, and adds nothing to the member list above. Asserted here
+      // because "nothing raises a ceiling" has to mean it for the door as well as the room.
+      expect(
+        _extensionsOn(root, const <String>[
+          'CostBudget',
+          'Deadline',
+          'StepBudget',
+          'StagnationDetector',
+          'RunControls',
+        ]),
+        isEmpty,
+        reason:
+            'no extension on any of the five controls. An extension is resolved statically '
+            'rather than inherited, so `final class` does not prevent one and a `raise` added '
+            'this way would be callable by every holder of the type while being invisible to the '
+            'member list above',
+      );
       // Second, the runtime proof that the ceilings did not move under any operation the ledger
       // offers: `maxTokens` and `maxUsd` are the same values after a reserve that withholds, a
       // settlement that returns the difference and hands back more than it took, and a release
@@ -1496,6 +1674,38 @@ void main() {
       expect(roomy.maxTokens, 10000);
       expect(roomy.maxUsd, 100.0);
     });
+
+    test(
+      'the public barrel exports every control, including the cancel token',
+      () {
+        // The one assertion in this file that cannot be made through `src/`, and the reason the
+        // import at the top exists. A `show` list that drops a name leaves every other test in this
+        // file green while making the primitive unconstructible from outside the package — which is
+        // how `StagnationDetector` was once lost: §3.2's "a separate control" was in the document
+        // and in `src/`, and the barrel would not carry it.
+        //
+        // `identical` against the prefixed import rather than a name list, so a *missing* name is a
+        // compile error here instead of a runtime comparison against a string that happened to match.
+        expect(barrel.Deadline, same(Deadline));
+        expect(barrel.CostBudget, same(CostBudget));
+        expect(barrel.CostReserve, same(CostReserve));
+        expect(barrel.StepBudget, same(StepBudget));
+        expect(barrel.StagnationDetector, same(StagnationDetector));
+        expect(barrel.RunControls, same(RunControls));
+        expect(barrel.RunStopReason, same(RunStopReason));
+        expect(barrel.Cancelled, same(Cancelled));
+        expect(barrel.DeadlineExceeded, same(DeadlineExceeded));
+        expect(barrel.BudgetExhausted, same(BudgetExhausted));
+        expect(barrel.StepLimitReached, same(StepLimitReached));
+        // `RunControls.cancel` is one of the four, so the token it is *typed* with has to come from
+        // the same barrel — otherwise a caller holding only this package gets a member whose type it
+        // cannot name, and §3.2's "re-exported, not a second implementation" is a claim about an
+        // import the caller is not allowed to make. These are the protocol package's own types, and
+        // `same` is what proves no core copy crept in behind the re-export.
+        expect(barrel.CancelToken, same(CancelToken));
+        expect(barrel.CancelReason, same(CancelReason));
+      },
+    );
   });
 
   group('the documents the code answers to', () {
@@ -1872,13 +2082,41 @@ String _code(String source) => source
     .where((line) => !line.trimLeft().startsWith('//'))
     .join('\n');
 
+/// The extensions in `control.dart` that are declared on any of [types], sorted.
+///
+/// `_publicMembers` walks the class body, so an extension on one of these five is invisible to it —
+/// and `final class` does not stop one, because an extension is resolved statically rather than
+/// inherited. `extension CostBudgetX on CostBudget { void raise(int by) { … } }` therefore
+/// compiles, is callable by anyone holding the type, and appeared nowhere in the member list: the
+/// shortest path straight past §3's "model, tool and subagent cannot … bypass the ceiling through
+/// an internal API". So the absence is asserted here, separately, against the same source.
+///
+/// Comments are stripped first for the reason `_code` gives — this file discusses the property in
+/// prose, and a check that reads its own documentation is the opposite of a check.
+List<String> _extensionsOn(Directory root, List<String> types) {
+  final found = <String>[];
+  for (final line in _code(_controlSource(root)).split('\n')) {
+    final match = RegExp('^extension\\s+\\w*\\s*on\\s+(${types.join('|')})\\b')
+        .firstMatch(line.trimLeft());
+    if (match != null) found.add(match.group(1)!);
+  }
+  return found..sort();
+}
+
 /// The public members [type] declares in `control.dart`, sorted.
 ///
 /// Parsed from the source rather than reflected on, for the reason `_declaredNamespaces` gives in
 /// the registry contract test: the property under test is about the *text* a new method would have
-/// to be added to, and a reflection-based check would not see a member declared in a base class,
-/// an extension or an `export`. A getter and a method with the same name are one entry, which is
-/// right — the claim is about what a caller can reach.
+/// to be added to. A getter and a method with the same name are one entry, which is right — the
+/// claim is about what a caller can reach.
+///
+/// **What this does and does not buy.** It catches a member added inside the class body, and it
+/// catches a rename or a removal. An earlier draft of this comment also claimed it would not see
+/// "a member declared in a base class, an extension or an `export`", reading the first half of
+/// that as a benefit — but a source parse has the same blind spot as reflection for the other two:
+/// an `extension CostBudgetX on CostBudget { void raise(…) }` produced a **byte-identical** member
+/// list here, and `final class` does not prevent an extension. So the extension half is a separate
+/// check — `_extendsAnyOf` below — and this one is claimed no further than it is.
 ///
 /// Exactly two-space indentation, which is `dart format`'s class-member indentation and therefore
 /// a property of this repository rather than a guess: a member declared deeper is inside another
