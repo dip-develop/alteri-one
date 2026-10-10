@@ -35,7 +35,13 @@ jaspr:
   # Static: every route is pre-rendered to HTML at build time. No server, no Node, no
   # runtime, and the output is a folder of files that GitHub Pages can serve.
   mode: static
-  styles: standalone
+  # No `styles:` key, and no `flutter:` key. The site has no CSS-in-Dart: the stylesheet
+  # is `web/styles.tw.css`, compiled by the standalone Tailwind CLI to `web/styles.css`
+  # (ADR-0023). `styles: standalone` is therefore a no-op here, and its absence is the
+  # better default — if a `@css` rule ever appears it will be inlined into the HTML rather
+  # than emitted by executing the library on the build VM, which is the failure mode
+  # `standalone` invites when a web-only import is reachable from a server entrypoint.
+  #
   # No Flutter embedding and no Flutter plugins, deliberately. This is a public landing
   # page about the project; it is not an interface to a running agent. The web target
   # that *is* — apps/web, a local server hosting a Flutter GUI for working with an agent

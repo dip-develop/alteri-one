@@ -37,6 +37,10 @@ apps/bootstrap/build/
 site/.dart_tool/
 site/build/
 site/.jaspr/
+# The compiled stylesheet. It is produced from web/styles.tw.css by the standalone
+# Tailwind CLI and copied into the build output; committing it would put a generated
+# file in the tree and a second thing to drift. ADR-0023.
+site/web/styles.css
 
 # Editors
 .idea/

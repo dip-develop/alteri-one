@@ -90,7 +90,7 @@ re-asserts it once the Phase 5 packages exist. See
 
 `site/` and `tool/` are **not** in any glob, and never will be. `site/` is the project
 website, whose toolchain cannot be resolved in the same graph as the product's — the
-concrete constraint is in [website.md](../website.md#5-why-it-is-outside-the-pub-workspace)
+concrete constraint is in [website.md](../website.md#6-why-it-is-outside-the-pub-workspace)
 and the decision is [ADR-0020](../decisions/0020-project-website.md). `tool/` holds
 single-package scripts with no package of their own. Both are deliberately outside
 `melos` management, and a `melos run` script for either would be a mistake.

@@ -62,11 +62,12 @@ follow Dart convention and are named `alteri_one_*`. See
 
 ## Website
 
-**[alteri.one](https://alteri.one)** — a static landing page about the project, built with
-[Jaspr](https://jaspr.dev) in static mode and published to GitHub Pages. It is a landing
-page, not an application: it runs no agent, holds no secret, and is not the web target.
-See [docs/website.md](docs/website.md) and
-[ADR-0020](docs/decisions/0020-project-website.md).
+**[alteri.one](https://alteri.one)** — a static marketing site about the project, built
+with [Jaspr](https://jaspr.dev) in static mode, styled with [Tailwind](https://tailwindcss.com),
+and published to GitHub Pages. It runs no agent, holds no secret, loads no third-party
+asset and is not the web target. See [docs/website.md](docs/website.md),
+[ADR-0020](docs/decisions/0020-project-website.md) and
+[ADR-0023](docs/decisions/0023-site-tailwind.md).
 
 ## Documentation
 

@@ -3,14 +3,19 @@ run-name: pages · ${{ github.ref_name }}
 
 # Publishes alteri.one from the Jaspr static site in site/.
 #
-# Three properties are deliberate:
+# Four properties are deliberate:
 #
 #  - It deploys on a push to main and on a manual dispatch, not on every pull request. A
 #    preview deploy per PR would put unreviewed HTML on the project's own domain.
-#  - It builds with the Dart SDK only. The site is a static landing page, so it needs no
-#    Flutter, no browser and no service: `jaspr build` pre-renders every route to HTML.
+#  - It builds with the Dart SDK and one downloaded binary. The site is a static landing
+#    page, so it needs no Flutter, no browser, no service and no Node: `jaspr build`
+#    pre-renders every route to HTML, and the stylesheet is compiled by the standalone
+#    Tailwind CLI, which ships as a single executable (ADR-0023).
 #  - static/ is copied in explicitly. Jaspr does not copy it, and the CNAME, the robots
 #    file and the favicon all have to be in the output for the site to work.
+#  - The site is analysed, formatted and checked for a usable stylesheet before it is
+#    built. A landing page that cannot be built must not reach the domain, and `site/` is
+#    outside the pub workspace, so `melos run analyze` never looks at it (ADR-0020).
 
 on:
   push:
@@ -31,6 +36,10 @@ env:
   DART_VERSION: "3.13.4"
   SITE_DIR: site
   OUTPUT: site/build/jaspr
+  # Pinned rather than "latest". A stylesheet that can change under a deploy is a
+  # stylesheet whose output nobody looked at, and the released Tailwind 4 binaries are
+  # published on GitHub under a stable per-version download name.
+  TAILWIND_VERSION: "4.3.0"
 
 jobs:
   build:
@@ -47,6 +56,37 @@ jobs:
         working-directory: ${{ env.SITE_DIR }}
         run: dart pub get
 
+      - name: Install the Tailwind CLI
+        # The standalone executable, not an npm install: it is one file, it needs no Node,
+        # and it keeps the site's toolchain a Dart SDK plus a binary. See ADR-0023.
+        run: |
+          set -euo pipefail
+          curl -sSfL -o /usr/local/bin/tailwindcss \
+            "https://github.com/tailwindlabs/tailwindcss/releases/download/v${TAILWIND_VERSION}/tailwindcss-linux-x64"
+          chmod +x /usr/local/bin/tailwindcss
+          tailwindcss --help >/dev/null
+          echo "tailwindcss v${TAILWIND_VERSION}"
+
+      - name: Analyze
+        working-directory: ${{ env.SITE_DIR }}
+        run: dart analyze --fatal-infos
+
+      - name: Format
+        # `dart format` has no exclude flag, so this runs on lib/ and web/ by path rather
+        # than on `.` — the latter would walk into build/ and the resolved package tree
+        # the build leaves beside it. The root manifest carries the same reasoning for
+        # the product workspace.
+        working-directory: ${{ env.SITE_DIR }}
+        run: dart format --output=none --set-exit-if-changed lib web
+
+      - name: Compile the stylesheet
+        # web/styles.tw.css -> web/styles.css. The design tokens are @theme blocks in the
+        # input; the classes themselves are found by scanning lib/ and web/, named by the
+        # @source directives in the input. Nothing in the Dart sources has to keep a list
+        # of utility names in step with anything.
+        working-directory: ${{ env.SITE_DIR }}
+        run: tailwindcss -i web/styles.tw.css -o web/styles.css --minify
+
       - name: Build
         working-directory: ${{ env.SITE_DIR }}
         # The sitemap is generated from the routes that were actually rendered, so it can
@@ -56,24 +96,49 @@ jobs:
           jaspr build --sitemap-domain https://alteri.one
 
       - name: Copy static files
+        # `static/` is a repository directory that Jaspr never reads, and the stylesheet
+        # is the build artefact of a separate tool, so neither is guaranteed to be in the
+        # output. Both are copied here rather than assumed, which is the same reason the
+        # CNAME and index.html assertions follow the copy.
         run: |
           set -euo pipefail
           cp -R "$SITE_DIR/static/." "$OUTPUT/"
+          cp "$SITE_DIR/web/styles.css" "$OUTPUT/styles.css"
           test -f "$OUTPUT/CNAME"
           test -f "$OUTPUT/index.html"
 
+      - name: Every page carries the stylesheet
+        # A missing or empty web/styles.css is not a build error. Jaspr copies whatever is
+        # there and `<link rel="stylesheet" href="/styles.css">` 404s quietly on a page
+        # that otherwise renders perfectly, so an unstyled deploy would look like a
+        # successful one. Assert the artefact, then assert each rendered page links it.
+        run: |
+          set -euo pipefail
+          test -s "$OUTPUT/styles.css"
+          echo "styles.css: $(wc -c <"$OUTPUT/styles.css") bytes"
+          for page in index.html extensions/index.html install/index.html docs/index.html; do
+            test -f "$OUTPUT/$page"
+            grep -q 'href="/styles.css"' "$OUTPUT/$page" \
+              || { echo "::error::$page does not link the stylesheet"; exit 1; }
+          done
+          echo "every rendered page links /styles.css"
+
       - name: Drop development output
-        # `jaspr build` leaves the whole resolved package tree in the output directory
-        # alongside the rendered HTML — tens of megabytes that the page never references.
-        # Deleting it here rather than at the source keeps the pinned Jaspr behaviour
-        # intact, and the assertion afterwards proves the deletion removed only what the
-        # page does not use.
+        # `jaspr build` leaves two things in the output directory that the page never
+        # references: the whole resolved package tree — tens of megabytes — and, because
+        # the Tailwind input lives in web/ next to its output, `styles.tw.css`, the
+        # uncompiled source of the stylesheet. Both are source rather than site. Deleting
+        # them here rather than at the source keeps the pinned Jaspr behaviour intact, and
+        # the assertion afterwards proves the deletion removed only what the page does not
+        # use.
         run: |
           set -euo pipefail
           before=$(du -sh "$OUTPUT" | cut -f1)
           rm -rf "$OUTPUT/packages"
+          rm -f "$OUTPUT/styles.tw.css"
           after=$(du -sh "$OUTPUT" | cut -f1)
           test -f "$OUTPUT/index.html"
+          test -f "$OUTPUT/styles.css"
           echo "output: $before -> $after"
 
       - name: No unresolved Flutter embedding
@@ -88,6 +153,23 @@ jobs:
             exit 1
           fi
           echo "no Flutter embedding"
+
+      - name: No client bundle and no third-party origin
+        # ADR-0020 binding 1: static mode, no Flutter embedding, no client bundle. A
+        # <script> tag, or a stylesheet or a font from another origin, would be a landing
+        # page that runs code and phones a third party — the property the project's third
+        # north-star goal is about, and the reason the site ships a system font stack and
+        # no webfont. Both are invisible in a build log until somebody looks at the page,
+        # and `--include='*.html'` over the whole output is deliberate: the sub-directory
+        # pages are the ones a top-level glob would skip.
+        run: |
+          set -euo pipefail
+          if grep -rEn --include='*.html' '<script|<link[^>]+(cdn|googleapis|jsdelivr|unpkg)' "$OUTPUT"; then
+            echo "::error::a rendered page carries a script tag or a third-party asset"
+            echo "::error::The site is a static build; see ADR-0020 and ADR-0023."
+            exit 1
+          fi
+          echo "no client bundle, no third-party origin"
 
       - uses: actions/configure-pages@v5
 

@@ -44,8 +44,9 @@ $ melos run test
       `alteri_one`; the installed product is `alterione` (ADR-0016)
 - [ ] An injection still has no `tools:` and no `requires:` field, and an app still ships no
       tools and no services (ADR-0014)
-- [ ] `site/` still builds as a landing page: no Flutter embedding, no client bundle, and it
-      starts no agent and holds no secret (ADR-0020)
+- [ ] `site/` still builds as a marketing site: no Flutter embedding, no client bundle, no
+      webfont or third-party origin, and it starts no agent and holds no secret
+      (ADR-0020, ADR-0023)
 
 ## Contracts
 

@@ -3,8 +3,16 @@
   Placeholder for the web asset bundle.
 
   The site is rendered in static mode: every page in the output is complete HTML produced
-  by the Dart components, and this file is never served. Jaspr's web bundle builder still
-  expects a web/ directory to exist, so it is here with the minimum that satisfies that.
+  by the Dart components, and this file is never served as a page. Jaspr's web asset
+  builder still expects a web/ directory to exist, so it is here with the minimum that
+  satisfies that.
+
+  The directory itself is not inert, though, and that is the reason the stylesheet lives
+  here rather than in static/. `jaspr serve` serves this directory as its document root
+  (package:jaspr's server_handler.dart, `staticFileHandler`), so `/styles.css` resolves to
+  web/styles.css during development exactly as it resolves to the copied artefact in
+  build/jaspr/ after a build. Moving it to static/ would work in the build and 404 in the
+  dev server, which is the wrong way round.
 
   Nothing in this file is user-visible, and nothing should be added to it that is.
 -->
