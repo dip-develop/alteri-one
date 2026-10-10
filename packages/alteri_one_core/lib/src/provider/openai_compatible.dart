@@ -65,8 +65,8 @@
 /// [assembler.dart]: assembler.dart
 /// [probe.dart]: probe.dart
 /// [exchange.dart]: exchange.dart
-/// [Deadline]: ../engine/deadline.dart
-/// [CancelToken]: ../engine/cancel_token.dart
+/// [Deadline]: ../engine/control.dart
+/// [CancelToken]: ../engine/control.dart
 /// [toolIdGrammar]: ../core/namespace.dart
 library;
 

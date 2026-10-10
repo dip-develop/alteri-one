@@ -77,3 +77,21 @@ export 'l10n.dart';
 /// where `overview.md` §5's "no core change to add a capability" is implemented and — more to the
 /// point — what is *absent* so that it holds.
 export 'core.dart';
+
+/// The engine's control primitives: the deadline, the cost ledger, the step limit and the
+/// stagnation detector, bound together so a run cannot be built without all four. See
+/// `lib/src/engine/control.dart` for `engine.md` §3.2 and why each one has two plausible
+/// spellings.
+export 'src/engine/control.dart'
+    show
+        BudgetExhausted,
+        Cancelled,
+        CostBudget,
+        CostReserve,
+        Deadline,
+        DeadlineExceeded,
+        RunControls,
+        RunStopReason,
+        StagnationDetector,
+        StepBudget,
+        StepLimitReached;
