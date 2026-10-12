@@ -38,7 +38,7 @@ jobs:
       has_tier2: ${{ steps.detect.outputs.has_tier2 }}
       has_app: ${{ steps.detect.outputs.has_app }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - id: detect
         run: |
@@ -58,7 +58,7 @@ jobs:
     needs: detect
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The documentation checker is a dependency-free Dart script under tool/, so it needs
       # only the SDK — not `dart pub get`, which is what makes it usable in this job on a
@@ -162,7 +162,7 @@ jobs:
     if: needs.detect.outputs.has_workspace == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dart-lang/setup-dart@v1
         with:
@@ -206,7 +206,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dart-lang/setup-dart@v1
         with:
@@ -263,7 +263,7 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dart-lang/setup-dart@v1
         with:
@@ -283,7 +283,7 @@ jobs:
     if: needs.detect.outputs.has_workspace == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dart-lang/setup-dart@v1
         with:
