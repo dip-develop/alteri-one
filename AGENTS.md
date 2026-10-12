@@ -6,14 +6,16 @@ source (most are), this file links there instead of restating it.
 
 ## State of the tree
 
-Tasks `0.3`–`0.13` have landed. The next task is **`0.14`, the engine control primitives**
-(`Deadline`, `CancelToken`, `CostBudget`, `maxSteps`, the stagnation detector).
+Tasks `0.3`–`0.14` have landed. The next task is **`0.15`, the deterministic ReAct walking
+skeleton** — one run performing a scripted provider turn, dispatching a tool, applying the
+`ToolOutcome` and continuing to a terminal finish. It is also where `AlteriOneProvider.chat`
+gains the `deadline` and `cancel` parameters, since the run loop is the first holder of both.
 [task-breakdown.md](docs/process/task-breakdown.md) is the source of truth for what is next;
 `TODO.md` is the short-lived list of what is in flight.
 
 | Package | State |
 |---|---|
-| `alteri_one_core` | real — registry, dispatcher, event bus, profile subsystem, the OpenAI-compatible provider and its port, `FakeProvider` (~13k lib / 8k test) |
+| `alteri_one_core` | real — registry, dispatcher, event bus, profile subsystem, the OpenAI-compatible provider and its port, `FakeProvider`, and the engine control primitives — `Deadline`, `CostBudget`, `StepBudget`, the stagnation detector, bound as `RunControls` (~13k lib / 10k test) |
 | `alteri_one_protocol` | real — envelope, codec, error taxonomy, framing, control plane, in-process + stdio transports (~7.2k / 8.0k) |
 | `alteri_one_platform` | real — six ports, five native adapters, browser surface, `FakeClock` (~3.7k / 2.5k) |
 | `alteri_one_cli`, `alterione`, `alteri_one_memory`, `alteri_one_injection_skill` | **boundary only** — one file, a doc comment and `library;`, no `test/` |
@@ -232,6 +234,14 @@ Each is explained at the point of use; these are the ones that cost the most tim
 - **`DiagnosticCode` is a `sealed class` in the core, not the protocol package** — `framing.oversize`
   and `config.unknown_field` are things an operator reads. Framing raises a `ProtocolViolation`
   with a wire code and a path; the host that logs it produces the `DiagnosticCode`.
+- **A deadline measures from the monotonic reading captured when it was built, not from the
+  clock's origin.** `AlteriOneClock.monotonicNow` is "relative to an arbitrary origin chosen by
+  the implementation", so a clock handed to a run can be anywhere in its own timeline. Comparing
+  against the raw reading makes every deadline on such a clock **born expired** — and a test using
+  a zero-based `FakeClock` never sees it. `Deadline` therefore captures its own origin, and
+  `startedAt` stays a `DateTime` record that is never subtracted from anything. Found by task
+  `0.14`'s contract test, which asserted that `FakeClock(monotonic: 30s)` with a 10s limit is
+  *not* already expired.
 - **A diagnostic carries a code and placeholder *values*, never a sentence.** `ConfigDiagnostic` has
   no `error` parameter by design (`configuration.md` §7.2) — put "expected at most 16" in
   `expected:`.
@@ -397,7 +407,8 @@ A decision recorded only in prose is not a decision. Write it in `docs/decisions
 Trust the executable sources. `README.md` and `CONTRIBUTING.md` still say "specification only, no
 implementation yet" and "no packages exist yet"; ~20k lines of product code and ~16k of contract
 tests exist. `alteri_one_platform` has **no `StoragePort` implementation** (`HiveCeStorage` is task
-`1.1`'s). `AlteriOneProvider.chat` has **no `deadline` and no `cancel`** — task `0.14` adds both.
+`1.1`'s). `AlteriOneProvider.chat` has **no `deadline` and no `cancel`** — `0.14` shipped the types,
+task `0.15` adds the parameters.
 `melos run release:*` scripts, `test/install/`, `config/fixtures/release/` and `tool/install/` are
 specified but not created. **`providers.md` §3.1's tool-definition half is not built**: a provider
 request carries no `tools` member, because `ToolDescriptor` is `tools.md` §1 and has no task. The
