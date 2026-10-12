@@ -65,6 +65,7 @@
 // [docs/reference/config-schema.md]: ../../../../docs/reference/config-schema.md
 // [docs/process/task-breakdown.md]: ../../../../docs/process/task-breakdown.md
 
+import 'dart:convert';
 import 'dart:io';
 
 // Through the package's own `src/`, and **not** through the public barrel.
@@ -2123,7 +2124,16 @@ List<String> _extensionsOn(Directory root, List<String> types) {
 /// member's body and is not a member of the class. Private names are dropped, and so is the type's
 /// own name, which is its constructor.
 List<String> _publicMembers(String type, Directory root) {
-  final lines = _controlSource(root).split('\n');
+  // **Line endings are normalised before anything here compares against a whole line.** There is
+  // no `.gitattributes`, so a Windows checkout is CRLF: `split('\n')` then leaves every element
+  // ending in `\r`, and the closing-brace search below asks for exact equality with `'}'`, which
+  // never matches. Nothing raises when that happens — `end` runs to the end of the file, the slice
+  // covers every class in control.dart, and the returned list silently becomes the *union* of all
+  // their members: a check whose verdict is decided by lines nobody reading it would think it
+  // looked at. `LineSplitter` splits on any terminator, so the parse below reads text on every
+  // platform, while `split('\n')` elsewhere in this file survives only because nothing there
+  // matches at the end of a line.
+  final lines = const LineSplitter().convert(_controlSource(root));
   final declaration = RegExp('^(?:final |sealed |abstract )*class $type\\b');
   final start = lines.indexWhere(declaration.hasMatch);
   if (start < 0) {
