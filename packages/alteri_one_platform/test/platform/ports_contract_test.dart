@@ -144,8 +144,10 @@ void main() {
       // `dart:io` is still imported by a web compilation if it is reachable from the entry point,
       // so the arrangement is only true if the *directory* is the boundary and not merely the files
       // checked above.
+      // `uri.path` on Windows begins with '/' before the drive letter, so it is not a usable OS
+      // path; `Directory.path` is.
       for (final file in _dartFilesIn(
-        Directory(_packageRoot().uri.path + '/lib'),
+        Directory('${_packageRoot().path}/lib'),
       )) {
         if (_isInsideIoDirectory(file.path)) continue;
         for (final library in _platformLibraries) {
@@ -470,10 +472,9 @@ void main() {
       // root. A caller handed a root cannot be handed a path elsewhere by passing one.
       final paths = PlatformPaths(Uri.file('/srv/install'));
 
-      expect(
-        paths.resolve('state/default').toFilePath(),
-        endsWith('state/default'),
-      );
+      // `.path`, not `toFilePath()`: on Windows the latter separates with '\', and this assertion
+      // is about the joined segments.
+      expect(paths.resolve('state/default').path, endsWith('state/default'));
 
       for (final absolute in const [
         '/etc/passwd',
