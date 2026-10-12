@@ -144,8 +144,10 @@ void main() {
       // `dart:io` is still imported by a web compilation if it is reachable from the entry point,
       // so the arrangement is only true if the *directory* is the boundary and not merely the files
       // checked above.
+      // `uri.path` on Windows begins with '/' before the drive letter, so it is not a usable OS
+      // path; `Directory.path` is.
       for (final file in _dartFilesIn(
-        Directory(_packageRoot().uri.path + '/lib'),
+        Directory('${_packageRoot().path}/lib'),
       )) {
         if (_isInsideIoDirectory(file.path)) continue;
         for (final library in _platformLibraries) {
@@ -470,10 +472,9 @@ void main() {
       // root. A caller handed a root cannot be handed a path elsewhere by passing one.
       final paths = PlatformPaths(Uri.file('/srv/install'));
 
-      expect(
-        paths.resolve('state/default').toFilePath(),
-        endsWith('state/default'),
-      );
+      // `.path`, not `toFilePath()`: on Windows the latter separates with '\', and this assertion
+      // is about the joined segments.
+      expect(paths.resolve('state/default').path, endsWith('state/default'));
 
       for (final absolute in const [
         '/etc/passwd',
@@ -1237,9 +1238,7 @@ File _fileAbove(String relative) {
   var directory = Directory.current;
   File? found;
   while (found == null) {
-    final candidate = File(
-      '${directory.path}/$relative'.replaceAll(r'\\', '/'),
-    );
+    final candidate = File('${directory.path}/$relative'.replaceAll('\\', '/'));
     if (candidate.existsSync()) found = candidate;
     final parent = directory.parent;
     if (parent.path == directory.path) break;
@@ -1322,9 +1321,13 @@ List<String> _directivesFor(String source, String library) {
 /// Matches `lib/src/io/` with no leading separator, because the paths tested here come from a walk
 /// rooted at the current directory and are therefore already repository-relative. An earlier version
 /// looked for `/lib/src/io/` and reported every native adapter as being outside its own directory — a
-/// check that could not pass, which is the useful kind of failure only if somebody reads it.
+/// check that could not pass, which is the useful kind of failure only if somebody reads it. The same
+/// shape bit again here: a raw `r'\\'` is a two-character string, so on Windows, where every separator is a
+/// single backslash, the replacement matched nothing, the path kept its backslashes, and
+/// `.contains('lib/src/io/')` failed — every native adapter reported as outside its own directory, this
+/// time passing silently on Linux where the separators are already `/`. The pattern is `'\\'`.
 bool _isInsideIoDirectory(String path) =>
-    path.replaceAll(r'\\', '/').contains('lib/src/io/');
+    path.replaceAll('\\', '/').contains('lib/src/io/');
 
 /// Every `.dart` file under [directory], sorted, skipping generated and tool output.
 List<File> _dartFilesIn(Directory directory) {
