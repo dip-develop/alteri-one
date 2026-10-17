@@ -1,0 +1,12 @@
+name: codegen_check
+description: >-
+  Checks that generated code in the AlteriOne workspace is up to date.
+version: 0.0.1
+publish_to: none
+repository: https://github.com/alteri-one/alteri-one
+issue_tracker: https://github.com/alteri-one/alteri-one/issues
+environment:
+  sdk: ^3.13.0
+resolution: workspace
+dependencies:
+  # none yet

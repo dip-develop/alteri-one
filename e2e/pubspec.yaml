@@ -1,0 +1,15 @@
+name: alteri_one_e2e
+description: >-
+  End-to-end tests for the AlteriOne daemon, extensions, and clients.
+version: 0.0.1
+publish_to: none
+repository: https://github.com/alteri-one/alteri-one
+issue_tracker: https://github.com/alteri-one/alteri-one/issues
+environment:
+  sdk: ^3.13.0
+resolution: workspace
+dependencies:
+  alteri_one_contracts: ^0.0.1
+  alteri_one_client: ^0.0.1
+dev_dependencies:
+  test: ^1.33.0

@@ -1,0 +1,30 @@
+# The official build: the set shipped with the repository.
+# Schema: docs/spec/extensions.md, section 11.7. Built by `alterione build`.
+# TODO(m5): version ranges below are updated when the first real release is cut.
+name: official
+version: 0.0.1
+mode: local
+
+providers:
+  - package: alteri_one_provider_llama_cpp
+    version: ^0.0.1
+
+extensions:
+  - package: alteri_one_ext_workspace
+    version: ^0.0.1
+    load: built_in
+  - package: alteri_one_ext_lsp
+    version: ^0.0.1
+    load: built_in
+  - package: alteri_one_ext_mcp
+    version: ^0.0.1
+    load: built_in
+  - package: alteri_one_ext_memory_hive
+    version: ^0.0.1
+    load: built_in
+  - package: alteri_one_ext_weather
+    version: ^0.0.1
+    load: built_in
+
+defaults:
+  profile: assistant

@@ -1,0 +1,13 @@
+name: alteri_one_bin
+description: >-
+  The alterione executable entry point for AlteriOne.
+version: 0.0.1
+publish_to: none
+repository: https://github.com/alteri-one/alteri-one
+issue_tracker: https://github.com/alteri-one/alteri-one/issues
+environment:
+  sdk: ^3.13.0
+resolution: workspace
+dependencies:
+  alteri_one_core: ^0.0.1
+  alteri_one_cli: ^0.0.1

@@ -1,0 +1,20 @@
+name: alteri_one_provider_api
+description: >-
+  Ports for LLM model providers in AlteriOne: LlmPort, ModelProvider, and declared capabilities.
+version: 0.0.1
+homepage: https://alteri.one
+repository: https://github.com/alteri-one/alteri-one
+issue_tracker: https://github.com/alteri-one/alteri-one/issues
+environment:
+  sdk: ^3.13.0
+topics:
+  - llm
+  - api
+  - interface
+  - agent
+resolution: workspace
+dependencies:
+  alteri_one_contracts: ^0.0.1
+  meta: ^1.19.0
+dev_dependencies:
+  test: ^1.33.0

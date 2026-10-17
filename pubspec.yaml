@@ -1,0 +1,34 @@
+name: alteri_one_workspace
+publish_to: none
+
+description: >-
+  Workspace root of AlteriOne: a personal universal assistant with chat, task,
+  and resident modes in one runtime. Configuration and scripts only; no code.
+
+environment:
+  sdk: ^3.13.0
+
+# Dart pub workspace: one lock file, one shared resolution for all members.
+# Globs are supported since Dart 3.11 (docs/spec/architecture.md, section 5.1).
+workspace:
+  - packages/*
+  - providers/*
+  - extensions/*
+  - runtime/*
+  - clients/*
+  - e2e
+  - tools/*
+
+dev_dependencies:
+  # [VERIFY T12] Melos 8.x exists; the specification pins the 7.x line.
+  # See docs/spec/open-questions.md before moving to 8.
+  melos: ^7.0.0
+
+melos:
+  scripts:
+    format: dart format --set-exit-if-changed .
+    analyze: melos exec -c 1 -- dart analyze --fatal-infos
+    gen: melos exec -c 1 --depends-on build_runner -- dart run build_runner build --delete-conflicting-outputs
+    arch: dart run tools/arch_check/bin/arch_check.dart
+    test: melos exec -c 4 --dir-exists=test -- dart test
+    ci: melos run format && melos run analyze && melos run arch && melos run test

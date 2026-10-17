@@ -1,0 +1,21 @@
+name: alteri_one_client
+description: >-
+  HTTP and SSE client for the AlteriOne daemon public API.
+version: 0.0.1
+homepage: https://alteri.one
+repository: https://github.com/alteri-one/alteri-one
+issue_tracker: https://github.com/alteri-one/alteri-one/issues
+environment:
+  sdk: ^3.13.0
+topics:
+  - http
+  - sse
+  - client
+  - api
+  - llm
+resolution: workspace
+dependencies:
+  alteri_one_contracts: ^0.0.1
+  http: ^1.6.0
+dev_dependencies:
+  test: ^1.33.0

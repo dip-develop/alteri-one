@@ -1,0 +1,16 @@
+AlteriOne
+Copyright 2026 The AlteriOne Authors
+
+This product includes software developed by The AlteriOne Authors
+(https://github.com/alteri-one/alteri-one).
+
+Licensed under the Apache License, Version 2.0 (the "License").
+You may not use this product except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0.
+
+The name AlteriOne and the alteri.one domain are not licensed under the
+Apache License; see TRADEMARK.md for the trademark policy.
+
+This product depends on third-party software maintained under separate
+licenses. The dependencies of each Dart package are listed in its
+pubspec.yaml and resolved through pub.dev.

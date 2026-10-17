@@ -1,0 +1,19 @@
+name: alteri_one_testkit
+description: >-
+  Conformance test suites for AlteriOne LLM providers and extensions.
+version: 0.0.1
+homepage: https://alteri.one
+repository: https://github.com/alteri-one/alteri-one
+issue_tracker: https://github.com/alteri-one/alteri-one/issues
+environment:
+  sdk: ^3.13.0
+topics:
+  - testing
+  - conformance
+  - llm
+  - agent
+resolution: workspace
+dependencies:
+  alteri_one_contracts: ^0.0.1
+  alteri_one_provider_api: ^0.0.1
+  test: ^1.33.0

@@ -1,0 +1,15 @@
+# The minimal personal build: chat only, no extensions.
+# Schema: docs/spec/extensions.md, section 11.7. Built by `alterione build`.
+# TODO(m5): version ranges below are updated when the first real release is cut.
+name: minimal
+version: 0.0.1
+mode: local
+
+providers:
+  - package: alteri_one_provider_llama_cpp
+    version: ^0.0.1
+
+extensions: []
+
+defaults:
+  profile: assistant

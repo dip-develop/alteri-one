@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Provides both Flutter and the pinned Dart SDK for the workspace.
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install Melos
+        run: dart global activate melos ^7.0.0
+
+      - name: Resolve workspace
+        run: flutter pub get
+
+      # TODO(M0): enable once the first generated code exists (tools/codegen_check).
+      # - name: Check generated code is up to date
+      #   run: dart run tools/codegen_check/bin/codegen_check.dart
+
+      - name: Format
+        run: melos run format
+
+      - name: Analyze
+        run: melos run analyze
+
+      - name: Architecture rules
+        run: melos run arch
+
+      - name: Test
+        run: melos run test

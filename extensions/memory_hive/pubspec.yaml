@@ -1,0 +1,21 @@
+name: alteri_one_ext_memory_hive
+description: >-
+  Hive CE-backed long-term memory backend for AlteriOne.
+version: 0.0.1
+homepage: https://alteri.one
+repository: https://github.com/alteri-one/alteri-one
+issue_tracker: https://github.com/alteri-one/alteri-one/issues
+environment:
+  sdk: ^3.13.0
+topics:
+  - memory
+  - hive
+  - storage
+  - agent
+resolution: workspace
+dependencies:
+  alteri_one_contracts: ^0.0.1
+  alteri_one_sdk: ^0.0.1
+  hive_ce: ^2.22.0
+dev_dependencies:
+  test: ^1.33.0

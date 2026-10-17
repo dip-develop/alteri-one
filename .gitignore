@@ -1,0 +1,42 @@
+# Dart / Flutter
+.dart_tool/
+*.dart.js
+*.js.deps
+*.js.map
+.packages
+build/
+pubspec_overrides_bak.yaml
+
+# Flutter
+.flutter-plugins
+.flutter-plugins-dependencies
+**/GeneratedPluginRegistrant.*
+
+# Android / iOS build output (clients/app)
+**/android/.gradle/
+**/android/local.properties
+**/android/key.properties
+**/ios/Pods/
+**/ios/.symlinks/
+**/macos/Flutter/ephemeral/
+**/windows/flutter/ephemeral/
+**/linux/flutter/ephemeral/
+
+# Personal build outputs (generated packages, binaries)
+build/distributions/
+*.aot
+
+# Signing keys never live in the repository (docs/spec/governance.md)
+*.pem
+*.key
+*.ed25519
+
+# Editors and OS
+.idea/
+*.iml
+.vscode/
+!.vscode/launch.json.example
+.DS_Store
+
+# Coverage
+coverage/

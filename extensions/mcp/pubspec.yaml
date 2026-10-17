@@ -1,0 +1,20 @@
+name: alteri_one_ext_mcp
+description: >-
+  Model Context Protocol (MCP) client extension for AlteriOne.
+version: 0.0.1
+homepage: https://alteri.one
+repository: https://github.com/alteri-one/alteri-one
+issue_tracker: https://github.com/alteri-one/alteri-one/issues
+environment:
+  sdk: ^3.13.0
+topics:
+  - mcp
+  - model-context-protocol
+  - tools
+  - llm
+resolution: workspace
+dependencies:
+  alteri_one_contracts: ^0.0.1
+  alteri_one_sdk: ^0.0.1
+dev_dependencies:
+  test: ^1.33.0

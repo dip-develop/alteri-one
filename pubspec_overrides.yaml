@@ -1,0 +1,19 @@
+# Local development overrides for the AlteriOne workspace.
+#
+# The Dart workspace already resolves every workspace member to its local
+# source, so you do NOT need overrides for alteri_one_* packages: they resolve
+# through `resolution: workspace`. Use this file only to point a third-party
+# dependency at a local fork or an unreleased revision.
+#
+# Overrides made here apply to the whole workspace.
+#
+# Example (uncomment and adjust the path):
+#
+# dependency_overrides:
+#   schemantic:
+#     path: ../forks/schemantic
+#
+# After editing, run `dart pub get` in the repository root.
+dependency_overrides:
+  # Intentionally empty while no overrides are active. Keep this key so the
+  # file stays a valid YAML map.
