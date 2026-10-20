@@ -3,8 +3,8 @@ description: >-
   Dependency-rule checks for the AlteriOne workspace.
 version: 0.0.1
 publish_to: none
-repository: https://github.com/alteri-one/alteri-one
-issue_tracker: https://github.com/alteri-one/alteri-one/issues
+repository: https://github.com/dip-develop/alteri-one
+issue_tracker: https://github.com/dip-develop/alteri-one/issues
 environment:
   sdk: ^3.13.0
 resolution: workspace
