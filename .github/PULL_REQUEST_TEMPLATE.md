@@ -1,7 +1,7 @@
 <!--
 Thank you for the contribution. Before opening:
 - Read AGENTS.md at the root; the invariants there are enforced in review.
-- Run `dart run melos:melos run ci` locally.
+- Run `melos run ci` locally.
 - Every commit must be signed off: `git commit -s` (DCO, no CLA).
 -->
 
@@ -19,11 +19,11 @@ What this PR changes and why, in a few sentences.
 ## Tests
 
 - [ ] Tests for the new behavior, including negative ones (refusal, error, boundary)
-- [ ] `dart run melos:melos run ci` is green
+- [ ] `melos run ci` is green
 
 ## Checklist
 
 - [ ] Commits are signed off (`git commit -s`) and follow Conventional Commits
-- [ ] Generated files were regenerated with `dart run melos:melos run gen`, not edited by hand
+- [ ] Generated files were regenerated with `melos run gen`, not edited by hand
 - [ ] Public packages got a semver-compatible changelog entry
 - [ ] No new dependency outside `docs/spec/architecture.md` (or the addition was approved)

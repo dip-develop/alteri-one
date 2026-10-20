@@ -60,17 +60,17 @@ One Dart workspace (one `pubspec.lock`, shared resolution) plus Melos. Packages 
 
 ## Getting started
 
-Requirements: [Dart](https://dart.dev) `^3.13.0` (a Flutter SDK gives you Dart; the client also needs [Flutter](https://flutter.dev) `3.47+`). The workspace scripts run as `dart run melos:melos run <script>`; no global Melos install is needed (see [`docs/spec/architecture.md`, section 5.2](docs/spec/architecture.md)).
+Requirements: [Dart](https://dart.dev) `^3.13.0` (a Flutter SDK gives you Dart; the client also needs [Flutter](https://flutter.dev) `3.47+`), and [Melos](https://pub.dev/packages/melos) 7.
 
 ```sh
 git clone https://github.com/dip-develop/alteri-one.git
 cd alteri-one
-flutter pub get                  # resolves the whole workspace, one lock file
-dart run melos:melos run format  # formatting
-dart run melos:melos run analyze # analyzer with fatal infos
-dart run melos:melos run arch    # dependency rules (tools/arch_check)
-dart run melos:melos run test    # tests across the workspace
-dart run melos:melos run ci      # all of the above
+flutter pub get          # resolves the whole workspace, one lock file
+melos run format         # formatting
+melos run analyze        # analyzer with fatal infos
+melos run arch           # dependency rules (tools/arch_check)
+melos run test           # tests across the workspace
+melos run ci             # all of the above
 ```
 
 The repository is currently a scaffold: package metadata, workspace wiring, and documentation are in place; the runtime follows milestone by milestone (see the [roadmap](docs/spec/roadmap.md)).

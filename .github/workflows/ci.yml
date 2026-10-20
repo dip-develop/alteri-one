@@ -20,6 +20,9 @@ jobs:
         with:
           channel: stable
 
+      - name: Install Melos
+        run: dart global activate melos ^7.0.0
+
       - name: Resolve workspace
         run: flutter pub get
 
@@ -27,15 +30,14 @@ jobs:
       # - name: Check generated code is up to date
       #   run: dart run tools/codegen_check/bin/codegen_check.dart
 
-      # Melos comes from the workspace lock file: `dart run melos:melos`, no global install.
       - name: Format
-        run: dart run melos:melos run format
+        run: melos run format
 
       - name: Analyze
-        run: dart run melos:melos run analyze
+        run: melos run analyze
 
       - name: Architecture rules
-        run: dart run melos:melos run arch
+        run: melos run arch
 
       - name: Test
-        run: dart run melos:melos run test
+        run: melos run test

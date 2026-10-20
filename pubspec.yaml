@@ -20,31 +20,15 @@ workspace:
   - tools/*
 
 dev_dependencies:
-  melos: ^8.0.0
+  # [VERIFY T12] Melos 8.x exists; the specification pins the 7.x line.
+  # See docs/spec/open-questions.md before moving to 8.
+  melos: ^7.0.0
 
 melos:
   scripts:
     format: dart format --set-exit-if-changed .
-    analyze:
-      exec:
-        command: dart analyze --fatal-infos
-        concurrency: 1
-    gen:
-      exec:
-        command: dart run build_runner build --delete-conflicting-outputs
-        concurrency: 1
-      packageFilters:
-        dependsOn: build_runner
+    analyze: melos exec -c 1 -- dart analyze --fatal-infos
+    gen: melos exec -c 1 --depends-on build_runner -- dart run build_runner build --delete-conflicting-outputs
     arch: dart run tools/arch_check/bin/arch_check.dart
-    test:
-      exec:
-        command: dart test
-        concurrency: 4
-      packageFilters:
-        dirExists: test
-    ci:
-      steps:
-        - format
-        - analyze
-        - arch
-        - test
+    test: melos exec -c 4 --dir-exists=test -- dart test
+    ci: melos run format && melos run analyze && melos run arch && melos run test

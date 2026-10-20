@@ -9,17 +9,17 @@ Added during the M0 scaffold (2026-10-17). Until answered, the scaffold takes th
 | ID | Question | Conservative choice taken |
 |---|---|---|
 | Q1 | schemantic line: the spec pins 0.2.x ("do not use 1.0.0-rc.1 until verified"), but `genkit 1.0.0` declares `schemantic: ^1.0.0`, so 0.2.x cannot coexist with genkit in one workspace, and schemantic 1.0.0 is now a stable release. Confirm the move to the 1.0.0 line and update section 4. | pinned `schemantic: ^1.0.0` everywhere |
-| Q2 | ~~Melos line: the spec pins Melos 7 everywhere; Melos 8.x is the current pub.dev release. Migrate to 8 and update sections 4 and 5.2?~~ Resolved 2026-10-20: the owner approved the Melos 8 line. The workspace resolves `melos: ^8.0.0` (8.9.0), the scripts use the Melos 8 `exec:` and `steps:` forms, and Melos runs from the workspace lock as `dart run melos:melos` with no global install (ADR-0011). | resolved |
+| Q2 | Melos line: the spec pins Melos 7 everywhere; Melos 8.x is the current pub.dev release. Migrate to 8 and update sections 4 and 5.2? [VERIFY T12] covers script syntax on 7.x. | pinned `melos: ^7.0.0` (resolves 7.8.2) |
 | Q3 | `tools/docs_check` is required by `docs/spec/index.md` ("Rules for maintaining documents") but is missing from the repository layout in `docs/spec/architecture.md`, section 5. Add it to section 5? | scaffolded `tools/docs_check` |
 | Q4 | ~~Repository URL: the spec gives the repository name `alteri-one` but not the GitHub owner.~~ Resolved 2026-10-17: the owner is `dip-develop`; all pubspecs and docs use `https://github.com/dip-develop/alteri-one`. | resolved |
 | Q5 | `public_member_api_docs` cannot coexist with the primary-constructor style mandated by section 7.2: the Dart 3.13.5 analyzer does not attach `///` comments to primary-constructor parameters (the style used by every example in `domain.md` section 8). Re-enable the lint when the analyzer supports parameter docs. Until then, parameter dartdoc stays mandatory by convention; `packages/AGENTS.md` ("public classes and methods have English dartdoc") is enforced in review, not by the analyzer. | lint omitted from the shared set; docs kept by convention |
 | Q6 | Section 7.3 shows named `new` constructors with a dot (`new origin()`); the Dart 3.13.5 compiler rejects the dot and requires a space (`new origin() : x = 0, y = 0;`), named factories are written without the class name (`factory standard() { ... }`), and named `new` factories are illegal. Update section 7.3 with the compiler-verified forms. | code follows the compiler forms probed on 3.13.5 |
 
-Previously none were open. Decisions are recorded in ADR-0005, ADR-0006, ADR-0009, and ADR-0011.
+Previously none were open. Decisions are recorded in ADR-0005, ADR-0006, and ADR-0009.
 
 ## 25.2 Technical checks [VERIFY]
 
-T1 is closed (ADR-0007). T12 is closed (ADR-0011): the workspace scripts use the Melos 8 `exec:` and `steps:` forms, and Melos runs from the workspace lock as `dart run melos:melos`. T14 is closed: the `RunBloc` suite in `alteri_one_core` runs under `bloc_test` 10 with bloc 9.2.
+T1 is closed (ADR-0007). T14 is closed: the `RunBloc` suite in `alteri_one_core` runs under `bloc_test` 10 with bloc 9.2.
 
 | ID | What to verify | When | What to do on failure |
 |---|---|---|---|
@@ -34,6 +34,7 @@ T1 is closed (ADR-0007). T12 is closed (ADR-0011): the workspace scripts use the
 | T9 | `hive_ce` API names (`openLazyBox`, encryption) | M0 | adjust the adapter |
 | T10 | the `SKILL.md` format in `genkit_middleware` | M5 | a custom parser |
 | T11 | the `dart build cli` command on Dart 3.13 for each OS | M4 | `dart compile exe` |
+| T12 | `melos.scripts` syntax, composite scripts, `melos exec` flags | M0 | fix the root `pubspec.yaml` |
 | T13 | the `shelf_io.serve` signature with `securityContext` | M4b | a TLS proxy in front of the daemon |
 | T14 | `bloc_test` compatibility with bloc 9 | M2 | test transitions as pure functions |
 | T15 | `StatePublisher` queue limits and overflow behavior | M5 | tune limits per topic |

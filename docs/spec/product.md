@@ -9,12 +9,12 @@
 | Name | AlteriOne |
 | Purpose | personal universal assistant: `chat`, `task`, and `resident` modes in one runtime |
 | Domain | https://alteri.one |
-| Repository | `alteri-one`, monorepo: Dart workspace and Melos (version in `architecture.md`, section 4) |
+| Repository | `alteri-one`, monorepo: Dart workspace and Melos 7 |
 | Dart packages | prefix `alteri_one_*` |
 | Binary | `alterione` (core and CLI). Personal builds get their own names |
 | License | Apache-2.0 |
 | Dart SDK | `^3.13.0` |
-| Build and tasks | Dart pub workspace (dependency resolution) and Melos (scripts, versions, publishing; version in `architecture.md`, section 4) |
+| Build and tasks | Dart pub workspace (dependency resolution) and Melos 7 (scripts, versions, publishing) |
 | Website | Jaspr, SSR |
 | Configuration | YAML, schema from schemantic |
 | User model | one owner per instance, several devices of the owner; no accounts, no multi-user mode |

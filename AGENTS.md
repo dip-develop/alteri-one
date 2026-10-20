@@ -4,7 +4,7 @@ This file is read first. It is short on purpose: it contains the invariants, the
 
 ## What the project is
 
-AlteriOne is a personal universal assistant: one runtime with three modes (`chat`, `task`, `resident`), extensions (built-in or loaded as AOT modules), LLM providers, and LSP and MCP integrations in the MVP. It has a single owner and no multi-user mode. The stack is Dart 3.13 in a monorepo managed with the Dart workspace and Melos 8.
+AlteriOne is a personal universal assistant: one runtime with three modes (`chat`, `task`, `resident`), extensions (built-in or loaded as AOT modules), LLM providers, and LSP and MCP integrations in the MVP. It has a single owner and no multi-user mode. The stack is Dart 3.13 in a monorepo managed with the Dart workspace and Melos 7.
 
 ## Invariants (never break)
 
@@ -24,13 +24,13 @@ AlteriOne is a personal universal assistant: one runtime with three modes (`chat
 
 ## Commands
 
-Before M0, `dart pub get` in the root is enough. After M0, the Melos scripts defined in the root `pubspec.yaml` (section `melos.scripts`) are available. They run as `dart run melos:melos run <script>`; the invocation is defined in `docs/spec/architecture.md`, section 5.2.
-- `format`: formatting;
-- `analyze`: analyzer with fatal infos;
-- `gen`: code generation;
-- `arch`: dependency rules;
-- `test`: tests;
-- `ci`: all of the above.
+Before M0, `dart pub get` in the root is enough. After M0, the Melos scripts defined in the root `pubspec.yaml` (section `melos.scripts`) are available:
+- `melos run format`: formatting;
+- `melos run analyze`: analyzer with fatal infos;
+- `melos run gen`: code generation;
+- `melos run arch`: dependency rules;
+- `melos run test`: tests;
+- `melos run ci`: all of the above.
 
 ## Reading map
 
@@ -55,7 +55,7 @@ Before a task, open `docs/spec/index.md` and find the row for your task. Then re
 
 ## Definition of done
 
-- `dart run melos:melos run ci` is green;
+- `melos run ci` is green;
 - there are tests for the new behavior, including negative ones (refusal, error, boundary);
 - `docs/spec/` is updated if the behavior is described there, and an ADR is written if a decision changed;
 - steps in `docs/plan/` are checked off.

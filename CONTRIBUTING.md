@@ -25,16 +25,16 @@ Do not silently invent decisions that are missing from the spec: write the quest
 
 ## Development setup
 
-Requirements: Dart `^3.13.0` (a [Flutter](https://flutter.dev) SDK `3.47+` provides it). The workspace scripts run as `dart run melos:melos run <script>`; no global Melos install is needed (see [`docs/spec/architecture.md`, section 5.2](docs/spec/architecture.md)).
+Requirements: Dart `^3.13.0` (a [Flutter](https://flutter.dev) SDK `3.47+` provides it), Melos 7.
 
 ```sh
-flutter pub get                  # one resolution for the whole workspace
-dart run melos:melos run format  # dart format --set-exit-if-changed
-dart run melos:melos run analyze # dart analyze --fatal-infos
-dart run melos:melos run gen     # build_runner code generation
-dart run melos:melos run arch    # dependency rules
-dart run melos:melos run test    # dart test across the workspace
-dart run melos:melos run ci      # all of the above
+flutter pub get        # one resolution for the whole workspace
+melos run format       # dart format --set-exit-if-changed
+melos run analyze      # dart analyze --fatal-infos
+melos run gen          # build_runner code generation
+melos run arch         # dependency rules
+melos run test         # dart test across the workspace
+melos run ci           # all of the above
 ```
 
 Rules enforced in review:
@@ -46,7 +46,7 @@ Rules enforced in review:
 
 ## Commit messages
 
-Use [Conventional Commits](https://www.conventionalcommits.org/); `dart run melos:melos version` derives changelogs and version bumps from them. Scope by package where useful:
+Use [Conventional Commits](https://www.conventionalcommits.org/); `melos version` derives changelogs and version bumps from them. Scope by package where useful:
 
 ```
 feat(client): replay SSE from `since`
@@ -57,7 +57,7 @@ docs(spec): clarify subtask rights intersection
 ## Pull requests
 
 - Keep PRs focused; one change per PR.
-- CI must be green (`dart run melos:melos run ci`).
+- CI must be green (`melos run ci`).
 - New behavior needs tests, including negative ones.
 - If the change touches an accepted decision, propose the ADR first in an issue or discussion.
 
