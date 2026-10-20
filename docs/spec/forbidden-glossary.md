@@ -12,7 +12,7 @@ Do not use anything listed here, even if you find it in old examples, articles, 
 | MCP stdio as the extension transport | replaced by AOT modules and built-in mode | `Isolate.spawnUri` behind `ExtensionTransport`, or built-in mode |
 | `alterione-sdk` as the only package | replaced by a set of packages | `alteri_one_*` |
 | `alterione_*` as a package prefix | corrected | `alteri_one_*` |
-| `melos.yaml` and `pubspec_overrides.yaml` | Melos 8 and pub workspaces | root `pubspec.yaml` with `workspace:` and `melos:` |
+| `melos.yaml` | Melos 8 and pub workspaces; `pubspec_overrides.yaml` is allowed for pointing at local forks/unreleased revisions | root `pubspec.yaml` with `workspace:` and `melos:` for Melos config, `pubspec_overrides.yaml` only for local overrides |
 | Node.js or npm as the agent runtime | project decision | Dart, native binary |
 | Multi-user mode, accounts, tenants | out of scope: a personal assistant | one owner, devices with tokens |
 | `sqlite`, `drift` | replaced | Hive CE |
