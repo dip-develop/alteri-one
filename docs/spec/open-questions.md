@@ -11,16 +11,19 @@ Added during the M0 scaffold (2026-10-17). Until answered, the scaffold takes th
 | Q1 | schemantic line: the spec pins 0.2.x ("do not use 1.0.0-rc.1 until verified"), but `genkit 1.0.0` declares `schemantic: ^1.0.0`, so 0.2.x cannot coexist with genkit in one workspace, and schemantic 1.0.0 is now a stable release. Confirm the move to the 1.0.0 line and update section 4. | pinned `schemantic: ^1.0.0` everywhere |
 | Q2 | Melos line: the spec pins Melos 7 everywhere; Melos 8.x is the current pub.dev release. Migrate to 8 and update sections 4 and 5.2? [VERIFY T12] covers script syntax on 7.x. | pinned `melos: ^7.0.0` (resolves 7.8.2) |
 | Q3 | `tools/docs_check` is required by `docs/spec/index.md` ("Rules for maintaining documents") but is missing from the repository layout in `docs/spec/architecture.md`, section 5. Add it to section 5? | scaffolded `tools/docs_check` |
-| Q4 | Repository URL: the spec gives the repository name `alteri-one` but not the GitHub owner. All pubspecs and docs use `https://github.com/alteri-one/alteri-one` as a placeholder. | placeholder URL |
+| Q4 | ~~Repository URL: the spec gives the repository name `alteri-one` but not the GitHub owner.~~ Resolved 2026-10-17: the owner is `dip-develop`; all pubspecs and docs use `https://github.com/dip-develop/alteri-one`. | resolved |
+| Q5 | `public_member_api_docs` cannot coexist with the primary-constructor style mandated by section 7.2: the Dart 3.13.5 analyzer does not attach `///` comments to primary-constructor parameters (the style used by every example in `domain.md` section 8). Re-enable the lint when the analyzer supports parameter docs. Until then, parameter dartdoc stays mandatory by convention; `packages/AGENTS.md` ("public classes and methods have English dartdoc") is enforced in review, not by the analyzer. | lint omitted from the shared set; docs kept by convention |
+| Q6 | Section 7.3 shows named `new` constructors with a dot (`new origin()`); the Dart 3.13.5 compiler rejects the dot and requires a space (`new origin() : x = 0, y = 0;`), named factories are written without the class name (`factory standard() { ... }`), and named `new` factories are illegal. Update section 7.3 with the compiler-verified forms. | code follows the compiler forms probed on 3.13.5 |
 
 Previously none were open. Decisions are recorded in ADR-0005, ADR-0006, and ADR-0009.
 
 ## 25.2 Technical checks [VERIFY]
 
-T1 is closed (ADR-0007).
+T1 is closed (ADR-0007). T14 is closed: the `RunBloc` suite in `alteri_one_core` runs under `bloc_test` 10 with bloc 9.2.
 
 | ID | What to verify | When | What to do on failure |
 |---|---|---|---|
+| T21 | bloc 9 applies each `on<E>()` transformer as a separate subscription: events of different types are never ordered against each other, so per-handler `sequential()` does not make a multi-handler bloc sequential. `Bloc.transformer` (static, set once in the composition root via `applyBlocDefaults()`) is the workspace default; ordering across types additionally requires one handler per bloc (an exhaustive `switch` over the sealed event type). Section 8.10 rule 4 should be rewritten accordingly. | M1 (done, record as ADR input) | — |
 | T2 | schemantic 0.2.x annotations and compatibility with SDK 3.13 | M0 | write the JSON Schema by hand for the problematic type |
 | T3 | `returnToolRequests` together with `genkit_openai` and `llama-server` | M3 | a custom HTTP client behind the same port |
 | T4 | `genkit_openai` behavior with invalid tool arguments | M3 | a custom client that handles `malformed` |

@@ -3,8 +3,8 @@ description: >-
   AlteriOne core: run modes, PolicyGate, journal, and the HTTP server.
 version: 0.0.1
 publish_to: none
-repository: https://github.com/alteri-one/alteri-one
-issue_tracker: https://github.com/alteri-one/alteri-one/issues
+repository: https://github.com/dip-develop/alteri-one
+issue_tracker: https://github.com/dip-develop/alteri-one/issues
 environment:
   sdk: ^3.13.0
 resolution: workspace
@@ -18,6 +18,7 @@ dependencies:
   genkit: ^1.0.0
   hive_ce: ^2.22.0
   injectable: ^3.0.0
+  get_it: ^9.3.0               # runtime container of injectable; used by the composition root
   shelf: ^1.4.3
   yaml: ^3.1.4
 dev_dependencies:

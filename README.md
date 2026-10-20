@@ -1,8 +1,8 @@
 # AlteriOne
 
-[![CI](https://github.com/alteri-one/alteri-one/actions/workflows/ci.yml/badge.svg)](https://github.com/alteri-one/alteri-one/actions/workflows/ci.yml)
+[![CI](https://github.com/dip-develop/alteri-one/actions/workflows/ci.yml/badge.svg)](https://github.com/dip-develop/alteri-one/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Discussions](https://img.shields.io/badge/discussions-welcome-brightgreen.svg)](https://github.com/alteri-one/alteri-one/discussions)
+[![Discussions](https://img.shields.io/badge/discussions-welcome-brightgreen.svg)](https://github.com/dip-develop/alteri-one/discussions)
 
 **A personal universal assistant: one runtime, three run modes.**
 
@@ -63,7 +63,7 @@ One Dart workspace (one `pubspec.lock`, shared resolution) plus Melos. Packages 
 Requirements: [Dart](https://dart.dev) `^3.13.0` (a Flutter SDK gives you Dart; the client also needs [Flutter](https://flutter.dev) `3.47+`), and [Melos](https://pub.dev/packages/melos) 7.
 
 ```sh
-git clone https://github.com/alteri-one/alteri-one.git
+git clone https://github.com/dip-develop/alteri-one.git
 cd alteri-one
 flutter pub get          # resolves the whole workspace, one lock file
 melos run format         # formatting
@@ -91,7 +91,7 @@ Contributions are welcome — for code, documentation, extension examples, and b
 - [Contributing guide](CONTRIBUTING.md) — development setup, conventions, and the DCO sign-off (`git commit -s`; no CLA).
 - [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Security policy](SECURITY.md) — please report vulnerabilities privately.
-- Questions and ideas: [GitHub Discussions](https://github.com/alteri-one/alteri-one/discussions).
+- Questions and ideas: [GitHub Discussions](https://github.com/dip-develop/alteri-one/discussions).
 
 ## License
 

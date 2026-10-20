@@ -11,6 +11,20 @@ analyzer:
 
 linter:
   rules:
+    # Section 7.12 of docs/spec/dart-language.md.
+    - no_dynamic_casts
+    - no_raw_types
+    - use_declaring_parameters
+    - unnecessary_primary_constructor_body
+    - unnecessary_type_name_in_constructor
+    - prefer_initializing_formals
+    - switch_on_type
+    - discarded_futures
+    - unawaited_futures
+    - unnecessary_unawaited
+    - async_return_with_no_await
+    - initialize_in_field_declaration
+    # Project additions.
     - always_declare_return_types
     - avoid_print
     - avoid_redundant_argument_values
@@ -20,7 +34,9 @@ linter:
     - prefer_const_constructors
     - prefer_final_locals
     - prefer_single_quotes
-    - public_member_api_docs
-    - unawaited_futures
     - unnecessary_lambdas
     - unnecessary_parenthesis
+    # public_member_api_docs is omitted: the 3.13.5 analyzer does not attach
+    # /// comments to primary-constructor parameters, which the spec mandates
+    # (dart-language.md 7.2, domain.md 8.x). Parameter docs stay mandatory by
+    # convention; see docs/spec/open-questions.md.

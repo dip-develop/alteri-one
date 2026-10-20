@@ -63,7 +63,7 @@ docs(spec): clarify subtask rights intersection
 
 ## Reporting bugs and proposing features
 
-Open a [GitHub issue](https://github.com/alteri-one/alteri-one/issues) using the templates. Security issues go through the [private channel](SECURITY.md), never a public issue.
+Open a [GitHub issue](https://github.com/dip-develop/alteri-one/issues) using the templates. Security issues go through the [private channel](SECURITY.md), never a public issue.
 
 ## License
 

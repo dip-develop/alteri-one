@@ -5,7 +5,7 @@
 A first-party extension published to pub.dev as part of AlteriOne.
 
 **Status: pre-alpha scaffold.** Implementation follows the milestones in
-[`docs/spec/roadmap.md`](https://github.com/alteri-one/alteri-one/blob/main/docs/spec/roadmap.md).
+[`docs/spec/roadmap.md`](https://github.com/dip-develop/alteri-one/blob/main/docs/spec/roadmap.md).
 
 ## About AlteriOne
 
@@ -13,7 +13,7 @@ AlteriOne is a personal universal assistant: one runtime with three run modes
 (`chat`, `task`, `resident`), extensions, LLM providers, and LSP and MCP
 integrations. One owner per instance; no accounts, no multi-user mode.
 
-See the [root README](https://github.com/alteri-one/alteri-one) and the [specification index](https://github.com/alteri-one/alteri-one/blob/main/docs/spec/index.md).
+See the [root README](https://github.com/dip-develop/alteri-one) and the [specification index](https://github.com/dip-develop/alteri-one/blob/main/docs/spec/index.md).
 
 ## License
 
