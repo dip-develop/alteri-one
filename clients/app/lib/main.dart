@@ -13,7 +13,7 @@ void main() {
 /// Placeholder entry point until the real client is implemented (see M9).
 final class AlteriOnePlaceholderApp extends StatelessWidget {
   /// Creates the placeholder application shell.
-  const AlteriOnePlaceholderApp({super.key});
+  const new({super.key});
 
   @override
   Widget build(BuildContext context) {

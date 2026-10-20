@@ -21,4 +21,4 @@ The spec's "personal builds" mechanism (`distribution.yaml`) intentionally gives
 
 ## Contact
 
-Questions about the name: open a [discussion](https://github.com/alteri-one/alteri-one/discussions) or write to the address in [SECURITY.md](SECURITY.md) with "trademark" in the subject.
+Questions about the name: open a [discussion](https://github.com/dip-develop/alteri-one/discussions) or write to the address in [SECURITY.md](SECURITY.md) with "trademark" in the subject.
