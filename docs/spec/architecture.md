@@ -27,7 +27,7 @@ Minimum versions as of the date of writing. Check the current version on pub.dev
 | hive_ce | current | `Box` and `LazyBox` |
 | shelf | current | HTTP and HTTPS through `securityContext` [VERIFY signature] |
 | injectable | current | DI in `core` and `app`, environments `dev`, `prod`, `test` |
-| build_runner | `>=2.16.1 <2.17.0` | code generation for schemantic and injectable; 2.17.0 is retracted, 2.17.1 needs `build` 5, and the generators pin `build` 4 |
+| build_runner | `>=2.16.1 <2.17.0` | code generation for schemantic and injectable; 2.17.0 is retracted, 2.17.1 needs `build` 5, and `injectable_generator` 3.1.3 pins `build` ^4.0.4 |
 | yaml | current | configuration parsing |
 | http | current | client in `alteri_one_client` and providers |
 
