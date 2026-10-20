@@ -155,7 +155,7 @@ Melos 8 rules that the block above depends on:
 - A composite script lists other scripts under `steps`, and the entries are bare script names. A literal `melos run <script>` inside `steps` is handed to the shell unchanged and fails when no global `melos` binary is on `PATH`.
 - `exec` scripts run in every package that the filters select. Private packages (`publish_to: none`) are included by default.
 
-Versions and publishing: `melos version` uses conventional commits for `packages/`, `providers/`, and `extensions/`. Publishing follows the dependency order. Packages with `publish_to: none` are never published.
+Versions and publishing: `dart run melos:melos version` uses conventional commits for `packages/`, `providers/`, and `extensions/`. Publishing follows the dependency order. Packages with `publish_to: none` are never published.
 
 ### 5.3 Code generation
 

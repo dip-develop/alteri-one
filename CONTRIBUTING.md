@@ -46,7 +46,7 @@ Rules enforced in review:
 
 ## Commit messages
 
-Use [Conventional Commits](https://www.conventionalcommits.org/); `melos version` derives changelogs and version bumps from them. Scope by package where useful:
+Use [Conventional Commits](https://www.conventionalcommits.org/); `dart run melos:melos version` derives changelogs and version bumps from them. Scope by package where useful:
 
 ```
 feat(client): replay SSE from `since`
