@@ -1,5 +1,6 @@
 # Dart / Flutter
 .dart_tool/
+pubspec.lock
 *.dart.js
 *.js.deps
 *.js.map

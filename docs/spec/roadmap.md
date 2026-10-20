@@ -14,7 +14,7 @@ Each milestone ends with a green `melos run ci`, updated documents (if decisions
 
 | Milestone | Scope | In MVP |
 |---|---|---|
-| M0 | Skeleton: workspace with globs, Melos 7, `analysis_options.yaml`, `tools/arch_check`, `tools/codegen_check`, `tools/docs_check`, CI. Spikes: schemantic, Hive (`kill -9`, `flush`), llama-server, Melos syntax, `dart language-server`, `mcp_dart`, keyring libraries | yes |
+| M0 | Skeleton: workspace with globs, Melos 8, `analysis_options.yaml`, `tools/arch_check`, `tools/codegen_check`, `tools/docs_check`, CI. Spikes: schemantic, Hive (`kill -9`, `flush`), llama-server, Melos syntax, `dart language-server`, `mcp_dart`, keyring libraries | yes |
 | M1 | Contracts: `alteri_one_contracts`, `alteri_one_provider_api`, `alteri_one_sdk`, `alteri_one_client`, state projection types, golden tests | yes |
 | M2 | Domain and loop: `transition`, `PolicyGate` with taints and rights, journal, `RunBloc`, loop with a fake `LlmPort`, `chat` mode. Target metrics measured (section 2.8) | yes |
 | M3 | llama.cpp provider: adapter over `genkit_openai`, probe, conformance. Adapter decision recorded as an ADR | yes |

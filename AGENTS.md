@@ -4,7 +4,7 @@ This file is read first. It is short on purpose: it contains the invariants, the
 
 ## What the project is
 
-AlteriOne is a personal universal assistant: one runtime with three modes (`chat`, `task`, `resident`), extensions (built-in or loaded as AOT modules), LLM providers, and LSP and MCP integrations in the MVP. It has a single owner and no multi-user mode. The stack is Dart 3.13 in a monorepo managed with the Dart workspace and Melos 7.
+AlteriOne is a personal universal assistant: one runtime with three modes (`chat`, `task`, `resident`), extensions (built-in or loaded as AOT modules), LLM providers, and LSP and MCP integrations in the MVP. It has a single owner and no multi-user mode. The stack is Dart 3.13 in a monorepo managed with the Dart workspace and Melos 8.
 
 ## Invariants (never break)
 
@@ -31,6 +31,8 @@ Before M0, `dart pub get` in the root is enough. After M0, the Melos scripts def
 - `melos run arch`: dependency rules;
 - `melos run test`: tests;
 - `melos run ci`: all of the above.
+
+Melos is run through the workspace lock via `dart run melos` (no global install).
 
 ## Reading map
 
