@@ -30,4 +30,4 @@ The `melos: scripts:` block in the root `pubspec.yaml` uses the Melos 8 forms: `
 - The `melos: scripts:` block is Melos 8 only. It does not run under Melos 7.
 - The lock file holds `platform` at 3.1.6, forced by the `platform: ">=3.1.6 <3.2.0"` constraint of melos 8.9.0.
 - The lock file also moves `cli_util` 0.5.2 -> 0.6.0 and `pub_updater` 0.5.0 -> 0.6.0, because melos 8.9.0 widens both to `>=0.5.0 <0.7.0`. `coverage` moves 1.15.1 -> 1.16.0, because coverage 1.16.0 needs `cli_util: ^0.6.0`, which melos 7's `cli_util: ^0.5.0` forbade.
-- The `build_runner` pin is a known ceiling. It is revisited when the generators move to `build` 5.
+- The `build_runner` pin is a known ceiling. It is revisited when `injectable_generator` moves to `build` 5.
