@@ -13,31 +13,23 @@ jobs:
   ci:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       # Provides both Flutter and the pinned Dart SDK for the workspace.
-      - uses: subosito/flutter-action@v2
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
         with:
           channel: stable
-
-      - name: Install Melos
-        run: dart global activate melos ^7.0.0
+          cache: true
 
       - name: Resolve workspace
         run: flutter pub get
 
+      # Melos is resolved from the workspace lock, not installed globally.
+      - name: CI
+        run: dart run melos run ci --no-select
+
       # TODO(M0): enable once the first generated code exists (tools/codegen_check).
       # - name: Check generated code is up to date
       #   run: dart run tools/codegen_check/bin/codegen_check.dart
-
-      - name: Format
-        run: melos run format
-
-      - name: Analyze
-        run: melos run analyze
-
-      - name: Architecture rules
-        run: melos run arch
-
-      - name: Test
-        run: melos run test

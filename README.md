@@ -31,7 +31,7 @@ Distinctive decisions (each recorded in `docs/adr/` and `docs/spec/`):
 
 ## Repository layout
 
-One Dart workspace (one `pubspec.lock`, shared resolution) plus Melos. Packages prefixed `alteri_one_` are published to pub.dev; the rest are marked `publish_to: none`.
+One Dart workspace (lock file generated, not committed, shared resolution) plus Melos. Packages prefixed `alteri_one_` are published to pub.dev; the rest are marked `publish_to: none`.
 
 | Path | Package | Purpose |
 |---|---|---|
@@ -60,12 +60,12 @@ One Dart workspace (one `pubspec.lock`, shared resolution) plus Melos. Packages 
 
 ## Getting started
 
-Requirements: [Dart](https://dart.dev) `^3.13.0` (a Flutter SDK gives you Dart; the client also needs [Flutter](https://flutter.dev) `3.47+`), and [Melos](https://pub.dev/packages/melos) 7.
+Requirements: [Dart](https://dart.dev) `^3.13.0` (a Flutter SDK gives you Dart; the client also needs [Flutter](https://flutter.dev) `3.47+`), and [Melos](https://pub.dev/packages/melos) 8.
 
 ```sh
 git clone https://github.com/dip-develop/alteri-one.git
 cd alteri-one
-flutter pub get          # resolves the whole workspace, one lock file
+flutter pub get          # resolves the whole workspace, lock file generated, not committed
 melos run format         # formatting
 melos run analyze        # analyzer with fatal infos
 melos run arch           # dependency rules (tools/arch_check)

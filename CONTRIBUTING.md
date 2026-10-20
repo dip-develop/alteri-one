@@ -25,7 +25,9 @@ Do not silently invent decisions that are missing from the spec: write the quest
 
 ## Development setup
 
-Requirements: Dart `^3.13.0` (a [Flutter](https://flutter.dev) SDK `3.47+` provides it), Melos 7.
+Requirements: Dart `^3.13.0` (a [Flutter](https://flutter.dev) SDK `3.47+` provides it), Melos 8.
+
+Melos is run through the workspace lock via `dart run melos` (no global install).
 
 ```sh
 flutter pub get        # one resolution for the whole workspace

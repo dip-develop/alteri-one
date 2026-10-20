@@ -9,8 +9,8 @@ Minimum versions as of the date of writing. Check the current version on pub.dev
 | Component | Minimum | Notes |
 |---|---|---|
 | Dart SDK | `^3.13.0` | fixed |
-| Dart workspace | globs in `workspace:` | globs since Dart 3.11; one `pubspec.lock` at the root |
-| Melos | 7.x | configured in the root `pubspec.yaml`; `melos.yaml` is not used [VERIFY current version] |
+| Dart workspace | globs in `workspace:` | globs since Dart 3.11; lock file is generated and not committed |
+| Melos | 8.x | configured in the root `pubspec.yaml`; `melos.yaml` is not used; run via `dart run melos` from the workspace lock |
 | bloc | `^9.2.0` | pure Dart. `flutter_bloc` only in the client |
 | bloc_concurrency | current | `sequential`, `droppable`, `restartable`, `concurrent` |
 | bloc_test | current | state tests [VERIFY compatibility with bloc 9] |
@@ -23,11 +23,11 @@ Minimum versions as of the date of writing. Check the current version on pub.dev
 | genkit_a2ui | not used in the MVP | outside the MVP |
 | dotprompt | `^2.0.0` | `.prompt` files with JSON Schema in the frontmatter |
 | handlebars_dart | through dotprompt | no separate dependency unless custom helpers are needed |
-| schemantic | `0.2.x` line | compatible with genkit packages. Do not use `1.0.0-rc.1` until verified [VERIFY] |
+| schemantic | `^1.0.0` | stable release; matches genkit (`genkit: ^1.0.0`) |
 | hive_ce | current | `Box` and `LazyBox` |
 | shelf | current | HTTP and HTTPS through `securityContext` [VERIFY signature] |
 | injectable | current | DI in `core` and `app`, environments `dev`, `prod`, `test` |
-| build_runner | current | code generation for schemantic and injectable |
+| build_runner | current | code generation for schemantic and injectable; ceiling `<2.17.0` due to `injectable_generator` (build 4) |
 | yaml | current | configuration parsing |
 | http | current | client in `alteri_one_client` and providers |
 
@@ -35,12 +35,12 @@ All workspace members resolve together. Version conflicts appear immediately. Ke
 
 ## 5. Repository layout
 
-The monorepo is one Dart workspace (one `pubspec.lock`, shared dependency resolution) plus Melos 7 (scripts, filtering, versions, publishing). Packages are grouped by purpose and by publishing rules, not by technology.
+The monorepo is one Dart workspace (lock file generated, not committed, shared dependency resolution) plus Melos 8 (scripts, filtering, versions, publishing). Packages are grouped by purpose and by publishing rules, not by technology.
 
 ```
 alteri-one/
 ├── pubspec.yaml                 # workspace root and Melos configuration (melos:, melos.scripts)
-├── pubspec.lock                 # one lock file for the whole workspace
+├── pubspec.lock                 # generated, not committed
 ├── analysis_options.yaml        # shared lint rules, included by each member
 │
 ├── packages/                    # public pub.dev libraries (semver, changelog)
@@ -100,7 +100,7 @@ alteri-one/
 
 ### 5.2 Melos configuration
 
-Melos 7 reads its settings from the root `pubspec.yaml`. There is no separate `melos.yaml`. Scripts are declared in `melos.scripts`.
+Melos 8 reads its settings from the root `pubspec.yaml`. There is no separate `melos.yaml`. Scripts are declared in `melos.scripts`. Melos is run through the workspace lock via `dart run melos` (no global install). T12 is closed: Melos 8 syntax verified against 8.9.0.
 
 ```yaml
 # pubspec.yaml (root)
@@ -117,18 +117,38 @@ workspace:
   - e2e
   - tools/*
 dev_dependencies:
-  melos: ^7.0.0                    # [VERIFY current version on pub.dev]
+  melos: ^8.9.0
 melos:
   scripts:
-    analyze: melos exec -c 1 -- dart analyze --fatal-infos
-    test: melos exec -c 4 --dir-exists=test -- dart test
-    format: dart format --set-exit-if-changed .
-    gen: melos exec -c 1 --depends-on build_runner -- dart run build_runner build --delete-conflicting-outputs
-    arch: dart run tools/arch_check/bin/arch_check.dart
-    ci: melos run format && melos run analyze && melos run arch && melos run test
+    format:
+      run: dart format --set-exit-if-changed .
+    analyze:
+      exec:
+        command: dart analyze --fatal-infos
+        concurrency: 1
+    gen:
+      exec:
+        command: dart run build_runner build --delete-conflicting-outputs
+        concurrency: 1
+      packageFilters:
+        dependsOn: build_runner
+    arch:
+      run: dart run tools/arch_check/bin/arch_check.dart
+    test:
+      exec:
+        command: dart test
+        concurrency: 4
+      packageFilters:
+        dirExists: test
+    ci:
+      dependsOn:
+        - format
+        - analyze
+        - arch
+        - test
 ```
 
-[VERIFY: syntax of `melos.scripts`, composite scripts, and `melos exec` flags in the selected Melos 7 version.]
+[VERIFY T12 closed: Melos 8 syntax verified against 8.9.0.]
 
 Versions and publishing: `melos version` uses conventional commits for `packages/`, `providers/`, and `extensions/`. Publishing follows the dependency order. Packages with `publish_to: none` are never published.
 
