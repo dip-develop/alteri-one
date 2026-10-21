@@ -1,4 +1,4 @@
-name: docs_check
+name: alteri_one_docs_check
 description: >-
   Documentation checks for the AlteriOne workspace: links, forbidden terms, AGENTS.md presence.
 version: 0.0.1
@@ -9,4 +9,6 @@ environment:
   sdk: ^3.13.0
 resolution: workspace
 dependencies:
-  # none yet
+  path: ^1.9.0
+dev_dependencies:
+  test: ^1.25.0

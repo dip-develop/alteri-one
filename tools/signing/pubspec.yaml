@@ -1,4 +1,4 @@
-name: signing
+name: alteri_one_signing
 description: >-
   Ed25519 signing of loaded AlteriOne extensions.
 version: 0.0.1
@@ -8,5 +8,5 @@ issue_tracker: https://github.com/dip-develop/alteri-one/issues
 environment:
   sdk: ^3.13.0
 resolution: workspace
-dependencies:
-  # none yet
+dev_dependencies:
+  test: ^1.25.0

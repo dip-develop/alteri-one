@@ -169,7 +169,7 @@ Generated files (`*.g.dart`, `*.schemantic.dart`, `*.config.dart`) are never edi
 | `packages/testkit` | provider_api, contracts, test | core |
 | `providers/*` | provider_api, genkit, genkit_openai, http | core, sdk |
 | `extensions/*` | sdk, contracts, and their own dependencies | core, client, provider_api, genkit, bin |
-| `runtime/core` | contracts, provider_api, sdk, prompts, bloc, bloc_concurrency, genkit*, hive_ce, injectable, shelf, yaml | Flutter, client, cli, bin, extensions |
+| `runtime/core` | contracts, provider_api, sdk, prompts, bloc, bloc_concurrency, genkit*, hive_ce, injectable, get_it, shelf, yaml | Flutter, client, cli, bin, extensions |
 | `runtime/cli` | contracts, client | core |
 | `runtime/bin` | core, cli | extensions directly (only through a personal build) |
 | `clients/app` | contracts, client, design, bloc, injectable, Flutter | core |
