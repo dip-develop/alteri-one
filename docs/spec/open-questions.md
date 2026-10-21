@@ -24,24 +24,24 @@ T1 is closed (ADR-0007). T14 is closed: the `RunBloc` suite in `alteri_one_core`
 | ID | What to verify | When | What to do on failure |
 |---|---|---|---|
 | T21 | bloc 9 applies each `on<E>()` transformer as a separate subscription: events of different types are never ordered against each other, so per-handler `sequential()` does not make a multi-handler bloc sequential. `Bloc.transformer` (static, set once in the composition root via `applyBlocDefaults()`) is the workspace default; ordering across types additionally requires one handler per bloc (an exhaustive `switch` over the sealed event type). Section 8.10 rule 4 should be rewritten accordingly. | M1 (done, record as ADR input) | — |
-| T2 | schemantic 0.2.x annotations and compatibility with SDK 3.13 | M0 | write the JSON Schema by hand for the problematic type |
+| T2 | schemantic 1.0.0 annotations on SDK 3.13 — partially resolved: spike passed (docs/spikes/schemantic_spike); keep [VERIFY] for edge cases | M0 | write the JSON Schema by hand for the problematic type |
 | T3 | `returnToolRequests` together with `genkit_openai` and `llama-server` | M3 | a custom HTTP client behind the same port |
 | T4 | `genkit_openai` behavior with invalid tool arguments | M3 | a custom client that handles `malformed` |
-| T5 | `response_format` with JSON Schema on the `llama-server` build | M0, M3 | structured output through a prompt and parsing |
-| T6 | the complete list of `llama-server` flags for tools and the web UI | M0 | `doctor` blocks work until the server is configured |
-| T7 | durability guarantees of `flush` in Hive CE (fsync) | M0 | an extra fsync, or another journal behind `JournalPort` |
+| T5 | `response_format` with JSON Schema on the `llama-server` build — open: llama-server not installed; environment gap recorded (docs/spikes/m0-environment.md) | M0, M3 | structured output through a prompt and parsing |
+| T6 | the complete list of `llama-server` flags for tools and the web UI — open: llama-server not installed; environment gap recorded (docs/spikes/m0-environment.md) | M0 | `doctor` blocks work until the server is configured |
+| T7 | durability guarantees of `flush` in Hive CE (fsync) — closed: flush sufficient; spike test passed (docs/spikes/m0-environment.md) | M0 | done |
 | T8 | handlebars_dart strict mode through dotprompt | M0 | explicit input checks in `alteri_one_prompts` |
-| T9 | `hive_ce` API names (`openLazyBox`, encryption) | M0 | adjust the adapter |
+| T9 | `hive_ce` API names (`openLazyBox`, encryption) — closed: API names verified; spike test passed (docs/spikes/m0-environment.md) | M0 | done |
 | T10 | the `SKILL.md` format in `genkit_middleware` | M5 | a custom parser |
 | T11 | the `dart build cli` command on Dart 3.13 for each OS | M4 | `dart compile exe` |
 | T12 | ~~`melos.scripts` syntax, composite scripts, `melos exec` flags~~ Closed 2026-10-20: Melos 8 syntax verified against 8.9.0. | M0 | done |
 | T13 | the `shelf_io.serve` signature with `securityContext` | M4b | a TLS proxy in front of the daemon |
 | T14 | `bloc_test` compatibility with bloc 9 | M2 | test transitions as pure functions |
 | T15 | `StatePublisher` queue limits and overflow behavior | M5 | tune limits per topic |
-| T16 | `mcp_dart`: client API, HTTP address rules, protocol version 2026-07-28 | M8 | revisit ADR-0002, consider `dart_mcp` |
-| T17 | `dart language-server`: pull diagnostics and position encodings | M7 | fall back to `publishDiagnostics` and UTF-16 |
+| T16 | `mcp_dart`: client API, HTTP address rules, protocol version 2026-07-28 — not yet run; mitigation: dart_mcp 0.5.2 cached fallback; mcp_dart 2.4.3 available on pub.dev (docs/spikes/m0-environment.md) | M8 | revisit ADR-0002, consider `dart_mcp` |
+| T17 | `dart language-server`: pull diagnostics and position encodings — not yet run; mitigation: dart language-server available (3.13.5); T17 can proceed in M7 (docs/spikes/m0-environment.md) | M7 | fall back to `publishDiagnostics` and UTF-16 |
 | T18 | context compaction quality: goals and open items are preserved | M6 | tests that check preserved goals |
-| T19 | Dart libraries for system key storage: Keychain (macOS), Secret Service (Linux), Credential Manager (Windows). Behavior without Secret Service on Linux | M0 | systemd credentials or a 0600 file |
+| T19 | Dart libraries for system key storage: Keychain (macOS), Secret Service (Linux), Credential Manager (Windows). Behavior without Secret Service on Linux — not yet run; mitigation: keyring_core/native 1.0.0 on pub.dev; Rust toolchain and Secret Service absent; fallback systemd credentials / 0600 file (docs/spikes/m0-environment.md) | M0 | systemd credentials or a 0600 file |
 | T20 | Windows logon-task mode: stopping the daemon without SIGTERM (named event or equivalent) and the `%APPDATA%` directory mapping | M4 | stop through the IPC endpoint; path mapping per ADR-0009 |
 
 ## 25.3 Spikes that ADRs depend on

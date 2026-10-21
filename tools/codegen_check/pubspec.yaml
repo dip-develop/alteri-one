@@ -1,12 +1,11 @@
-name: codegen_check
-description: >-
-  Checks that generated code in the AlteriOne workspace is up to date.
-version: 0.0.1
+name: alteri_one_codegen_check
 publish_to: none
-repository: https://github.com/dip-develop/alteri-one
-issue_tracker: https://github.com/dip-develop/alteri-one/issues
+description: A tool to check generated code is up to date.
 environment:
   sdk: ^3.13.0
 resolution: workspace
 dependencies:
-  # none yet
+  path: ^1.9.0
+  yaml: ^3.1.3
+dev_dependencies:
+  test: ^1.25.0

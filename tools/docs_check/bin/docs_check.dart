@@ -3,8 +3,18 @@
 
 import 'dart:io';
 
-// TODO(M0): implement docs_check; see docs/spec/architecture.md, section 5.
+import 'package:alteri_one_docs_check/docs_check.dart';
+
 void main(List<String> args) {
-  stdout.writeln('docs_check: not implemented yet (scaffold only).');
-  stdout.writeln('Args ignored: $args');
+  final root = args.isNotEmpty ? args.first : '.';
+  final violations = DocsChecker().check(Directory(root));
+  if (violations.isEmpty) {
+    stdout.writeln('docs_check: OK');
+    exitCode = 0;
+  } else {
+    for (final violation in violations) {
+      stderr.writeln(violation);
+    }
+    exitCode = 1;
+  }
 }

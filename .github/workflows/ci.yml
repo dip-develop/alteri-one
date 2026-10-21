@@ -26,10 +26,12 @@ jobs:
       - name: Resolve workspace
         run: flutter pub get
 
+      - name: Docs check
+        run: dart run tools/docs_check/bin/docs_check.dart
+
+      - name: Generated code check
+        run: dart run tools/codegen_check/bin/codegen_check.dart
+
       # Melos is resolved from the workspace lock, not installed globally.
       - name: CI
         run: dart run melos run ci --no-select
-
-      # TODO(M0): enable once the first generated code exists (tools/codegen_check).
-      # - name: Check generated code is up to date
-      #   run: dart run tools/codegen_check/bin/codegen_check.dart
