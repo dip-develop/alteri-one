@@ -32,5 +32,7 @@ export 'src/domain/ports/journal_port.dart';
 export 'src/domain/ports/llm_port.dart';
 export 'src/domain/ports/memory_port.dart';
 export 'src/domain/ports/tool_port.dart';
+export 'src/domain/run.dart';
 export 'src/domain/run_state.dart';
 export 'src/domain/trigger.dart';
+export 'src/infrastructure/journal/hive_journal.dart';
