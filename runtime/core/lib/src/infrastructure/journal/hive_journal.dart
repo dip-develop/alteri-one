@@ -28,7 +28,6 @@ final class HiveJournal implements JournalPort {
     return HiveJournal._(meta, steps);
   }
 
-  @override
   Future<void> close() async {
     await meta.close();
     await steps.close();
@@ -55,7 +54,7 @@ final class HiveJournal implements JournalPort {
       'runId': runId.value,
       'tool': tool,
       'risk': risk.name,
-      'status': 'started',
+      'status': InvocationStatus.started.name,
       'at': now.toIso8601String(),
       'error': null,
     };
@@ -80,7 +79,7 @@ final class HiveJournal implements JournalPort {
       'runId': runId.value,
       'tool': tool,
       'risk': risk.name,
-      'status': 'denied',
+      'status': InvocationStatus.denied.name,
       'at': now.toIso8601String(),
       'error': reason,
     };
