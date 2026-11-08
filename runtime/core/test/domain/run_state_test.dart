@@ -102,5 +102,60 @@ void main() {
       expect(token.isCancelled, isTrue);
       expect(token.throwIfCancelled, throwsA(isA<RunCancelledException>()));
     });
+
+    test('cancelling the parent cancels its child', () {
+      final parent = CancelToken();
+      final child = parent.child();
+      expect(child.isCancelled, isFalse);
+
+      parent.cancel();
+
+      expect(child.isCancelled, isTrue);
+      expect(child.throwIfCancelled, throwsA(isA<RunCancelledException>()));
+    });
+
+    test('a grandchild inherits cancellation from the root', () {
+      final root = CancelToken();
+      final grandchild = root.child().child();
+
+      root.cancel();
+
+      expect(grandchild.isCancelled, isTrue);
+      expect(
+        grandchild.throwIfCancelled,
+        throwsA(isA<RunCancelledException>()),
+      );
+    });
+
+    test('cancelling a child leaves the parent clean', () {
+      final parent = CancelToken();
+      final child = parent.child();
+
+      child.cancel();
+
+      expect(child.isCancelled, isTrue);
+      expect(parent.isCancelled, isFalse);
+      parent.throwIfCancelled();
+    });
+
+    test('cancelling one child does not cancel its siblings', () {
+      final parent = CancelToken();
+      final first = parent.child();
+      final second = parent.child();
+
+      first.cancel();
+
+      expect(second.isCancelled, isFalse);
+      second.throwIfCancelled();
+    });
+
+    test('cancel() is idempotent', () {
+      final token = CancelToken();
+      token
+        ..cancel()
+        ..cancel();
+      expect(token.isCancelled, isTrue);
+      expect(token.throwIfCancelled, throwsA(isA<RunCancelledException>()));
+    });
   });
 }

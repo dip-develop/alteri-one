@@ -326,4 +326,6 @@ Future<ToolResultBlock> _invoke(Run run, ToolSet tools, ToolCall call, AgentDeps
 
 Tool outputs are always untrusted and are truncated to `maxOutputBytes`. The full error text is not passed to the model context, so internal details do not leak.
 
+Implementation note: the following details of the pseudo-code above differ deliberately. `Run.addTaint` stands in for `run.taints.add` (Q7). Cancellation is re-checked after the model call and again after the tool batch, before a result is returned. Both versions truncate after the journal write; the difference is that taint application and truncation run outside the `try`, so neither can rewrite an already-written `succeeded` record (Q8). A timed-out call stays `failed` (Q14). See `open-questions.md`.
+
 Generation through genkit: a `generate` call with `returnToolRequests: true` returns tool requests without executing them. Parameter names are checked against genkit 1.x during implementation [VERIFY]. The adapter in `alteri_one_provider_llama_cpp` converts the response into a `Turn`. A `ToolCall` with invalid arguments is marked `malformed` without failing the run.
