@@ -50,8 +50,8 @@ extension GetItInjectableX on _i174.GetIt {
     gh.lazySingleton<_i194.ApprovalService>(() => coreModule.approvalService);
     gh.lazySingleton<_i186.ContextBuilder>(() => coreModule.contextBuilder);
     gh.lazySingleton<_i454.ToolRegistry>(() => coreModule.toolRegistry);
-    gh.lazySingleton<_i982.AgentDeps>(
-      () => coreModule.agentDeps(
+    gh.lazySingleton<_i982.AgentDepsFactory>(
+      () => coreModule.agentDepsFactory(
         gh<_i500.LlmPort>(),
         gh<_i454.ToolRegistry>(),
         gh<_i673.JournalPort>(),

@@ -1,10 +1,12 @@
 // Copyright 2026 The AlteriOne Authors.
 // SPDX-License-Identifier: Apache-2.0
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:alteri_one_contracts/alteri_one_contracts.dart';
 import 'package:alteri_one_core/alteri_one_core.dart';
+import 'package:hive_ce/hive.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -98,6 +100,99 @@ void main() {
         ),
         throwsA(isA<StateError>()),
       );
+    });
+
+    test(
+      'modelStarted and finished record one successful model call',
+      () async {
+        final run = RunId('run-model');
+        final seq = await journal.modelStarted(run);
+        final startedAt = (await journal.modelCallsForRun(run)).single.at;
+        await journal.finished(run, seq, InvocationStatus.succeeded, null);
+
+        final calls = await journal.modelCallsForRun(run);
+        expect(calls, hasLength(1));
+        expect(calls.single.seq, seq);
+        expect(calls.single.runId, run);
+        expect(calls.single.status, InvocationStatus.succeeded);
+        expect(calls.single.at, startedAt);
+        expect(calls.single.error, isNull);
+      },
+    );
+
+    test(
+      'model and tool records share the seq counter and filter apart',
+      () async {
+        final run = RunId('run-mixed');
+        final model1 = await journal.modelStarted(run);
+        final tool = await journal.started(run, 'ext__post', Risk.read);
+        final model2 = await journal.modelStarted(run);
+        expect(model1, 1);
+        expect(tool, 2);
+        expect(model2, 3);
+
+        final tools = await journal.forRun(run);
+        expect(tools.map((i) => i.seq), [tool]);
+        expect(tools.single.tool, 'ext__post');
+
+        final models = await journal.modelCallsForRun(run);
+        expect(models.map((m) => m.seq), [model1, model2]);
+      },
+    );
+
+    test('forRun ignores model records', () async {
+      final run = RunId('run-model-only');
+      await journal.modelStarted(run);
+
+      expect(await journal.forRun(run), isEmpty);
+    });
+
+    test('reads a record without kind as a tool invocation', () async {
+      final run = RunId('run-legacy');
+      await journal.close();
+      Hive.init(dir.path);
+      final steps = await Hive.openLazyBox<String>('steps');
+      await steps.put(
+        'run-legacy:000000000001',
+        jsonEncode(<String, Object?>{
+          'v': 1,
+          'seq': 1,
+          'runId': 'run-legacy',
+          'tool': 'ext__post',
+          'risk': Risk.write.name,
+          'status': InvocationStatus.started.name,
+          'at': DateTime.now().toIso8601String(),
+          'error': null,
+        }),
+      );
+      await steps.flush();
+      await steps.close();
+      journal = await HiveJournal.open(dir.path);
+
+      final inv = (await journal.forRun(run)).single;
+      expect(inv.tool, 'ext__post');
+      expect(inv.seq, 1);
+      expect(await journal.modelCallsForRun(run), isEmpty);
+    });
+
+    test('model records survive close and reopen', () async {
+      final run = RunId('run-model-reopen');
+      final seq = await journal.modelStarted(run);
+      await journal.finished(
+        run,
+        seq,
+        InvocationStatus.failed,
+        'provider error',
+      );
+      await journal.close();
+      journal = await HiveJournal.open(dir.path);
+
+      final call = (await journal.modelCallsForRun(run)).single;
+      expect(call.seq, seq);
+      expect(call.status, InvocationStatus.failed);
+      expect(call.error, 'provider error');
+      final next = await journal.modelStarted(run);
+      expect(next, seq + 1);
     });
   });
 }

@@ -14,6 +14,7 @@
 
 - A normal `Box` keeps all values in memory. The journal and memory grow, so `steps` and `memory` are `LazyBox`es.
 - Values are JSON strings, not type adapters. The format is controlled by the project. Each object carries a version field `v`.
+- `steps` holds both tool-invocation and model-call records. A `kind` field (`tool` or `model`) discriminates them; the format version `v` stays `1`. A record without `kind` predates the discriminator and is read as a tool invocation. Both kinds share the same `seq` counter.
 - `seq` is a shared monotonic counter for SSE. Incrementing it and writing the step happen sequentially inside one isolate.
 
 ### 15.2 Write semantics [VERIFY, spike T7]
@@ -21,6 +22,7 @@
 - Hive documentation: the future of a write completes when the change is written to the backend. If the write fails, the change is reverted. `flush()` writes pending changes to disk.
 - Whether `flush` performs an fsync is not documented. It is checked by a `kill -9` test in spike T7.
 - Journal protocol: `await put(started)` and `flush()` before the tool call; `await put(finished)` and `flush()` after it. This guarantees that `started` is on disk before the side effect runs.
+- Model calls follow the same protocol: `modelStarted` writes and flushes a `kind: model` record before the provider call, and the `seq`-addressed `finished` update records the outcome. A model-call record carries neither prompt nor reply text.
 - There are no transactions across boxes. The guarantees are the monotonic `seq` and recovery from states (below).
 
 ### 15.3 Recovery after a crash
@@ -29,6 +31,8 @@ On startup, the daemon:
 1. Moves runs in `running` and `waitingApproval` to `interrupted` through the `crash` event.
 2. For every `started` step without `finished`: if `idempotent: true`, the call may be repeated. Otherwise the status is `unknownOutcome`, and the agent asks the owner through a channel. Repeating a sent email or a payment silently is forbidden.
 3. The lock file is checked before any box is opened.
+
+Reading a run back needs both record kinds: `forRun` returns tool invocations only, so a run projection merges `forRun` and `modelCallsForRun` in `seq` order to get the full timeline (section 15.1). A `model` record left `started` without a matching `finished` is not safe to retry, because the model call is not idempotent; its recovery outcome is open question Q14 and is not decided here.
 
 Test: `kill -9` in the middle of a tool call, restart, and verify the state transitions in the journal.
 

@@ -194,6 +194,8 @@ abstract interface class ToolPort {
 
 `RunId`, `MemoryId`, `Message`, `Turn`, `ToolCall`, and `CancelToken` are domain types. `ToolSpec` and `Risk` are shared with the contracts.
 
+Implementation note: this sketch lists the ports and their central methods, not every method of each port. In particular, model calls use a start method plus the existing `seq`-addressed `finished(...)`: the application-layer `JournalingLlm` decorator wraps `LlmPort`, holds the `RunId`, calls `JournalPort.modelStarted` before the call, closes that record through `finished`, and reads the records back with `JournalPort.modelCallsForRun`. The section 9 loop does not journal model calls itself (ADR-0012, Q13).
+
 ### 8.6 Memory
 
 - `MemoryEntry` is a short fact, not a transcript. Fields: `id`, `text`, `source` (`user` or `agent`), `createdAt`, `runId`, `tags`, `untrusted`.
@@ -262,6 +264,8 @@ Mechanics:
 ## 9. Agent loop
 
 The loop lives in the application layer. It works only through `LlmPort`, `ToolPort`, and `PolicyGate`. Tool calls are intercepted before execution: genkit does not run tools by itself.
+
+Implementation note: the loop does not journal the model call itself. `d.llm` arrives already wrapped in the application-layer `JournalingLlm` decorator, which writes the `modelStarted` record and flushes it before delegating to the provider, then records `succeeded` or `failed` after the call returns or throws, and rethrows the original error (ADR-0012, Q13).
 
 ```dart
 Future<RunResult> run(Run run, AgentDeps d) async {

@@ -41,12 +41,13 @@ abstract class CoreModule {
   @lazySingleton
   ToolRegistry get toolRegistry => const EmptyToolRegistry();
 
-  /// The collaborators of the agent loop (docs/spec/domain.md, section 9).
+  /// The factory that hands out the agent loop's collaborators per run
+  /// (docs/adr/0012-model-call-journaling.md).
   ///
   /// Lazy on purpose: resolving this without a registered `LlmPort` (providers
   /// arrive in M3) fails at resolution time, not at startup.
   @lazySingleton
-  AgentDeps agentDeps(
+  AgentDepsFactory agentDepsFactory(
     LlmPort llm,
     ToolRegistry registry,
     JournalPort journal,
@@ -54,5 +55,13 @@ abstract class CoreModule {
     ApprovalService approvals,
     AgentConfig config,
     ContextBuilder context,
-  ) => AgentDeps(llm, registry, journal, policy, approvals, config, context);
+  ) => AgentDepsFactory(
+    llm,
+    registry,
+    journal,
+    policy,
+    approvals,
+    config,
+    context,
+  );
 }

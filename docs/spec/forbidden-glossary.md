@@ -52,6 +52,7 @@ Do not use anything listed here, even if you find it in old examples, articles, 
 | Profile | a named agent configuration: model, prompt, tools, budgets, rules |
 | Tool | an action the model can call |
 | Invocation | one journal record of a tool call, with its status |
+| Model call | one journal record of a call to the model provider, with its status; it carries no prompt and no reply text |
 | Risk | the effect level of a tool: `read`, `write`, `external`, `destructive` |
 | PolicyGate | the single decision point for whether a tool runs |
 | Taint label | a marker that the run read an untrusted source |
