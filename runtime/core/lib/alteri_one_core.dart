@@ -11,6 +11,14 @@ library;
 
 // Application state (docs/spec/domain.md, section 8.10) and
 // composition; then the pure domain (sections 8.1–8.9).
+export 'src/application/agent/agent_config.dart';
+export 'src/application/agent/agent_defaults.dart';
+export 'src/application/agent/agent_deps.dart';
+export 'src/application/agent/agent_loop.dart';
+export 'src/application/agent/approval_service.dart';
+export 'src/application/agent/context_builder.dart';
+export 'src/application/agent/run_result.dart';
+export 'src/application/agent/tool_set.dart';
 export 'src/application/approvals_bloc.dart';
 export 'src/application/bloc_defaults.dart';
 export 'src/application/channels_cubit.dart';
