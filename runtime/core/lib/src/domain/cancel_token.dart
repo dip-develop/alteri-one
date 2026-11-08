@@ -15,15 +15,31 @@ final class RunCancelledException implements Exception {
 final class CancelToken() {
   bool _cancelled = false;
 
+  /// The token this one derives from, if any.
+  CancelToken? _parent;
+
   /// Whether cancellation was requested.
-  bool get isCancelled => _cancelled;
+  ///
+  /// A child token is cancelled when its parent is, even without its own
+  /// [cancel] call.
+  bool get isCancelled => _cancelled || (_parent?.isCancelled ?? false);
 
   /// Requests cancellation.
   void cancel() => _cancelled = true;
 
+  /// Returns a token that is cancelled when this one is.
+  ///
+  /// Cancelling the child affects only the child, so one tool invocation can be
+  /// abandoned (for example after its timeout) without cancelling the run.
+  CancelToken child() {
+    final token = CancelToken();
+    token._parent = this;
+    return token;
+  }
+
   /// Throws [RunCancelledException] if cancellation was requested.
   void throwIfCancelled() {
-    if (_cancelled) {
+    if (isCancelled) {
       throw const RunCancelledException();
     }
   }
