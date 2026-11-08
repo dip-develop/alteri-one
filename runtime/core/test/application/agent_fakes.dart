@@ -39,6 +39,16 @@ final class FakeJournal implements JournalPort {
   /// tool never runs.
   bool failOnStarted = false;
 
+  /// Number of [modelStarted] calls.
+  int modelStarts = 0;
+
+  /// One line per [modelStarted] call, in call order.
+  final List<String> modelRecords = [];
+
+  /// When set, [modelStarted] throws instead of recording, so a test can prove
+  /// the model call never runs.
+  bool failOnModelStarted = false;
+
   /// The risk passed to each [denied] call, in order.
   final List<Risk> deniedRisks = [];
 
@@ -52,6 +62,18 @@ final class FakeJournal implements JournalPort {
     starts++;
     records.add('started $tool');
     log?.add('journal.started $tool');
+    return Future.value(_nextSeq++);
+  }
+
+  @override
+  Future<int> modelStarted(RunId runId) {
+    if (failOnModelStarted) {
+      return Future.error(StateError('journal unavailable'));
+    }
+    modelStarts++;
+    records.add('modelStarted');
+    modelRecords.add('modelStarted');
+    log?.add('journal.modelStarted');
     return Future.value(_nextSeq++);
   }
 
@@ -79,6 +101,10 @@ final class FakeJournal implements JournalPort {
 
   @override
   Future<List<Invocation>> forRun(RunId runId) => Future.value(const []);
+
+  @override
+  Future<List<ModelCall>> modelCallsForRun(RunId runId) =>
+      Future.value(const []);
 }
 
 /// A [LlmPort] driven by [onComplete] and recording every request.

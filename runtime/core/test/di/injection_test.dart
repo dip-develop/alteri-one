@@ -149,8 +149,8 @@ void main() {
     });
   });
 
-  group('AgentDeps', () {
-    test('resolves from the registered collaborators', () {
+  group('AgentDepsFactory', () {
+    test('resolves from the container and decorates the provider', () {
       configureCore(environment: 'test');
       final llm = FakeLlm(
         (call, messages) => Turn('done', Message.assistant('done'), const []),
@@ -160,21 +160,59 @@ void main() {
         ..registerSingleton<LlmPort>(llm)
         ..registerSingleton<JournalPort>(journal);
 
-      final deps = getIt<AgentDeps>();
-      expect(identical(deps.llm, llm), isTrue);
-      expect(identical(deps.registry, getIt<ToolRegistry>()), isTrue);
+      final deps = getIt<AgentDepsFactory>().forRun(RunId('run-a'));
+
+      // The production path never hands out the bare provider.
+      expect(deps.llm, isA<JournalingLlm>());
+      expect(identical(deps.llm, llm), isFalse);
       expect(identical(deps.journal, journal), isTrue);
+      expect(identical(deps.registry, getIt<ToolRegistry>()), isTrue);
       expect(identical(deps.policy, getIt<PolicyGate>()), isTrue);
       expect(identical(deps.approvals, getIt<ApprovalService>()), isTrue);
       expect(identical(deps.config, getIt<AgentConfig>()), isTrue);
       expect(identical(deps.context, getIt<ContextBuilder>()), isTrue);
     });
 
+    test('decorates per run and journals under the run id', () async {
+      configureCore(environment: 'test');
+      tempDir = await Directory.systemTemp.createTemp('injection_deps_');
+      await registerJournal(directory: tempDir!.path);
+      getIt.registerSingleton<LlmPort>(
+        FakeLlm(
+          (call, messages) => Turn('done', Message.assistant('done'), const []),
+        ),
+      );
+
+      final factory = getIt<AgentDepsFactory>();
+      final first = factory.forRun(RunId('run-a'));
+      final second = factory.forRun(RunId('run-b'));
+
+      // Separate decorators, one shared journal.
+      expect(identical(first.llm, second.llm), isFalse);
+      expect(identical(first.journal, second.journal), isTrue);
+
+      final budget = Budget(4, 60_000, const Duration(seconds: 30), 2_048);
+      await first.llm.complete(
+        messages: const [],
+        tools: const [],
+        budget: budget,
+      );
+      await second.llm.complete(
+        messages: const [],
+        tools: const [],
+        budget: budget,
+      );
+
+      final journal = getIt<JournalPort>();
+      expect(await journal.modelCallsForRun(RunId('run-a')), hasLength(1));
+      expect(await journal.modelCallsForRun(RunId('run-b')), hasLength(1));
+    });
+
     test('fails only when resolved without an LlmPort', () {
       configureCore(environment: 'test');
       getIt.registerSingleton<JournalPort>(FakeJournal());
 
-      AgentDeps resolve() => getIt<AgentDeps>();
+      AgentDepsFactory resolve() => getIt<AgentDepsFactory>();
 
       // Providers land in M3: the binding is lazy, so startup stays green and
       // only resolution fails.

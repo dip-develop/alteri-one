@@ -8,16 +8,27 @@ import 'package:hive_ce/hive.dart';
 
 import '../../domain/ids.dart';
 import '../../domain/invocation.dart';
+import '../../domain/model_call.dart';
 import '../../domain/ports/journal_port.dart';
 
 /// Hive-backed implementation of [JournalPort].
+///
+/// One `steps` box holds both tool-invocation and model-call records, told
+/// apart by a `kind` discriminator and ordered by the shared `seq` counter
+/// (docs/spec/storage.md, section 15.1).
 final class HiveJournal implements JournalPort {
   new _(this._meta, this._steps);
+
+  /// Kind discriminator for tool-invocation records.
+  static const String _toolKind = 'tool';
+
+  /// Kind discriminator for model-call records.
+  static const String _modelKind = 'model';
 
   /// Metadata box (sequence counter).
   final Box<String> _meta;
 
-  /// Lazy box holding journaled invocations.
+  /// Lazy box holding the journaled tool and model records.
   final LazyBox<String> _steps;
 
   /// Opens (or creates) a journal stored under [directory].
@@ -55,10 +66,29 @@ final class HiveJournal implements JournalPort {
     final now = DateTime.now();
     final record = <String, Object?>{
       'v': 1,
+      'kind': _toolKind,
       'seq': seq,
       'runId': runId.value,
       'tool': tool,
       'risk': risk.name,
+      'status': InvocationStatus.started.name,
+      'at': now.toIso8601String(),
+      'error': null,
+    };
+    await _steps.put(_key(runId, seq), jsonEncode(record));
+    await _steps.flush();
+    return seq;
+  }
+
+  @override
+  Future<int> modelStarted(RunId runId) async {
+    final seq = await _nextSeq();
+    final now = DateTime.now();
+    final record = <String, Object?>{
+      'v': 1,
+      'kind': _modelKind,
+      'seq': seq,
+      'runId': runId.value,
       'status': InvocationStatus.started.name,
       'at': now.toIso8601String(),
       'error': null,
@@ -79,6 +109,7 @@ final class HiveJournal implements JournalPort {
     final now = DateTime.now();
     final record = <String, Object?>{
       'v': 1,
+      'kind': _toolKind,
       'seq': seq,
       'runId': runId.value,
       'tool': tool,
@@ -110,10 +141,18 @@ final class HiveJournal implements JournalPort {
     await _steps.flush();
   }
 
-  @override
-  Future<List<Invocation>> forRun(RunId runId) async {
+  /// The kind of [json]. A record written before the discriminator existed has
+  /// no kind and is a tool invocation (docs/spec/storage.md, 15.1).
+  String _kindOf(Map<String, dynamic> json) =>
+      json['kind'] as String? ?? _toolKind;
+
+  /// Decoded records of [runId] whose kind is [kind], in `seq` order.
+  Future<List<Map<String, dynamic>>> _recordsForRun(
+    RunId runId,
+    String kind,
+  ) async {
     final prefix = '${runId.value}:';
-    final result = <Invocation>[];
+    final result = <Map<String, dynamic>>[];
     for (final key in _steps.keys) {
       final keyStr = key as String;
       if (!keyStr.startsWith(prefix)) {
@@ -124,7 +163,20 @@ final class HiveJournal implements JournalPort {
         continue;
       }
       final json = jsonDecode(raw) as Map<String, dynamic>;
-      result.add(
+      if (_kindOf(json) != kind) {
+        continue;
+      }
+      result.add(json);
+    }
+    result.sort((a, b) => (a['seq'] as int).compareTo(b['seq'] as int));
+    return result;
+  }
+
+  @override
+  Future<List<Invocation>> forRun(RunId runId) async {
+    final records = await _recordsForRun(runId, _toolKind);
+    return [
+      for (final json in records)
         Invocation(
           json['seq'] as int,
           RunId(json['runId'] as String),
@@ -134,9 +186,21 @@ final class HiveJournal implements JournalPort {
           DateTime.parse(json['at'] as String),
           json['error'] as String?,
         ),
-      );
-    }
-    result.sort((a, b) => a.seq.compareTo(b.seq));
-    return result;
+    ];
+  }
+
+  @override
+  Future<List<ModelCall>> modelCallsForRun(RunId runId) async {
+    final records = await _recordsForRun(runId, _modelKind);
+    return [
+      for (final json in records)
+        ModelCall(
+          json['seq'] as int,
+          RunId(json['runId'] as String),
+          InvocationStatus.values.byName(json['status'] as String),
+          DateTime.parse(json['at'] as String),
+          json['error'] as String?,
+        ),
+    ];
   }
 }
