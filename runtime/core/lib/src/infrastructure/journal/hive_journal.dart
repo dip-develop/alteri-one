@@ -12,13 +12,13 @@ import '../../domain/ports/journal_port.dart';
 
 /// Hive-backed implementation of [JournalPort].
 final class HiveJournal implements JournalPort {
-  HiveJournal._(this.meta, this.steps);
+  new _(this._meta, this._steps);
 
   /// Metadata box (sequence counter).
-  final Box<String> meta;
+  final Box<String> _meta;
 
   /// Lazy box holding journaled invocations.
-  final LazyBox<String> steps;
+  final LazyBox<String> _steps;
 
   /// Opens (or creates) a journal stored under [directory].
   static Future<HiveJournal> open(String directory) async {
@@ -29,15 +29,20 @@ final class HiveJournal implements JournalPort {
   }
 
   Future<void> close() async {
-    await meta.close();
-    await steps.close();
+    await _meta.close();
+    await _steps.close();
   }
 
-  int get _seq => int.parse(meta.get('seq', defaultValue: '0')!);
+  int get _seq => int.parse(_meta.get('seq', defaultValue: '0')!);
 
   Future<int> _nextSeq() async {
     final next = _seq + 1;
-    await meta.put('seq', next.toString());
+    await _meta.put('seq', next.toString());
+    // The step record is append-only, so the counter must reach the disk
+    // before the record is written. A crash in between may skip a `seq`, which
+    // is harmless; reusing one would overwrite an existing record
+    // (docs/spec/storage.md, 15.1 and 15.2).
+    await _meta.flush();
     return next;
   }
 
@@ -58,9 +63,8 @@ final class HiveJournal implements JournalPort {
       'at': now.toIso8601String(),
       'error': null,
     };
-    await steps.put(_key(runId, seq), jsonEncode(record));
-    await steps.flush();
-    await meta.flush();
+    await _steps.put(_key(runId, seq), jsonEncode(record));
+    await _steps.flush();
     return seq;
   }
 
@@ -83,9 +87,8 @@ final class HiveJournal implements JournalPort {
       'at': now.toIso8601String(),
       'error': reason,
     };
-    await steps.put(_key(runId, seq), jsonEncode(record));
-    await steps.flush();
-    await meta.flush();
+    await _steps.put(_key(runId, seq), jsonEncode(record));
+    await _steps.flush();
   }
 
   @override
@@ -96,27 +99,27 @@ final class HiveJournal implements JournalPort {
     String? error,
   ) async {
     final key = _key(runId, seq);
-    final existingRaw = await steps.get(key);
+    final existingRaw = await _steps.get(key);
     if (existingRaw == null) {
       throw StateError('No journal entry for $key');
     }
     final existing = jsonDecode(existingRaw) as Map<String, dynamic>;
     existing['status'] = status.name;
     existing['error'] = error;
-    await steps.put(key, jsonEncode(existing));
-    await steps.flush();
+    await _steps.put(key, jsonEncode(existing));
+    await _steps.flush();
   }
 
   @override
   Future<List<Invocation>> forRun(RunId runId) async {
     final prefix = '${runId.value}:';
     final result = <Invocation>[];
-    for (final key in steps.keys) {
+    for (final key in _steps.keys) {
       final keyStr = key as String;
       if (!keyStr.startsWith(prefix)) {
         continue;
       }
-      final raw = await steps.get(keyStr);
+      final raw = await _steps.get(keyStr);
       if (raw == null) {
         continue;
       }

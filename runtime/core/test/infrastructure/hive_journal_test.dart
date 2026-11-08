@@ -56,5 +56,48 @@ void main() {
       expect(list1.first.tool, 'a');
       expect(list2.first.tool, 'b');
     });
+
+    test('concurrent started calls get unique seq values', () async {
+      final run = RunId('run-c');
+      final seqs = await Future.wait([
+        for (var i = 0; i < 10; i++) journal.started(run, 'tool$i', Risk.read),
+      ]);
+
+      expect(seqs.toSet(), hasLength(10));
+      final invs = await journal.forRun(run);
+      expect(invs, hasLength(10));
+      expect(invs.map((i) => i.seq).toSet(), seqs.toSet());
+
+      // The counter is durable before the step record, so a reopen continues
+      // past the highest seq instead of reusing one (storage.md, 15.2).
+      final highest = seqs.reduce((a, b) => a > b ? a : b);
+      await journal.close();
+      journal = await HiveJournal.open(dir.path);
+      final next = await journal.started(run, 'after', Risk.read);
+      expect(next, greaterThan(highest));
+    });
+
+    test('writes a denied record with status, risk, and reason', () async {
+      final run = RunId('run-deny');
+      await journal.denied(run, 'ext__post', Risk.external, 'policy');
+
+      final inv = (await journal.forRun(run)).single;
+      expect(inv.tool, 'ext__post');
+      expect(inv.status, InvocationStatus.denied);
+      expect(inv.risk, Risk.external);
+      expect(inv.error, 'policy');
+    });
+
+    test('finished throws for an unknown seq', () async {
+      await expectLater(
+        journal.finished(
+          RunId('run-missing'),
+          99,
+          InvocationStatus.succeeded,
+          null,
+        ),
+        throwsA(isA<StateError>()),
+      );
+    });
   });
 }
