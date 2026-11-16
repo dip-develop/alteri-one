@@ -8,7 +8,7 @@
 
 AlteriOne covers the three kinds of work that products usually split apart — answering questions in a dialog, executing tasks to completion, and working in the background by reacting to events — as **one runtime** with one journal, one memory, one permission model, and one set of extensions. It has a single owner and no multi-user mode. Written in Dart, shipped as a native binary.
 
-> **Status: pre-alpha.** The specification is complete (`docs/spec/`, version 1.3) and implementation is starting with milestone M0. APIs are not stable yet; do not depend on the published packages until a `1.0.0` or a clearly announced preview.
+> **Status: pre-alpha.** The specification is complete (`docs/spec/`, version 1.3). M0 (scaffold) and M1 (core skeleton) are complete; M2 (domain, run journal, agent loop, chat mode) is in progress. APIs are not stable yet; do not depend on the published packages until a `1.0.0` or a clearly announced preview.
 
 ## Why AlteriOne
 
@@ -73,7 +73,7 @@ melos run test           # tests across the workspace
 melos run ci             # all of the above
 ```
 
-The repository is currently a scaffold: package metadata, workspace wiring, and documentation are in place; the runtime follows milestone by milestone (see the [roadmap](docs/spec/roadmap.md)).
+M0 (scaffold) and M1 (core skeleton) are complete; M2 (domain, run journal, agent loop, chat mode) is in progress, and the runtime follows milestone by milestone (see the [roadmap](docs/spec/roadmap.md)).
 
 For local dependency overrides (pointing a third-party package at a fork), see `pubspec_overrides.yaml` in the root — workspace members resolve locally automatically and need no overrides.
 
