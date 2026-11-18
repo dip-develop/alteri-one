@@ -73,7 +73,7 @@ Rationale and alternatives: `docs/adr/0008-language-and-runtime.md`.
 
 ### 2.8 Target metrics
 
-These targets become requirements after they are measured in M2:
+These targets become requirements after they are measured in M4:
 - cold start of the daemon with no models or extensions loaded: under 300 ms;
 - memory use while idle with the minimal build: under 80 MB;
 - event delivery latency to a subscriber on a local machine (p99): under 50 ms;

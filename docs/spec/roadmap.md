@@ -16,9 +16,9 @@ Each milestone ends with a green `melos run ci`, updated documents (if decisions
 |---|---|---|
 | M0 | Skeleton: workspace with globs, Melos 8, `analysis_options.yaml`, `tools/arch_check`, `tools/codegen_check`, `tools/docs_check`, CI. Spikes: schemantic, Hive (`kill -9`, `flush`), llama-server, Melos syntax, `dart language-server`, `mcp_dart`, keyring libraries | yes |
 | M1 | Contracts: `alteri_one_contracts`, `alteri_one_provider_api`, `alteri_one_sdk`, `alteri_one_client`, state projection types, golden tests | yes |
-| M2 | Domain and loop: `transition`, `PolicyGate` with taints and rights, journal, `RunBloc`, loop with a fake `LlmPort`, `chat` mode. Target metrics measured (section 2.8) | yes |
+| M2 | Domain and loop: `transition`, `PolicyGate` with taints and rights, journal, `RunBloc`, loop with a fake `LlmPort`, `chat` mode | yes |
 | M3 | llama.cpp provider: adapter over `genkit_openai`, probe, conformance. Adapter decision recorded as an ADR | yes |
-| M4 | Local mode: shelf, token, pairing, SSE with replay, CLI `status`, `run`, `chat`, `watch`, `doctor`. Daemon on macOS and Linux, and on Windows as a logon task (ADR-0009) | yes |
+| M4 | Local mode: shelf, token, pairing, SSE with replay, CLI `status`, `run`, `chat`, `watch`, `doctor`. Daemon on macOS and Linux, and on Windows as a logon task (ADR-0009). Target metrics measured (section 2.8) | yes |
 | M4b | Remote mode: TLS, certificate fingerprint pinning, pairing rate limit, CLI contexts | yes |
 | M5 | Extensions: built-in mode, `alterione build` with `minimal` and `official`, loaded AOT extensions with signatures, the reference extension in both modes, `memory_hive` memory backend, `skill.load` skills, state observation (section 8.11) | yes |
 | M6 | `task` mode: workspace, `workspace` extension, checkpoints, pause and resume, subtasks, budgets, transcripts, context compaction (sections 15.6, 15.7, 29) | yes |
