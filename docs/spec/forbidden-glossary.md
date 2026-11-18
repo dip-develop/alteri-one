@@ -27,7 +27,7 @@ Do not use anything listed here, even if you find it in old examples, articles, 
 | `--tools` or `--agent` on `llama-server` | bypasses `PolicyGate` | flags disabled; `doctor` verifies |
 | `--jinja` as a required flag | enabled by default in current builds | probe-based check |
 | `final` or `var` on parameters of ordinary functions and in-body constructors | compile error in Dart 3.13 | ordinary parameters; modifiers only in a primary constructor header |
-| Primary constructors before Dart 3.13 | preview in 3.12, stable in 3.13 | `sdk: ^3.13.0` |
+| Primary constructors before Dart 3.13 | preview in 3.12, stable in 3.13 | `sdk: ^3.14.0` |
 | Triple braces for trusted values | escaping is required | `{{ }}` |
 | Triple braces for names without the `untrusted_` prefix | bypasses the boundary | template linter |
 | `Uri.resolve('chat/completions')` for `http://host/v1` | drops `/v1` | `base_url` normalization |

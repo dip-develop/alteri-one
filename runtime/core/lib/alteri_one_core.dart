@@ -25,6 +25,7 @@ export 'src/application/bloc_defaults.dart';
 export 'src/application/channels_cubit.dart';
 export 'src/application/extensions_bloc.dart';
 export 'src/application/run_bloc.dart';
+export 'src/application/run_service.dart';
 export 'src/application/scheduler_bloc.dart';
 export 'src/application/state_publisher.dart';
 export 'src/application/triggers_cubit.dart';

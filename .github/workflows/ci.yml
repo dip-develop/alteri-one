@@ -10,6 +10,88 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The `main` ruleset requires the status checks "Detect repository phase" and
+  # "Documentation and governance". GitHub reports a check under its job `name`, so
+  # the two names below are part of the branch-protection contract: renaming or
+  # removing either job leaves every pull request waiting for a context that never
+  # reports. Keep the names stable.
+  detect:
+    name: Detect repository phase
+    runs-on: ubuntu-latest
+    outputs:
+      has_workspace: ${{ steps.detect.outputs.has_workspace }}
+      has_app: ${{ steps.detect.outputs.has_app }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detect repository shape
+        id: detect
+        run: |
+          set -euo pipefail
+          # Every probe degrades to false: a directory that has not landed yet must
+          # not fail the job, it only changes the published outputs.
+          if [ -f pubspec.yaml ]; then has_workspace=true; else has_workspace=false; fi
+          if [ -d clients/app ]; then has_app=true; else has_app=false; fi
+          {
+            echo "has_workspace=$has_workspace"
+            echo "has_app=$has_app"
+          } >> "$GITHUB_OUTPUT"
+          echo "workspace=$has_workspace app=$has_app"
+
+  documentation:
+    name: Documentation and governance
+    needs: detect
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Same toolchain as the `ci` job: the workspace has Flutter members, so
+      # `flutter pub get` is the resolution that `dart run` needs here.
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve workspace
+        run: flutter pub get
+
+      - name: Documentation integrity
+        # Links, anchors and reachability, in every phase.
+        run: dart run tools/docs_check/bin/docs_check.dart
+
+      - name: Governance documents present
+        # Cheap to check early, and it stops a required document going missing.
+        run: |
+          set -euo pipefail
+          for f in AGENTS.md README.md CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md \
+                   docs/spec/index.md docs/adr docs/plan .github/workflows/ci.yml; do
+            [ -e "$f" ] || { echo "::error::missing $f"; exit 1; }
+          done
+          echo "governance documents present"
+
+      - name: Specification is English-only
+        # A stray Cyrillic string means content was pasted in without translation,
+        # which silently breaks the English-only documentation contract.
+        run: |
+          set -euo pipefail
+          # C.UTF-8 is required: in the POSIX locale git grep treats the pattern as
+          # bytes and reports false positives on any non-ASCII text, such as em dashes.
+          export LC_ALL=C.UTF-8
+          status=0
+          git grep -nP '\p{Cyrillic}' -- '*.md' || status=$?
+          if [ "$status" -eq 0 ]; then
+            echo "::error::Cyrillic text found. The specification is English-only."
+            exit 1
+          fi
+          if [ "$status" -gt 1 ]; then
+            echo "::error::the Cyrillic check could not run (git grep exit $status)."
+            exit 1
+          fi
+          echo "no Cyrillic found"
+
   ci:
     runs-on: ubuntu-latest
     steps:
@@ -21,6 +103,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: 3.50.0
           cache: true
 
       - name: Resolve workspace

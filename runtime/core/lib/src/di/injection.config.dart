@@ -21,6 +21,7 @@ import 'package:alteri_one_core/src/application/agent/tool_set.dart' as _i454;
 import 'package:alteri_one_core/src/application/approvals_bloc.dart' as _i511;
 import 'package:alteri_one_core/src/application/channels_cubit.dart' as _i456;
 import 'package:alteri_one_core/src/application/extensions_bloc.dart' as _i603;
+import 'package:alteri_one_core/src/application/run_service.dart' as _i841;
 import 'package:alteri_one_core/src/application/scheduler_bloc.dart' as _i221;
 import 'package:alteri_one_core/src/application/state_publisher.dart' as _i869;
 import 'package:alteri_one_core/src/application/triggers_cubit.dart' as _i476;
@@ -59,6 +60,12 @@ extension GetItInjectableX on _i174.GetIt {
         gh<_i194.ApprovalService>(),
         gh<_i411.AgentConfig>(),
         gh<_i186.ContextBuilder>(),
+      ),
+    );
+    gh.lazySingleton<_i841.RunService>(
+      () => coreModule.runService(
+        gh<_i982.AgentDepsFactory>(),
+        gh<_i869.StatePublisher>(),
       ),
     );
     return this;
