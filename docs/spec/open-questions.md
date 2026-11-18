@@ -4,7 +4,7 @@
 
 ## 25.1 Questions for the owner
 
-Added during the M0 scaffold (2026-10-17); Q7–Q14 added during M2 (2026-11-08). Until answered, the scaffold takes the conservative choice listed under each question.
+Added during the M0 scaffold (2026-10-17); Q7–Q17 added during M2 (2026-11-08 and 2026-11-18). Until answered, the scaffold takes the conservative choice listed under each question.
 
 | ID | Question | Conservative choice taken |
 |---|---|---|
@@ -22,6 +22,9 @@ Added during the M0 scaffold (2026-10-17); Q7–Q14 added during M2 (2026-11-08)
 | Q12 | An approval refusal is not journalled: section 9 writes `denied` only for policy denials, so `not_approved` leaves no audit record although it stops a side effect. Should a refusal be recorded? | keep the spec order, no extra record in M2; add an approval outcome record when the interactive channel lands (M4/M9) |
 | Q13 | ~~Section 8.10 rule 2 lists "model call, tool call, channel send" as effects that must be journalled before they run, but the section 9 loop calls `d.llm.complete(...)` without a journal record and the section 9 snippet omits one. Is model-call journaling and transcript persistence the `JournalPort`'s job, or a decorator in the application service?~~ Resolved 2026-11-08: journaling lives in a per-run `JournalingLlm` decorator in the application layer, which writes `modelStarted` before the call and records the outcome after; the loop and the provider stay journal-free. Transcript persistence stays in plan Step 8. See [ADR-0012](../adr/0012-model-call-journaling.md). | `JournalingLlm` decorator around `LlmPort`; the loop and the provider stay journal-free |
 | Q14 | A timed-out tool cannot be cancelled by `Future.timeout`. Must a call that may still complete be recorded as `unknownOutcome` instead of `failed`? Section 9 writes `failed`. | keep `failed` (section 9); cancel a per-invocation child token and leave the run token alone |
+| Q15 | Transcript persistence: [ADR-0012](../adr/0012-model-call-journaling.md) assigns it to the `JournalingLlm` decorator, but the agent loop owns the mutable message list (it appends assistant turns and tool results) while the decorator only sees the messages of each model call and never the tool results, and the journal deliberately stores no prompt or reply text (section 15.6 of `storage.md`). Which component owns the transcript, and what is its write protocol? | not implemented in M2; `RunService` leaves a documented seam and does not fake a transcript; revisit in M3/M4 |
+| Q16 | Run lifecycle is not journalled: `RunStarted`, `RunFinished` and the approval events have no journal record, so `RunStarted.seq`, `ApprovalRequested.seq` and `ApprovalResolved.seq` are `null`, and `RunFinished.seq` is only the last effect `seq` (best effort). Section 16.4 expects a `seq` for ordering and replay. Should the journal gain a run-lifecycle record, or should the service derive the `seq` differently? | no new journal method in M2; the `null` `seq` is documented in code and pinned by a test; revisit with the SSE API in M4 |
+| Q17 | Concurrent approvals: the agent loop runs a turn's tool calls with `Future.wait`, so two tool calls that both need approval start two concurrent `ask`s; `RunBloc` holds a single pending approval, so the second request and its resolution would raise `InvalidTransition`. Serialize approvals per run, or extend the state and the bloc to hold several pending approvals? | documented assumption of at most one outstanding approval; not reachable in M2 under the fail-closed default policy and `DenyAllApprovals`; resolve in Step 9 / M4 before an interactive approval channel lands |
 
 Previously none were open. Decisions are recorded in ADR-0005, ADR-0006, ADR-0009, and ADR-0012 (Q13).
 
@@ -45,7 +48,7 @@ T1 is closed (ADR-0007). T14 is closed: the `RunBloc` suite in `alteri_one_core`
 | T12 | ~~`melos.scripts` syntax, composite scripts, `melos exec` flags~~ Closed 2026-10-20: Melos 8 syntax verified against 8.9.0. | M0 | done |
 | T13 | the `shelf_io.serve` signature with `securityContext` | M4b | a TLS proxy in front of the daemon |
 | T14 | `bloc_test` compatibility with bloc 9 | M2 | test transitions as pure functions |
-| T15 | `StatePublisher` queue limits and overflow behavior | M5 | tune limits per topic |
+| T15 | `StatePublisher` queue limits and overflow behavior | M2 defaults, M5 tuning | tune limits per topic |
 | T16 | `mcp_dart`: client API, HTTP address rules, protocol version 2026-07-28 — not yet run; mitigation: dart_mcp 0.5.2 cached fallback; mcp_dart 2.4.3 available on pub.dev (docs/spikes/m0-environment.md) | M8 | revisit ADR-0002, consider `dart_mcp` |
 | T17 | `dart language-server`: pull diagnostics and position encodings — not yet run; mitigation: dart language-server available (3.13.5); T17 can proceed in M7 (docs/spikes/m0-environment.md) | M7 | fall back to `publishDiagnostics` and UTF-16 |
 | T18 | context compaction quality: goals and open items are preserved | M6 | tests that check preserved goals |

@@ -9,6 +9,8 @@ import '../application/agent/agent_deps.dart';
 import '../application/agent/approval_service.dart';
 import '../application/agent/context_builder.dart';
 import '../application/agent/tool_set.dart';
+import '../application/run_service.dart';
+import '../application/state_publisher.dart';
 import '../domain/policy.dart';
 import '../domain/ports/journal_port.dart';
 import '../domain/ports/llm_port.dart';
@@ -64,4 +66,14 @@ abstract class CoreModule {
     config,
     context,
   );
+
+  /// The service that binds a run to its [RunBloc] and publishes the
+  /// resulting events (docs/spec/domain.md, sections 8.10 and 8.11).
+  ///
+  /// Lazy on purpose: it resolves the agent-loop factory, which resolves an
+  /// `LlmPort` (providers arrive in M3), so building it fails at resolution
+  /// time, not at startup.
+  @lazySingleton
+  RunService runService(AgentDepsFactory deps, StatePublisher publisher) =>
+      RunService(deps: deps, publisher: publisher);
 }

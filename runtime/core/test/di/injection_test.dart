@@ -35,6 +35,9 @@ void main() {
     expect(getIt<TriggersCubit>(), isA<TriggersCubit>());
     expect(getIt<ChannelsCubit>(), isA<ChannelsCubit>());
     expect(getIt<StatePublisher>(), isA<StatePublisher>());
+    // Registered, but not resolved here: RunService depends on AgentDepsFactory,
+    // which depends on LlmPort, and providers land in M3.
+    expect(getIt.isRegistered<RunService>(), isTrue);
   });
 
   test('the default PolicyGate is fail-closed', () {
@@ -207,6 +210,28 @@ void main() {
       expect(await journal.modelCallsForRun(RunId('run-a')), hasLength(1));
       expect(await journal.modelCallsForRun(RunId('run-b')), hasLength(1));
     });
+
+    test(
+      'RunService resolves once an LlmPort and a JournalPort are bound',
+      () async {
+        configureCore(environment: 'test');
+        tempDir = await Directory.systemTemp.createTemp(
+          'injection_run_service_',
+        );
+        await registerJournal(directory: tempDir!.path);
+        getIt.registerSingleton<LlmPort>(
+          FakeLlm(
+            (call, messages) =>
+                Turn('done', Message.assistant('done'), const []),
+          ),
+        );
+
+        final service = getIt<RunService>();
+
+        expect(service, isA<RunService>());
+        expect(identical(getIt<RunService>(), service), isTrue);
+      },
+    );
 
     test('fails only when resolved without an LlmPort', () {
       configureCore(environment: 'test');

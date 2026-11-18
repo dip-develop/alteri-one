@@ -84,14 +84,31 @@ final class AgentDepsFactory {
   /// Starting conversation.
   final ContextBuilder _context;
 
+  /// The journal every per-run decorator and the tool path write to.
+  ///
+  /// The same instance across runs, so the `seq` counter is shared.
+  JournalPort get journal => _journal;
+
+  /// The default owner approval service of a run that gets none.
+  ///
+  /// The application service passes a per-run bridge to [forRun]; the bridge
+  /// delegates here, so this stays the only component that talks to the owner.
+  ApprovalService get approvals => _approvals;
+
   /// The collaborators of one run, with the model provider decorated by
   /// [JournalingLlm] for [runId].
-  AgentDeps forRun(RunId runId) => AgentDeps(
+  ///
+  /// [approvals] replaces the factory's default approval service for this run
+  /// only; when it is `null` the default is used. The application service
+  /// passes a bridge that mirrors every ask into the run's bloc and the state
+  /// publisher (docs/spec/domain.md, section 8.11), so the loop keeps calling
+  /// one [ApprovalService] and nothing else changes.
+  AgentDeps forRun(RunId runId, {ApprovalService? approvals}) => AgentDeps(
     JournalingLlm(_llm, _journal, runId),
     _registry,
     _journal,
     _policy,
-    _approvals,
+    approvals ?? _approvals,
     _config,
     _context,
   );
