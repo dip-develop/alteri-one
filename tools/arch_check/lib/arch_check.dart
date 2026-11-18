@@ -144,7 +144,10 @@ class ArchChecker {
       case 'bin':
         return false;
       case 'app':
-        return dep == 'bloc' || dep == 'injectable' || dep == 'flutter';
+        return dep == 'bloc' ||
+            dep == 'injectable' ||
+            dep == 'flutter' ||
+            dep == 'material_ui';
       case 'site':
         return dep == 'jaspr';
       case 'e2e':

@@ -1,7 +1,7 @@
 // Copyright 2026 The AlteriOne Authors.
 // SPDX-License-Identifier: Apache-2.0
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 void main() {
   // TODO(m9): the real client (ConnectionCubit, ChatBloc, ApprovalsBloc, ...)
