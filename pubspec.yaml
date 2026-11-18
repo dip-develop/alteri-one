@@ -6,7 +6,7 @@ description: >-
   and resident modes in one runtime. Configuration and scripts only; no code.
 
 environment:
-  sdk: ^3.13.0
+  sdk: ^3.14.0
 
 # Dart pub workspace: one lock file, one shared resolution for all members.
 # Globs are supported since Dart 3.11 (docs/spec/architecture.md, section 5.1).

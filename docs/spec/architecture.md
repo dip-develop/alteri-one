@@ -8,7 +8,7 @@ Minimum versions as of the date of writing. Check the current version on pub.dev
 
 | Component | Minimum | Notes |
 |---|---|---|
-| Dart SDK | `^3.13.0` | fixed |
+| Dart SDK | `^3.14.0` | fixed |
 | Dart workspace | globs in `workspace:` | globs since Dart 3.11; lock file is generated and not committed |
 | Melos | 8.x | configured in the root `pubspec.yaml`; `melos.yaml` is not used; run via `dart run melos` from the workspace lock |
 | bloc | `^9.2.0` | pure Dart. `flutter_bloc` only in the client |
@@ -108,7 +108,7 @@ Melos 8 reads its settings from the root `pubspec.yaml`. There is no separate `m
 name: alteri_one_workspace
 publish_to: none
 environment:
-  sdk: ^3.13.0
+  sdk: ^3.14.0
 workspace:
   - packages/*
   - providers/*

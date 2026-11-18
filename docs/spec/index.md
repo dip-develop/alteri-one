@@ -21,7 +21,7 @@ Version 1.3. This is the source of truth for the current decisions. Decision his
 3. Versions in the specification are minimum versions verified on the date of writing. Check the current version on pub.dev before `dart pub add`.
 4. Items marked **[VERIFY]** are not verified. Each one gets a spike with a test before the main code.
 5. Forbidden and outdated patterns are listed in `docs/spec/forbidden-glossary.md`. Do not use them, even if they appear in old examples.
-6. Code targets Dart 3.13 (`environment: sdk: ^3.13.0`). Use the language features from `docs/spec/dart-language.md` where they improve readability.
+6. Code targets Dart 3.14 (`environment: sdk: ^3.14.0`). Use the language features from `docs/spec/dart-language.md` where they improve readability.
 7. All documentation and code comments are written in English.
 
 ## Task to files

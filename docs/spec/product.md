@@ -13,7 +13,7 @@
 | Dart packages | prefix `alteri_one_*` |
 | Binary | `alterione` (core and CLI). Personal builds get their own names |
 | License | Apache-2.0 |
-| Dart SDK | `^3.13.0` |
+| Dart SDK | `^3.14.0` |
 | Build and tasks | Dart pub workspace (dependency resolution) and Melos 8 (scripts, versions, publishing) |
 | Website | Jaspr, SSR |
 | Configuration | YAML, schema from schemantic |
@@ -64,7 +64,7 @@ The same binary runs on a laptop and on a server. Local mode listens on loopback
 
 ### 2.7 Language and runtime
 
-- Dart 3.13. The core compiles to a native binary (AOT). The owner's machine needs no runtime and no package manager.
+- Dart 3.14. The core compiles to a native binary (AOT). The owner's machine needs no runtime and no package manager.
 - CPU-heavy work runs in isolates; the main agent loop is never blocked.
 - Contracts, schemas, and codecs are generated from Dart types. There are no string dictionaries at the boundaries.
 - The Dart AI-library ecosystem is smaller than Node.js's. The genkit adapters and the MCP client (sections 12 and 28) cover part of the gap.

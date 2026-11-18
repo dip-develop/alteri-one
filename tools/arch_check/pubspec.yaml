@@ -2,7 +2,7 @@ name: alteri_one_arch_check
 publish_to: none
 description: A tool to check architecture rules.
 environment:
-  sdk: ^3.13.0
+  sdk: ^3.14.0
 resolution: workspace
 dependencies:
   path: ^1.9.0
