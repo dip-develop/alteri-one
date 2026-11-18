@@ -4,7 +4,9 @@
 
 A public library published to pub.dev as part of AlteriOne.
 
-**Status: pre-alpha scaffold.** Implementation follows the milestones in
+**Status: pre-alpha.** M0 (scaffold) and M1 (core skeleton) are complete;
+M2 (domain, run journal, agent loop, chat mode) is in progress. APIs are
+not stable yet; see
 [`docs/spec/roadmap.md`](https://github.com/dip-develop/alteri-one/blob/main/docs/spec/roadmap.md).
 
 ## About AlteriOne
