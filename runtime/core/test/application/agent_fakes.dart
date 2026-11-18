@@ -22,12 +22,32 @@ final class EventLog {
 
 /// A [JournalPort] that records every write in [records] and, when [log] is
 /// set, in the shared ordered [EventLog].
+///
+/// The records are also kept in memory, keyed by their `seq`, so a run
+/// projection can be read back. `forRun` and `modelCallsForRun` filter those
+/// in-memory records by run and return them in `seq` order.
 final class FakeJournal implements JournalPort {
   /// Creates the journal.
-  new([this.log]);
+  ///
+  /// [now] stamps every record; it defaults to a fixed instant so tests stay
+  /// deterministic. Because a default value must be constant, the default is
+  /// a constructor parameter rather than an initializer.
+  new([this.log, DateTime Function()? clock]) {
+    now = clock ?? _stamp;
+  }
 
   /// Ordered log shared with the other doubles, if any.
   final EventLog? log;
+
+  /// The clock every record is stamped with.
+  late final DateTime Function() now;
+
+  /// The fixed instant used when no [clock] is given.
+  /// The default clock of a journal built without one.
+  static final DateTime _fixedNow = DateTime.utc(2026);
+
+  /// Returns [_fixedNow] on every call.
+  static DateTime _stamp() => _fixedNow;
 
   /// One line per write, in call order.
   final List<String> records = [];
@@ -38,6 +58,14 @@ final class FakeJournal implements JournalPort {
   /// When set, [started] throws instead of recording, so a test can prove the
   /// tool never runs.
   bool failOnStarted = false;
+
+  /// When set, [forRun] throws instead of returning, so a test can prove the
+  /// projection falls back without changing the run outcome.
+  bool failOnForRun = false;
+
+  /// When set, [modelCallsForRun] throws instead of returning; see
+  /// [failOnForRun].
+  bool failOnModelCallsForRun = false;
 
   /// Number of [modelStarted] calls.
   int modelStarts = 0;
@@ -52,6 +80,12 @@ final class FakeJournal implements JournalPort {
   /// The risk passed to each [denied] call, in order.
   final List<Risk> deniedRisks = [];
 
+  /// Tool invocations by `seq`; the status is replaced by [finished].
+  final Map<int, Invocation> _invocations = <int, Invocation>{};
+
+  /// Model calls by `seq`; the status is replaced by [finished].
+  final Map<int, ModelCall> _modelCalls = <int, ModelCall>{};
+
   int _nextSeq = 1;
 
   @override
@@ -62,7 +96,17 @@ final class FakeJournal implements JournalPort {
     starts++;
     records.add('started $tool');
     log?.add('journal.started $tool');
-    return Future.value(_nextSeq++);
+    final seq = _nextSeq++;
+    _invocations[seq] = Invocation(
+      seq,
+      runId,
+      tool,
+      risk,
+      InvocationStatus.started,
+      now(),
+      null,
+    );
+    return Future.value(seq);
   }
 
   @override
@@ -74,7 +118,15 @@ final class FakeJournal implements JournalPort {
     records.add('modelStarted');
     modelRecords.add('modelStarted');
     log?.add('journal.modelStarted');
-    return Future.value(_nextSeq++);
+    final seq = _nextSeq++;
+    _modelCalls[seq] = ModelCall(
+      seq,
+      runId,
+      InvocationStatus.started,
+      now(),
+      null,
+    );
+    return Future.value(seq);
   }
 
   @override
@@ -96,15 +148,54 @@ final class FakeJournal implements JournalPort {
       'finished ${status.name} $seq${error == null ? '' : ' $error'}',
     );
     log?.add('journal.finished ${status.name}');
+    final invocation = _invocations[seq];
+    if (invocation != null) {
+      _invocations[seq] = Invocation(
+        invocation.seq,
+        invocation.runId,
+        invocation.tool,
+        invocation.risk,
+        status,
+        invocation.at,
+        error,
+      );
+    }
+    final call = _modelCalls[seq];
+    if (call != null) {
+      _modelCalls[seq] = ModelCall(
+        call.seq,
+        call.runId,
+        status,
+        call.at,
+        error,
+      );
+    }
     return Future.value();
   }
 
   @override
-  Future<List<Invocation>> forRun(RunId runId) => Future.value(const []);
+  Future<List<Invocation>> forRun(RunId runId) {
+    if (failOnForRun) {
+      return Future.error(StateError('journal unavailable'));
+    }
+    final invocations =
+        _invocations.values
+            .where((invocation) => invocation.runId == runId)
+            .toList()
+          ..sort((a, b) => a.seq.compareTo(b.seq));
+    return Future.value(invocations);
+  }
 
   @override
-  Future<List<ModelCall>> modelCallsForRun(RunId runId) =>
-      Future.value(const []);
+  Future<List<ModelCall>> modelCallsForRun(RunId runId) {
+    if (failOnModelCallsForRun) {
+      return Future.error(StateError('journal unavailable'));
+    }
+    final calls =
+        _modelCalls.values.where((call) => call.runId == runId).toList()
+          ..sort((a, b) => a.seq.compareTo(b.seq));
+    return Future.value(calls);
+  }
 }
 
 /// A [LlmPort] driven by [onComplete] and recording every request.
@@ -261,20 +352,53 @@ final class FakeConfig implements AgentConfig {
   }
 }
 
-/// An [ApprovalService] with a fixed answer.
+/// An [ApprovalService] that throws [error], or answers every request with
+/// [answer] when [error] is `null`.
+///
+/// The positional form `FakeApprovals(true)` / `FakeApprovals(false)` keeps
+/// working; pass `error:` to make every [ask] fail. Pass [never] to leave
+/// every request outstanding, so a test can cancel a run while the owner's
+/// answer is still pending, and [onAsk] to run code at the start of every
+/// call.
 final class FakeApprovals implements ApprovalService {
   /// Creates the service that answers every request with [answer].
-  new(this.answer);
+  new(this.answer, {this.error, this.never = false, this.onAsk});
 
   /// The decision returned for every request.
   final bool answer;
 
+  /// When set, [ask] throws this object instead of answering.
+  final Object? error;
+
+  /// When set, [ask] returns a future that never completes.
+  final bool never;
+
+  /// Runs at the start of every [ask], for tests that cancel the run from
+  /// inside the request.
+  final void Function()? onAsk;
+
   /// Number of [ask] calls.
   int asks = 0;
+
+  /// The runs of the calls, in order.
+  final List<Run> runs = [];
+
+  /// The tools of the calls, in order.
+  final List<ToolSpec> tools = [];
 
   @override
   Future<bool> ask(Run run, ToolSpec tool, Map<String, Object?> input) {
     asks++;
+    runs.add(run);
+    tools.add(tool);
+    onAsk?.call();
+    final failure = error;
+    if (failure != null) {
+      return Future<bool>.error(failure);
+    }
+    if (never) {
+      return Completer<bool>().future;
+    }
     return Future.value(answer);
   }
 }
@@ -303,6 +427,7 @@ ToolSpec fakeSpec(
 
 /// Builds a [Run] with test defaults.
 Run fakeRun({
+  RunId? id,
   String profile = 'test',
   int maxSteps = 4,
   Set<String> tools = const {},
@@ -310,7 +435,7 @@ Run fakeRun({
   Set<UntrustedSource> taints = const {},
   RunMode mode = RunMode.task,
 }) => Run(
-  id: RunId('run-1'),
+  id: id ?? RunId('run-1'),
   profile: profile,
   mode: mode,
   prompt: 'hello',
