@@ -6,8 +6,10 @@ import 'package:injectable/injectable.dart';
 
 import '../application/bloc_defaults.dart';
 import '../domain/ports/journal_port.dart';
+import '../domain/profile.dart';
 import '../infrastructure/journal/hive_journal.dart';
 import 'injection.config.dart';
+import 'runtime_config.dart';
 
 /// The core's container. Ports (`LlmPort`, `JournalPort`, `MemoryPort`) are
 /// registered by infrastructure and providers when those land.
@@ -44,4 +46,26 @@ Future<void> registerJournal({required String directory}) async {
   getIt
     ..registerSingleton<HiveJournal>(journal)
     ..registerSingleton<JournalPort>(journal);
+}
+
+/// Installs [profile] as the active configuration of the container.
+///
+/// Replaces the fail-closed defaults of [configureCore] with
+/// `PolicyGate(profile.riskRules, hasInteractiveChannel)` and
+/// `ProfileAgentConfig(profile)`. `hasInteractiveChannel` is `false` until an
+/// approval channel exists (M4/M9); without one, an `ask` rule denies.
+///
+/// Throws a [StateError] when a profile is already installed. Call this after
+/// [configureCore] and before `AgentDepsFactory` or `RunService` is first
+/// resolved: both capture the policy and the agent config they read from
+/// [RuntimeConfig] when they are built.
+void registerProfile({
+  required Profile profile,
+  bool hasInteractiveChannel = false,
+}) {
+  final config = getIt<RuntimeConfig>();
+  if (config.profile != null) {
+    throw StateError('A profile is already registered');
+  }
+  config.install(profile, hasInteractiveChannel: hasInteractiveChannel);
 }

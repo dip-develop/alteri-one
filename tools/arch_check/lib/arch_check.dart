@@ -137,6 +137,9 @@ class ArchChecker {
               'shelf',
               'yaml',
               'get_it',
+              // ADR-0015: the profile config JSON Schema is generated with
+              // schemantic, which invariant 8 of AGENTS.md requires.
+              'schemantic',
             }.contains(dep) ||
             dep.startsWith('genkit');
       case 'cli':

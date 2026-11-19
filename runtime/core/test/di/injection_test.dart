@@ -253,4 +253,111 @@ void main() {
       );
     });
   });
+
+  group('registerProfile', () {
+    Profile profile({
+      Map<Risk, Decision> riskRules = const {Risk.read: Decision.allow},
+      Map<String, Risk> toolRisks = const {},
+    }) => Profile(
+      'assistant',
+      'local',
+      'assistant',
+      ['weather__forecast'],
+      Budget.standard(),
+      riskRules,
+      toolRisks,
+    );
+
+    Decision readDecision() => getIt<PolicyGate>().decide(
+      tool: 'weather__forecast',
+      risk: Risk.read,
+      taints: {},
+      caps: RunCapabilities(
+        {'weather__forecast'},
+        {},
+        const [],
+        MemoryRights.read,
+      ),
+    );
+
+    test('swaps the fail-closed defaults', () {
+      configureCore(environment: 'test');
+      registerProfile(
+        profile: profile(
+          toolRisks: const {'weather__forecast': Risk.destructive},
+        ),
+      );
+
+      // The profile allows `read`...
+      expect(readDecision(), Decision.allow);
+      // ...and raises the declared risk of the tool.
+      expect(
+        getIt<AgentConfig>().riskFor('weather__forecast'),
+        Risk.destructive,
+      );
+    });
+
+    test('with no channel keeps the fail-closed policy', () {
+      configureCore(environment: 'test');
+      registerProfile(
+        profile: profile(riskRules: const {Risk.write: Decision.ask}),
+      );
+
+      final decision = getIt<PolicyGate>().decide(
+        tool: 'weather__forecast',
+        risk: Risk.write,
+        taints: {},
+        caps: RunCapabilities(
+          {'weather__forecast'},
+          {},
+          const [],
+          MemoryRights.read,
+        ),
+      );
+
+      // `ask` without an interactive channel denies.
+      expect(decision, Decision.deny);
+    });
+
+    test('twice throws StateError', () {
+      configureCore(environment: 'test');
+      registerProfile(profile: profile());
+
+      expect(() => registerProfile(profile: profile()), throwsStateError);
+    });
+
+    test('AgentDepsFactory resolves the profile-backed config', () {
+      configureCore(environment: 'test');
+      registerProfile(profile: profile());
+      final journal = FakeJournal();
+      getIt
+        ..registerSingleton<LlmPort>(
+          FakeLlm(
+            (call, messages) =>
+                Turn('done', Message.assistant('done'), const []),
+          ),
+        )
+        ..registerSingleton<JournalPort>(journal);
+
+      final deps = getIt<AgentDepsFactory>().forRun(RunId('run-a'));
+
+      expect(identical(deps.policy, getIt<PolicyGate>()), isTrue);
+      expect(identical(deps.config, getIt<AgentConfig>()), isTrue);
+      expect(deps.config.riskFor('weather__forecast'), isNull);
+      expect(
+        deps.policy.decide(
+          tool: 'weather__forecast',
+          risk: Risk.read,
+          taints: {},
+          caps: RunCapabilities(
+            {'weather__forecast'},
+            {},
+            const [],
+            MemoryRights.read,
+          ),
+        ),
+        Decision.allow,
+      );
+    });
+  });
 }
