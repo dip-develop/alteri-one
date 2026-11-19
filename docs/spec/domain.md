@@ -218,6 +218,8 @@ Implementation note: this sketch lists the ports and their central methods, not 
 - `ContextFragment(source, text, untrusted)`. Context providers return fragments before a run starts.
 - The core wraps `untrusted` fragments in a block with a random boundary (section 13).
 - A channel is two-way communication with a person: `inbound` starts a run, `send` delivers a reply, and `askApproval` waits for a decision. No answer before the timeout means refusal.
+- The interactive half of an approval is a port, `ApprovalChannel`, with one method `askApproval(ApprovalPrompt)`; `ApprovalPrompt` carries the run, the LLM tool name, the input, and the deadline. The adapter that ships with the core, `StdinApprovalChannel`, renders the prompt on standard output and reads one line from standard input; its I/O is injectable. A transport that can be cancelled replaces it in M4 (Q18).
+- `ChannelApprovalService` implements `ApprovalService` over an `ApprovalChannel`. It applies the timeout by racing the channel against the deadline: no answer, a throw, or a closed channel is `false`. It decides nothing itself — `PolicyGate` remains the only decision point (section 8.2).
 - MVP channels: CLI and Flutter. A messenger channel comes after the MVP.
 
 ### 8.9 Skills
@@ -247,6 +249,8 @@ Rules:
 5. State tests use `bloc_test` [VERIFY compatibility with bloc 9].
 6. `flutter_bloc` is forbidden in the core. Clients use it separately.
 7. `bloc_signals` is not used.
+8. `RunService` drives `ApprovalsBloc`: it adds an `ApprovalRequestedEvent` before it asks the channel and an `ApprovalDecidedEvent` after, and it writes the request to the journal before the prompt and the decision after the answer (section 15.2). The bloc is a projection, not the source of truth; the `approvals` box is.
+9. Approvals of one run are serialized through a per-run `SerialQueue`: a turn's tool calls run with `Future.wait`, so two `ask` calls can overlap, and the second request is journalled, published, and asked only after the first one is resolved (Q17). `RunBloc` therefore never holds two pending approvals.
 
 ### 8.11 State observation by extensions
 

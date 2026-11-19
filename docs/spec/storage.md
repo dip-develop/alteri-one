@@ -16,6 +16,7 @@
 - Values are JSON strings, not type adapters. The format is controlled by the project. Each object carries a version field `v`.
 - `steps` holds both tool-invocation and model-call records. A `kind` field (`tool` or `model`) discriminates them; the format version `v` stays `1`. A record without `kind` predates the discriminator and is read as a tool invocation. Both kinds share the same `seq` counter.
 - `seq` is a shared monotonic counter for SSE. Incrementing it and writing the step happen sequentially inside one isolate.
+- `approvals` holds one `ApprovalRecord` per approval request, keyed `appr:{id}`. The record carries `id`, `runId`, the LLM `tool` name, `requestedAt`, `deadline`, the nullable `granted`, the nullable `decidedAt`, and the nullable `reason` (`granted`, `refused`, `timeout`, `cancelled`, or `channel_error`). A request is written with `granted`, `decidedAt`, and `reason` all `null`; the resolution replaces them (Q12, [ADR-0016](../adr/0016-interactive-approval-channel.md)). Encryption of this box is deferred with the keyring (section 15.4).
 
 ### 15.2 Write semantics [VERIFY, spike T7]
 
@@ -23,6 +24,7 @@
 - Whether `flush` performs an fsync is not documented. It is checked by a `kill -9` test in spike T7.
 - Journal protocol: `await put(started)` and `flush()` before the tool call; `await put(finished)` and `flush()` after it. This guarantees that `started` is on disk before the side effect runs.
 - Model calls follow the same protocol: `modelStarted` writes and flushes a `kind: model` record before the provider call, and the `seq`-addressed `finished` update records the outcome. A model-call record carries neither prompt nor reply text.
+- Approvals follow the same protocol: `approvalRequested` writes and flushes the request before the owner is prompted, and `approvalResolved` reads the record, sets `granted`, `decidedAt`, and `reason`, writes it back, and flushes. The prompt is the side effect the request guards.
 - There are no transactions across boxes. The guarantees are the monotonic `seq` and recovery from states (below).
 
 ### 15.3 Recovery after a crash

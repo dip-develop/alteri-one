@@ -319,6 +319,39 @@ void main() {
       expect(decision, Decision.deny);
     });
 
+    test('with a channel installs ChannelApprovalService', () {
+      configureCore(environment: 'test');
+      registerProfile(
+        profile: profile(riskRules: const {Risk.write: Decision.ask}),
+        channel: FakeApprovalChannel(true),
+      );
+
+      // The channel replaces the fail-closed default...
+      expect(getIt<ApprovalService>(), isA<ChannelApprovalService>());
+      // ...and an `ask` rule may now reach the owner.
+      expect(
+        getIt<PolicyGate>().decide(
+          tool: 'weather__forecast',
+          risk: Risk.write,
+          taints: {},
+          caps: RunCapabilities(
+            {'weather__forecast'},
+            {},
+            const [],
+            MemoryRights.read,
+          ),
+        ),
+        Decision.ask,
+      );
+    });
+
+    test('without a channel keeps DenyAllApprovals', () {
+      configureCore(environment: 'test');
+      registerProfile(profile: profile());
+
+      expect(getIt<ApprovalService>(), isA<DenyAllApprovals>());
+    });
+
     test('twice throws StateError', () {
       configureCore(environment: 'test');
       registerProfile(profile: profile());

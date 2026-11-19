@@ -4,6 +4,9 @@
 import 'package:get_it/get_it.dart';
 import 'package:injectable/injectable.dart';
 
+import '../application/agent/approval_service.dart';
+import '../application/approval/approval_channel.dart';
+import '../application/approval/channel_approval_service.dart';
 import '../application/bloc_defaults.dart';
 import '../domain/ports/journal_port.dart';
 import '../domain/profile.dart';
@@ -52,8 +55,14 @@ Future<void> registerJournal({required String directory}) async {
 ///
 /// Replaces the fail-closed defaults of [configureCore] with
 /// `PolicyGate(profile.riskRules, hasInteractiveChannel)` and
-/// `ProfileAgentConfig(profile)`. `hasInteractiveChannel` is `false` until an
-/// approval channel exists (M4/M9); without one, an `ask` rule denies.
+/// `ProfileAgentConfig(profile)`.
+///
+/// [channel] is the interactive approval channel (docs/spec/domain.md,
+/// section 8.8). When it is given, the container's [ApprovalService] becomes a
+/// [ChannelApprovalService] and `hasInteractiveChannel` defaults to `true`, so
+/// an `ask` rule can reach the owner. When it is absent, the deliberate
+/// fail-closed default stays: `DenyAllApprovals` refuses every request and
+/// `hasInteractiveChannel` is `false`, so an `ask` rule denies.
 ///
 /// Throws a [StateError] when a profile is already installed. Call this after
 /// [configureCore] and before `AgentDepsFactory` or `RunService` is first
@@ -61,11 +70,23 @@ Future<void> registerJournal({required String directory}) async {
 /// [RuntimeConfig] when they are built.
 void registerProfile({
   required Profile profile,
+  ApprovalChannel? channel,
   bool hasInteractiveChannel = false,
 }) {
   final config = getIt<RuntimeConfig>();
   if (config.profile != null) {
     throw StateError('A profile is already registered');
   }
-  config.install(profile, hasInteractiveChannel: hasInteractiveChannel);
+  final bool interactive = channel != null || hasInteractiveChannel;
+  config.install(profile, hasInteractiveChannel: interactive);
+  if (channel == null) return;
+  // Replace the fail-closed default registered by `configureCore`. A lazy
+  // singleton that was never resolved is replaced silently; one that was
+  // already built is unregistered and rebuilt, so the old instance cannot
+  // survive.
+  // ignore: discarded_futures
+  getIt.unregister<ApprovalService>();
+  getIt.registerLazySingleton<ApprovalService>(
+    () => ChannelApprovalService(channel: channel),
+  );
 }

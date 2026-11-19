@@ -72,6 +72,7 @@ extension GetItInjectableX on _i174.GetIt {
       () => coreModule.runService(
         gh<_i982.AgentDepsFactory>(),
         gh<_i869.StatePublisher>(),
+        gh<_i511.ApprovalsBloc>(),
       ),
     );
     return this;

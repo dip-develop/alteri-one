@@ -9,6 +9,7 @@ import '../application/agent/agent_deps.dart';
 import '../application/agent/approval_service.dart';
 import '../application/agent/context_builder.dart';
 import '../application/agent/tool_set.dart';
+import '../application/approvals_bloc.dart';
 import '../application/run_service.dart';
 import '../application/state_publisher.dart';
 import '../domain/policy.dart';
@@ -84,6 +85,13 @@ abstract class CoreModule {
   /// `LlmPort` (providers arrive in M3), so building it fails at resolution
   /// time, not at startup.
   @lazySingleton
-  RunService runService(AgentDepsFactory deps, StatePublisher publisher) =>
-      RunService(deps: deps, publisher: publisher);
+  RunService runService(
+    AgentDepsFactory deps,
+    StatePublisher publisher,
+    ApprovalsBloc approvalsBloc,
+  ) => RunService(
+    deps: deps,
+    publisher: publisher,
+    approvalsBloc: approvalsBloc,
+  );
 }

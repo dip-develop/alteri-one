@@ -65,6 +65,30 @@ final class _RecordingJournal implements JournalPort {
   @override
   Future<List<ModelCall>> modelCallsForRun(RunId runId) =>
       _inner.modelCallsForRun(runId);
+
+  @override
+  Future<void> approvalRequested(
+    RunId runId,
+    ApprovalId id,
+    String tool,
+    DateTime deadline,
+  ) => _inner.approvalRequested(runId, id, tool, deadline);
+
+  @override
+  Future<void> approvalResolved(
+    ApprovalId id, {
+    required bool granted,
+    required String reason,
+    DateTime? at,
+  }) => _inner.approvalResolved(id, granted: granted, reason: reason, at: at);
+
+  @override
+  Future<ApprovalRecord?> approvalById(ApprovalId id) =>
+      _inner.approvalById(id);
+
+  @override
+  Future<List<ApprovalRecord>> approvalsForRun(RunId runId) =>
+      _inner.approvalsForRun(runId);
 }
 
 /// A [JournalPort] that delegates to [inner] but fails [modelStarted], so a
@@ -102,6 +126,30 @@ final class _FailOnModelStarted implements JournalPort {
   @override
   Future<List<ModelCall>> modelCallsForRun(RunId runId) =>
       _inner.modelCallsForRun(runId);
+
+  @override
+  Future<void> approvalRequested(
+    RunId runId,
+    ApprovalId id,
+    String tool,
+    DateTime deadline,
+  ) => _inner.approvalRequested(runId, id, tool, deadline);
+
+  @override
+  Future<void> approvalResolved(
+    ApprovalId id, {
+    required bool granted,
+    required String reason,
+    DateTime? at,
+  }) => _inner.approvalResolved(id, granted: granted, reason: reason, at: at);
+
+  @override
+  Future<ApprovalRecord?> approvalById(ApprovalId id) =>
+      _inner.approvalById(id);
+
+  @override
+  Future<List<ApprovalRecord>> approvalsForRun(RunId runId) =>
+      _inner.approvalsForRun(runId);
 }
 
 /// A real `chat` run with test defaults.

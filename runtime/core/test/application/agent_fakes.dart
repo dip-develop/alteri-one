@@ -67,6 +67,16 @@ final class FakeJournal implements JournalPort {
   /// [failOnForRun].
   bool failOnModelCallsForRun = false;
 
+  /// Approval records by [ApprovalRecord.id].
+  final Map<ApprovalId, ApprovalRecord> _approvals =
+      <ApprovalId, ApprovalRecord>{};
+
+  /// One line per [approvalRequested] call, in call order.
+  final List<String> approvalRecords = [];
+
+  /// One line per [approvalResolved] call, in call order.
+  final List<String> approvalResolutions = [];
+
   /// Number of [modelStarted] calls.
   int modelStarts = 0;
 
@@ -195,6 +205,66 @@ final class FakeJournal implements JournalPort {
         _modelCalls.values.where((call) => call.runId == runId).toList()
           ..sort((a, b) => a.seq.compareTo(b.seq));
     return Future.value(calls);
+  }
+
+  @override
+  Future<void> approvalRequested(
+    RunId runId,
+    ApprovalId id,
+    String tool,
+    DateTime deadline,
+  ) {
+    approvalRecords.add('approvalRequested $id $tool');
+    log?.add('journal.approvalRequested $id');
+    _approvals[id] = ApprovalRecord(
+      id,
+      runId,
+      tool,
+      now(),
+      deadline,
+      null,
+      null,
+      null,
+    );
+    return Future.value();
+  }
+
+  @override
+  Future<void> approvalResolved(
+    ApprovalId id, {
+    required bool granted,
+    required String reason,
+    DateTime? at,
+  }) {
+    approvalResolutions.add('approvalResolved $id $reason');
+    log?.add('journal.approvalResolved $id');
+    final existing = _approvals[id];
+    if (existing == null) {
+      throw StateError('No approval record for $id');
+    }
+    _approvals[id] = ApprovalRecord(
+      existing.id,
+      existing.runId,
+      existing.tool,
+      existing.requestedAt,
+      existing.deadline,
+      granted,
+      at ?? now(),
+      reason,
+    );
+    return Future.value();
+  }
+
+  @override
+  Future<ApprovalRecord?> approvalById(ApprovalId id) =>
+      Future.value(_approvals[id]);
+
+  @override
+  Future<List<ApprovalRecord>> approvalsForRun(RunId runId) {
+    final records =
+        _approvals.values.where((record) => record.runId == runId).toList()
+          ..sort((a, b) => a.requestedAt.compareTo(b.requestedAt));
+    return Future.value(records);
   }
 }
 
@@ -391,6 +461,49 @@ final class FakeApprovals implements ApprovalService {
     asks++;
     runs.add(run);
     tools.add(tool);
+    onAsk?.call();
+    final failure = error;
+    if (failure != null) {
+      return Future<bool>.error(failure);
+    }
+    if (never) {
+      return Completer<bool>().future;
+    }
+    return Future.value(answer);
+  }
+}
+
+/// An [ApprovalChannel] that answers every prompt with [answer], throws
+/// [error], or never answers ([never]).
+///
+/// It records every [ApprovalPrompt] it received so a test can check the run,
+/// the tool, and the deadline the service passed down.
+final class FakeApprovalChannel implements ApprovalChannel {
+  /// Creates the channel that answers every prompt with [answer].
+  new(this.answer, {this.error, this.never = false, this.onAsk});
+
+  /// The decision returned for every prompt.
+  final bool answer;
+
+  /// When set, [askApproval] throws this object instead of answering.
+  final Object? error;
+
+  /// When set, [askApproval] returns a future that never completes.
+  final bool never;
+
+  /// Runs at the start of every [askApproval].
+  final void Function()? onAsk;
+
+  /// Number of [askApproval] calls.
+  int asks = 0;
+
+  /// The prompts of the calls, in order.
+  final List<ApprovalPrompt> prompts = [];
+
+  @override
+  Future<bool> askApproval(ApprovalPrompt prompt) {
+    asks++;
+    prompts.add(prompt);
     onAsk?.call();
     final failure = error;
     if (failure != null) {

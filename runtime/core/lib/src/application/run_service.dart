@@ -15,6 +15,9 @@ import 'agent/agent_deps.dart';
 import 'agent/agent_loop.dart';
 import 'agent/approval_service.dart';
 import 'agent/run_result.dart';
+import 'approval/channel_approval_service.dart';
+import 'approval/serial_queue.dart';
+import 'approvals_bloc.dart';
 import 'run_bloc.dart';
 import 'state_publisher.dart';
 
@@ -46,17 +49,21 @@ final class RunService {
   /// [deps] hands out the agent-loop collaborators for one run and decorates
   /// the model provider with [JournalingLlm]; [publisher] carries the events
   /// to subscribers; [blocFactory] creates the per-run bloc and is injectable
-  /// for tests.
+  /// for tests; [approvalsBloc] mirrors every pending approval so a client can
+  /// list what is waiting.
   // The named parameters (`deps:`, `publisher:`, ...) are public, so they
   // cannot be initializing formals.
   new({
     required AgentDepsFactory deps,
     required StatePublisher publisher,
+    required ApprovalsBloc approvalsBloc,
     RunBlocFactory? blocFactory,
     // ignore: prefer_initializing_formals
   }) : _deps = deps,
        // ignore: prefer_initializing_formals
        _publisher = publisher,
+       // ignore: prefer_initializing_formals
+       _approvalsBloc = approvalsBloc,
        _blocFactory = blocFactory ?? _newRunBloc;
 
   /// Hands out the agent-loop collaborators for one run.
@@ -64,6 +71,13 @@ final class RunService {
 
   /// The channel extensions and clients observe.
   final StatePublisher _publisher;
+
+  /// The bloc that mirrors the approvals that are still pending
+  /// (docs/spec/domain.md, section 8.10).
+  ///
+  /// Long-lived and therefore registered in the container; closing it at
+  /// daemon shutdown is M4, so nothing here closes it.
+  final ApprovalsBloc _approvalsBloc;
 
   /// Creates the bloc of one run.
   final RunBlocFactory _blocFactory;
@@ -80,8 +94,11 @@ final class RunService {
     final approvals = _RunApprovalBridge(
       inner: _deps.approvals,
       bloc: bloc,
+      approvalsBloc: _approvalsBloc,
+      journal: _deps.journal,
       publisher: _publisher,
       runId: run.id,
+      queue: SerialQueue(),
     );
     final deps = _deps.forRun(run.id, approvals: approvals);
 
@@ -296,38 +313,46 @@ final class RunService {
   static RunBloc _newRunBloc(RunId runId) => RunBloc(runId: runId);
 }
 
-/// Bridges an approval request to [RunBloc] and [StatePublisher]
-/// (docs/spec/domain.md, sections 8.10 and 8.11).
+/// Bridges an approval request to [RunBloc], [ApprovalsBloc], the journal,
+/// and [StatePublisher] (docs/spec/domain.md, sections 8.8, 8.10, 8.11).
 ///
 /// The agent loop asks the owner through this bridge instead of the factory's
-/// base [ApprovalService]: one approval id is generated per ask, the bloc moves
-/// to `waitingApproval` and back, and the request and the decision are
-/// published on [StateTopic.approvals]. The inner service stays the only
-/// component that talks to the owner.
+/// base [ApprovalService]: one approval id is generated per ask, the request is
+/// written to the journal *before* the owner is prompted (invariant 5), the
+/// run bloc moves to `waitingApproval` and back, and the request and the
+/// decision are published on [StateTopic.approvals]. The inner service stays
+/// the only component that talks to the owner.
 ///
-/// Current assumption: **at most one approval is outstanding at a time**. The
-/// agent loop runs a turn's tool calls with `Future.wait`, so two calls that
-/// both need approval would start two concurrent [ask]s; the bloc supports a
-/// single pending approval, so the second request and its resolution would be
-/// an [InvalidTransition]. That is not reachable in M2 (the default policy is
-/// fail-closed and `DenyAllApprovals` never asks), but it will matter in
-/// Step 9 / M4: serializing approvals or extending the bloc to hold several
-/// pending requests is deferred to then, not solved here.
+/// Serialization (docs/spec/open-questions.md Q17): the agent loop runs a
+/// turn's tool calls with `Future.wait`, so two calls that both need approval
+/// would start two concurrent [ask]s. Every ask therefore runs inside one
+/// per-run [SerialQueue]: the second request is journalled, published, and
+/// asked only after the first one has been resolved, so `RunBloc` never sees a
+/// second `RunRequestApprovalEvent` while one is still pending.
 final class _RunApprovalBridge implements ApprovalService {
   /// Creates the bridge for [runId] that delegates to [inner].
   new({
     required ApprovalService inner,
     required RunBloc bloc,
+    required ApprovalsBloc approvalsBloc,
+    required JournalPort journal,
     required StatePublisher publisher,
     required RunId runId,
+    required SerialQueue queue,
     // ignore: prefer_initializing_formals
   }) : _inner = inner,
        // ignore: prefer_initializing_formals
        _bloc = bloc,
        // ignore: prefer_initializing_formals
+       _approvalsBloc = approvalsBloc,
+       // ignore: prefer_initializing_formals
+       _journal = journal,
+       // ignore: prefer_initializing_formals
        _publisher = publisher,
        // ignore: prefer_initializing_formals
-       _runId = runId;
+       _runId = runId,
+       // ignore: prefer_initializing_formals
+       _queue = queue;
 
   /// The base approval service the request is delegated to.
   final ApprovalService _inner;
@@ -335,11 +360,20 @@ final class _RunApprovalBridge implements ApprovalService {
   /// The bloc that moves to `waitingApproval` and back.
   final RunBloc _bloc;
 
+  /// The bloc that mirrors the pending approval to clients.
+  final ApprovalsBloc _approvalsBloc;
+
+  /// The journal the request and the decision are written to.
+  final JournalPort _journal;
+
   /// The channel the request and the decision are published on.
   final StatePublisher _publisher;
 
   /// The run the approval belongs to.
   final RunId _runId;
+
+  /// The per-run queue that serializes the asks.
+  final SerialQueue _queue;
 
   /// Counter behind the generated approval ids.
   int _counter = 0;
@@ -348,7 +382,8 @@ final class _RunApprovalBridge implements ApprovalService {
   ///
   /// Set when the bloc is asked to wait and cleared synchronously when the
   /// bridge resolves the request, so it is a reliable, microtask-independent
-  /// answer to "is an approval outstanding?".
+  /// answer to "is an approval outstanding?". Because approvals are serialized
+  /// (Q17), at most one request is ever in flight per run.
   ApprovalId? _pending;
 
   /// Whether an approval request is still outstanding.
@@ -361,8 +396,12 @@ final class _RunApprovalBridge implements ApprovalService {
   /// flag is cleared first, so a later resolution of the same request adds no
   /// second deny: there is exactly one deny per approval request.
   bool denyPending() {
-    if (!_takePending()) return false;
+    final ApprovalId? id = _pending;
+    if (id == null) return false;
+    _pending = null;
     _bloc.add(const RunApprovalDeniedEvent());
+    _approvalsBloc.add(ApprovalDecidedEvent(id, granted: false));
+    unawaited(_journalApprovalResolved(id, false, 'cancelled'));
     return true;
   }
 
@@ -382,17 +421,33 @@ final class _RunApprovalBridge implements ApprovalService {
   static const Duration _cancelPollInterval = Duration(milliseconds: 10);
 
   @override
-  Future<bool> ask(Run run, ToolSpec tool, Map<String, Object?> input) async {
+  Future<bool> ask(Run run, ToolSpec tool, Map<String, Object?> input) {
+    // Serialized per run (Q17): the second ask of a turn starts only after the
+    // first one has been resolved, so `RunBloc` holds one pending approval.
+    return _queue.add(() => _ask(run, tool, input));
+  }
+
+  /// The body of one serialized ask.
+  Future<bool> _ask(Run run, ToolSpec tool, Map<String, Object?> input) async {
     run.cancel.throwIfCancelled();
     final id = ApprovalId('${_runId.value}:${_counter++}');
+    final deadline = DateTime.now().toUtc().add(defaultApprovalTimeout);
     // The request, the delegation, and the decision share one guarded region:
     // a failure in any of them must first move the bloc out of
     // `waitingApproval`, or the service's `RunFailedEvent` would be an invalid
     // transition and mask the original error.
     try {
+      // Invariant 5: the record reaches the disk before the owner is prompted.
+      await _journal.approvalRequested(_runId, id, tool.llmName, deadline);
+
       _pending = id;
       _bloc.add(RunRequestApprovalEvent(id));
-      // No `seq`: the journal holds no approval records yet, so this event
+      _approvalsBloc.add(
+        ApprovalRequestedEvent(
+          PendingApproval(id, _runId, tool.llmName, deadline),
+        ),
+      );
+      // No `seq`: the journal holds no run-lifecycle record, so this event
       // cannot be replayed from a journal position (Q15).
       _publisher.publish(
         StateTopic.approvals,
@@ -410,21 +465,29 @@ final class _RunApprovalBridge implements ApprovalService {
       // service already denied the request and cleared the flag, so no second
       // event is added here.
       if (_takePending()) {
+        await _journalApprovalResolved(
+          id,
+          granted,
+          granted ? 'granted' : _refusalReason,
+        );
         _bloc.add(
           granted
               ? const RunApprovalGrantedEvent()
               : const RunApprovalDeniedEvent(),
         );
+        _approvalsBloc.add(ApprovalDecidedEvent(id, granted: granted));
         _publish(id, granted);
       }
       return granted;
-    } catch (_) {
+    } catch (error) {
       // A denial, a thrown inner service, and a cancelled run all end the same
       // way: deny the outstanding request so the bloc returns to `running`,
       // then rethrow unchanged. A cancellation rethrows
       // [RunCancelledException] so the run stops instead of continuing.
       if (_takePending()) {
         _bloc.add(const RunApprovalDeniedEvent());
+        _approvalsBloc.add(ApprovalDecidedEvent(id, granted: false));
+        await _journalApprovalResolved(id, false, _cancelledOrError(error));
         try {
           _publish(id, false);
         } catch (_) {
@@ -433,6 +496,32 @@ final class _RunApprovalBridge implements ApprovalService {
         }
       }
       rethrow;
+    }
+  }
+
+  /// How a refusal that is not a cancellation is recorded.
+  ///
+  /// [ChannelApprovalService] collapses every failed attempt (a refusal, a
+  /// timeout, a broken channel) into `false`, so the bridge records `refused`.
+  /// A cancellation is its own reason.
+  static const String _refusalReason = 'refused';
+
+  /// The journal reason for [error]: a cancelled run, or a channel error.
+  static String _cancelledOrError(Object error) =>
+      error is RunCancelledException ? 'cancelled' : 'channel_error';
+
+  /// Writes the decision, but never lets a journal failure mask the error that
+  /// is already on its way out of the ask.
+  Future<void> _journalApprovalResolved(
+    ApprovalId id,
+    bool granted,
+    String reason,
+  ) async {
+    try {
+      await _journal.approvalResolved(id, granted: granted, reason: reason);
+    } catch (_) {
+      // The run outcome is already decided; a lost audit record is preferable
+      // to replacing the real error.
     }
   }
 
@@ -470,7 +559,7 @@ final class _RunApprovalBridge implements ApprovalService {
   }
 
   void _publish(ApprovalId id, bool granted) =>
-      // No `seq`: the journal holds no approval records yet, so this event
+      // No `seq`: the journal holds no run-lifecycle record, so this event
       // cannot be replayed from a journal position (Q15).
       _publisher.publish(
         StateTopic.approvals,

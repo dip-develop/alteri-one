@@ -175,6 +175,94 @@ void main() {
       expect(await journal.modelCallsForRun(run), isEmpty);
     });
 
+    test('writes an approval request and resolves it', () async {
+      final run = RunId('run-appr');
+      final deadline = DateTime.utc(2026, 1, 1, 12);
+      await journal.approvalRequested(
+        run,
+        ApprovalId('run-appr:0'),
+        'ext__save',
+        deadline,
+      );
+
+      final pending = await journal.approvalById(ApprovalId('run-appr:0'));
+      expect(pending, isNotNull);
+      expect(pending!.runId, run);
+      expect(pending.tool, 'ext__save');
+      expect(pending.deadline, deadline);
+      expect(pending.granted, isNull);
+      expect(pending.decidedAt, isNull);
+      expect(pending.reason, isNull);
+
+      await journal.approvalResolved(
+        ApprovalId('run-appr:0'),
+        granted: true,
+        reason: 'granted',
+      );
+
+      final resolved = await journal.approvalById(ApprovalId('run-appr:0'));
+      expect(resolved!.granted, isTrue);
+      expect(resolved.reason, 'granted');
+      expect(resolved.decidedAt, isNotNull);
+    });
+
+    test('approvalResolved records the reason of a refusal', () async {
+      final run = RunId('run-deny');
+      await journal.approvalRequested(
+        run,
+        ApprovalId('run-deny:0'),
+        'ext__post',
+        DateTime.utc(2026, 1, 4),
+      );
+
+      await journal.approvalResolved(
+        ApprovalId('run-deny:0'),
+        granted: false,
+        reason: 'refused',
+      );
+
+      final record = (await journal.approvalsForRun(run)).single;
+      expect(record.granted, isFalse);
+      expect(record.reason, 'refused');
+      expect(record.decidedAt, isNotNull);
+    });
+
+    test('approvalsForRun filters by run', () async {
+      await journal.approvalRequested(
+        RunId('run-a'),
+        ApprovalId('run-a:0'),
+        'ext__a',
+        DateTime.utc(2026, 1, 2),
+      );
+      await journal.approvalRequested(
+        RunId('run-b'),
+        ApprovalId('run-b:0'),
+        'ext__b',
+        DateTime.utc(2026, 1, 3),
+      );
+
+      final list = await journal.approvalsForRun(RunId('run-a'));
+      expect(list, hasLength(1));
+      expect(list.single.id, ApprovalId('run-a:0'));
+      expect(list.single.tool, 'ext__a');
+    });
+
+    test('an approval request survives close and reopen', () async {
+      final run = RunId('run-reopen');
+      await journal.approvalRequested(
+        run,
+        ApprovalId('run-reopen:0'),
+        'ext__save',
+        DateTime.utc(2026, 1, 5),
+      );
+      await journal.close();
+      journal = await HiveJournal.open(dir.path);
+
+      final record = (await journal.approvalsForRun(run)).single;
+      expect(record.tool, 'ext__save');
+      expect(await journal.approvalById(ApprovalId('missing')), isNull);
+    });
+
     test('model records survive close and reopen', () async {
       final run = RunId('run-model-reopen');
       final seq = await journal.modelStarted(run);
