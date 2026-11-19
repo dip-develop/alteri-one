@@ -15,7 +15,7 @@ import 'tool_set.dart';
 ///
 /// They keep the composition root resolvable before the matching features
 /// land: profile configuration (section 14), the interactive approval channel
-/// (M4/M9), prompt rendering (section 13), and extensions (M5). Each one
+/// (M2 step 9), prompt rendering (section 13), and extensions (M5). Each one
 /// refuses or narrows rather than guessing, in line with the fail-closed
 /// defaults of the rest of the core.
 
@@ -30,7 +30,7 @@ final class DefaultAgentConfig implements AgentConfig {
 
 /// An [ApprovalService] that refuses every request.
 ///
-/// There is no interactive channel until M4/M9, so an `ask` decision always
+/// There is no interactive channel until M2 step 9, so an `ask` decision always
 /// ends as `not_approved` (docs/spec/domain.md, section 8.8).
 final class DenyAllApprovals implements ApprovalService {
   /// Creates the defaults.
