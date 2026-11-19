@@ -8,6 +8,7 @@ import '../application/agent/agent_defaults.dart';
 import '../application/agent/agent_deps.dart';
 import '../application/agent/approval_service.dart';
 import '../application/agent/context_builder.dart';
+import '../application/agent/profile_agent_config.dart';
 import '../application/agent/tool_set.dart';
 import '../application/run_service.dart';
 import '../application/state_publisher.dart';
@@ -28,8 +29,11 @@ abstract class CoreModule {
   PolicyGate get policyGate => PolicyGate(const {}, false);
 
   /// Per-profile risk overrides; none are configured yet (section 14).
+  ///
+  /// Fail-closed: without a profile, no risk is configured and every tool
+  /// keeps its declared risk, which the fail-closed [policyGate] denies.
   @lazySingleton
-  AgentConfig get agentConfig => const DefaultAgentConfig();
+  AgentConfig get agentConfig => const FailClosedAgentConfig();
 
   /// Owner decisions for `ask`; there is no channel to ask through yet.
   @lazySingleton

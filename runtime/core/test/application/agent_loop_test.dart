@@ -24,7 +24,7 @@ AgentDeps _deps({
   FakeRegistry? registry,
   PolicyGate? policy,
   FakeApprovals? approvals,
-  FakeConfig? config,
+  AgentConfig? config,
   FakeContext? context,
 }) => AgentDeps(
   llm,
@@ -201,6 +201,53 @@ void main() {
           registry: FakeRegistry((_) => ToolSet([tool])),
           // The configured read would be allowed; the declared destructive is
           // denied, proving the effective risk is raised to the declared one.
+          policy: PolicyGate(const {
+            Risk.read: Decision.allow,
+            Risk.destructive: Decision.deny,
+          }, false),
+          config: config,
+        ),
+      );
+
+      expect(result, isA<RunCompleted>());
+      expect(tool.calls, 0);
+      expect(journal.deniedRisks, [Risk.destructive]);
+      expect(llm.requests[1].last.toolResults.single.errorCode, 'denied');
+    });
+
+    test('a lower configured risk never lowers the declared risk', () async {
+      final tool = FakeTool(
+        fakeSpec('wipe', risk: Risk.destructive),
+        output: 'gone',
+      );
+      final journal = FakeJournal();
+      // The profile tries to lower the declared destructive risk to read; the
+      // loop must keep treating the call as destructive.
+      final config = ProfileAgentConfig(
+        Profile(
+          'assistant',
+          'local',
+          'assistant',
+          ['ext__wipe'],
+          Budget.standard(),
+          const {},
+          const {'wipe': Risk.read},
+        ),
+      );
+      final llm = FakeLlm((call, messages) {
+        if (call == 0) {
+          return _toolTurn([_call('c1', 'ext__wipe')]);
+        }
+        return _finalTurn('finished');
+      });
+
+      final result = await runAgent(
+        fakeRun(tools: {'ext__wipe'}),
+        _deps(
+          llm: llm,
+          journal: journal,
+          registry: FakeRegistry((_) => ToolSet([tool])),
+          // A read would be allowed; the declared destructive is denied.
           policy: PolicyGate(const {
             Risk.read: Decision.allow,
             Risk.destructive: Decision.deny,

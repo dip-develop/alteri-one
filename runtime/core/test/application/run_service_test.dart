@@ -89,7 +89,7 @@ void main() {
       journal ?? FakeJournal(),
       policy ?? PolicyGate(const {}, false),
       approval ?? FakeApprovals(false),
-      const DefaultAgentConfig(),
+      const FailClosedAgentConfig(),
       const PromptContextBuilder(),
     );
 

@@ -5,7 +5,7 @@
 /// (docs/spec/domain.md, section 9; docs/adr/0012-model-call-journaling.md).
 ///
 /// The run goes context → journaled model call → tool → reply → journal with
-/// the real [PromptContextBuilder], [PolicyGate], [DefaultAgentConfig],
+/// the real [PromptContextBuilder], [PolicyGate], [FailClosedAgentConfig],
 /// [DenyAllApprovals], and [HiveJournal]. Only the provider, the tool, and the
 /// registry are faked; the journal sits on a real temp directory.
 library;
@@ -130,7 +130,7 @@ AgentDepsFactory _factory({
   journal,
   PolicyGate(const {Risk.read: Decision.allow}, false),
   const DenyAllApprovals(),
-  const DefaultAgentConfig(),
+  const FailClosedAgentConfig(),
   const PromptContextBuilder(),
 );
 
