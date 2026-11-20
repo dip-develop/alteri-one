@@ -29,8 +29,8 @@ final class RuntimeConfig {
 
   /// Installs [profile] and rebuilds the policy and the agent config from it.
   ///
-  /// `hasInteractiveChannel` is false until an approval channel exists
-  /// (M4/M9); without one, an `ask` rule denies.
+  /// `hasInteractiveChannel` is false until an approval channel exists (M2;
+  /// a cancellable transport is M4). Without one, an `ask` rule denies.
   void install(Profile profile, {bool hasInteractiveChannel = false}) {
     _profile = profile;
     _policy = PolicyGate(profile.riskRules, hasInteractiveChannel);

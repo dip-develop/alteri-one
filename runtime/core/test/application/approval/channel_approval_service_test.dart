@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /// The channel-backed approval service: a refusal, a timeout, and a broken
-/// channel all end as `false`; an answer ends as its value
-/// (docs/spec/domain.md, section 8.8).
+/// channel all end as `false`; an answer ends as its value, and `decide`
+/// reports the reason of each outcome (docs/spec/domain.md, section 8.8).
 library;
 
 import 'package:alteri_one_contracts/alteri_one_contracts.dart';
@@ -66,5 +66,50 @@ void main() {
     // The abandoned channel future never completes; the timeout is the whole
     // policy of the service.
     expect(granted, isFalse);
+  });
+
+  test('decide reports granted for an answer of yes', () async {
+    final service = ChannelApprovalService(channel: FakeApprovalChannel(true));
+
+    final outcome = await service.decide(run(), tool(), const {});
+
+    expect(outcome, ApprovalOutcome.granted);
+    expect(outcome.journalReason, 'granted');
+  });
+
+  test('decide reports refused for an answer of no', () async {
+    final service = ChannelApprovalService(channel: FakeApprovalChannel(false));
+
+    final outcome = await service.decide(run(), tool(), const {});
+
+    expect(outcome, ApprovalOutcome.refused);
+    expect(outcome.journalReason, 'refused');
+  });
+
+  test('decide reports timeout when the channel never answers', () async {
+    final service = ChannelApprovalService(
+      channel: FakeApprovalChannel(true, never: true),
+      timeout: const Duration(milliseconds: 20),
+    );
+
+    final outcome = await service
+        .decide(run(), tool(), const {})
+        .timeout(const Duration(seconds: 2));
+
+    // A timeout is a refusal with its own reason: the audit record must not
+    // read like an owner who refused (docs/spec/open-questions.md Q12).
+    expect(outcome, ApprovalOutcome.timeout);
+    expect(outcome.journalReason, 'timeout');
+  });
+
+  test('decide reports channel_error when the channel throws', () async {
+    final service = ChannelApprovalService(
+      channel: FakeApprovalChannel(false, error: StateError('stdin closed')),
+    );
+
+    final outcome = await service.decide(run(), tool(), const {});
+
+    expect(outcome, ApprovalOutcome.channelError);
+    expect(outcome.journalReason, 'channel_error');
   });
 }

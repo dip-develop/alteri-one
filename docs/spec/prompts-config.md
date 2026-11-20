@@ -72,6 +72,8 @@ Merge order: defaults from the package → `alterione.yaml` → `ALTERIONE_*` en
 
 Error messages never repeat substituted secret values. `alterione config check` runs steps 1–5 without starting the daemon.
 
+In M2 the loader implements steps 1–4 and 6 for the profile file itself, plus the token checks of step 5. The existence checks (providers, prompts, tools) wait for the daemon and the extension registry (M4, Q10); `Profile.validateToolRisks` rejects a risk-lowering rule as soon as the declared risks of the loaded tools are known ([ADR-0015](../adr/0015-schemantic-in-core-config-schema.md)).
+
 ### 14.4 YAML pitfalls
 
 - An unquoted version `1.10` becomes the number `1.1`. Quote versions.

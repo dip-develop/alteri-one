@@ -388,7 +388,7 @@ void main() {
       expect(record.decidedAt, isNotNull);
     });
 
-    test('a timeout is journalled as refused', () async {
+    test('a timeout is journalled with reason timeout', () async {
       final journal = FakeJournal();
       final tool = FakeTool(fakeSpec('save', risk: Risk.write), output: 'ok');
       final llm = FakeLlm((call, messages) {
@@ -424,6 +424,73 @@ void main() {
       expect(record.granted, isFalse);
       expect(tool.calls, 0);
       expect(journal.approvalResolutions, hasLength(1));
+      // The channel-backed service reports the reason, so the audit record
+      // tells a timeout apart from an owner who refused.
+      expect(record.reason, 'timeout');
+      expect(journal.approvalResolutions, ['approvalResolved run-1:0 timeout']);
+    });
+
+    test('a channel error is journalled with reason channel_error', () async {
+      final journal = FakeJournal();
+      final tool = FakeTool(fakeSpec('save', risk: Risk.write), output: 'ok');
+      final llm = FakeLlm((call, messages) {
+        if (call == 0) {
+          return _toolTurn([_call('c1', 'ext__save')]);
+        }
+        return _finalTurn('nothing saved');
+      });
+
+      await service(
+        deps: factory(
+          llm: llm,
+          journal: journal,
+          registry: FakeRegistry((_) => ToolSet([tool])),
+          policy: PolicyGate(const {Risk.write: Decision.ask}, true),
+          approval: ChannelApprovalService(
+            channel: FakeApprovalChannel(
+              false,
+              error: StateError('stdin gone'),
+            ),
+          ),
+        ),
+        factory: (id) => RunBloc(runId: id),
+      ).run(fakeRun(tools: {'ext__save'}));
+      await _settle();
+
+      final record = (await journal.approvalsForRun(RunId('run-1'))).single;
+      expect(record.granted, isFalse);
+      expect(record.reason, 'channel_error');
+      expect(tool.calls, 0);
+    });
+
+    test('a plain ApprovalService that refuses is journalled as refused', () async {
+      final journal = FakeJournal();
+      final tool = FakeTool(fakeSpec('save', risk: Risk.write), output: 'ok');
+      final llm = FakeLlm((call, messages) {
+        if (call == 0) {
+          return _toolTurn([_call('c1', 'ext__save')]);
+        }
+        return _finalTurn('nothing saved');
+      });
+
+      await service(
+        deps: factory(
+          llm: llm,
+          journal: journal,
+          registry: FakeRegistry((_) => ToolSet([tool])),
+          policy: PolicyGate(const {Risk.write: Decision.ask}, true),
+          // A boolean-only service: it cannot tell a refusal from a timeout, so
+          // the bridge records the only reason the interface has.
+          approval: const DenyAllApprovals(),
+        ),
+        factory: (id) => RunBloc(runId: id),
+      ).run(fakeRun(tools: {'ext__save'}));
+      await _settle();
+
+      final record = (await journal.approvalsForRun(RunId('run-1'))).single;
+      expect(record.granted, isFalse);
+      expect(record.reason, 'refused');
+      expect(tool.calls, 0);
     });
 
     test('serializes two approvals of one turn', () async {

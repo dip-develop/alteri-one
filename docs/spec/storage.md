@@ -24,7 +24,7 @@
 - Whether `flush` performs an fsync is not documented. It is checked by a `kill -9` test in spike T7.
 - Journal protocol: `await put(started)` and `flush()` before the tool call; `await put(finished)` and `flush()` after it. This guarantees that `started` is on disk before the side effect runs.
 - Model calls follow the same protocol: `modelStarted` writes and flushes a `kind: model` record before the provider call, and the `seq`-addressed `finished` update records the outcome. A model-call record carries neither prompt nor reply text.
-- Approvals follow the same protocol: `approvalRequested` writes and flushes the request before the owner is prompted, and `approvalResolved` reads the record, sets `granted`, `decidedAt`, and `reason`, writes it back, and flushes. The prompt is the side effect the request guards.
+- Approvals follow the same protocol: `approvalRequested` writes and flushes the request before the owner is prompted, and `approvalResolved` reads the record, sets `granted`, `decidedAt`, and `reason`, writes it back, and flushes. The prompt is the side effect the request guards. The `reason` is the one the approval service reports (section 8.8): a timeout and a broken channel are journalled as `timeout` and `channel_error`, not as a plain refusal; a run that stops while a request is outstanding records `cancelled` ([ADR-0016](../adr/0016-interactive-approval-channel.md)).
 - There are no transactions across boxes. The guarantees are the monotonic `seq` and recovery from states (below).
 
 ### 15.3 Recovery after a crash

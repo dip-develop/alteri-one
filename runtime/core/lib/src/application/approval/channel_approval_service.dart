@@ -8,6 +8,7 @@ import 'package:alteri_one_contracts/alteri_one_contracts.dart';
 import '../../domain/run.dart';
 import '../agent/approval_service.dart';
 import 'approval_channel.dart';
+import 'approval_outcome.dart';
 
 /// How long the owner has to answer an approval
 /// (docs/spec/domain.md, section 8.8).
@@ -20,12 +21,14 @@ const Duration defaultApprovalTimeout = Duration(seconds: 60);
 /// (docs/spec/domain.md, sections 8.8 and 9).
 ///
 /// It decides nothing: the policy gate already returned `ask`, and this
-/// service only turns the channel's answer into the boolean the loop expects.
-/// The race against [timeout] is the whole policy of the service: no answer
-/// before the deadline is a refusal, and so is a channel that throws or is
-/// closed. A refusal is never an error, so a broken channel stops one tool
-/// call instead of failing the run.
-final class ChannelApprovalService implements ApprovalService {
+/// service only turns the channel's answer into the [ApprovalOutcome] the loop
+/// and the journal need. [decide] is the whole policy of the service and the
+/// only method with a reason: no answer before [timeout] is
+/// [ApprovalOutcome.timeout], a channel that throws or is closed is
+/// [ApprovalOutcome.channelError], and both are refusals. [ask] is the
+/// [ApprovalService] contract and delegates to [decide], so a caller that only
+/// knows the interface still sees a refusal.
+final class ChannelApprovalService implements ReasonedApprovalService {
   /// Creates the service that asks through [channel].
   ///
   /// [clock] is injectable for tests; it stamps [ApprovalPrompt.deadline].
@@ -50,6 +53,16 @@ final class ChannelApprovalService implements ApprovalService {
 
   @override
   Future<bool> ask(Run run, ToolSpec tool, Map<String, Object?> input) async {
+    final outcome = await decide(run, tool, input);
+    return outcome == ApprovalOutcome.granted;
+  }
+
+  @override
+  Future<ApprovalOutcome> decide(
+    Run run,
+    ToolSpec tool,
+    Map<String, Object?> input,
+  ) async {
     final ApprovalPrompt prompt = ApprovalPrompt(
       run.id,
       tool.llmName,
@@ -60,15 +73,16 @@ final class ChannelApprovalService implements ApprovalService {
       // `timeout` abandons the channel's future: a channel that never answers
       // (a blocking stdin read) cannot be cancelled, so the abandoned future
       // keeps running and its eventual answer is dropped.
-      return await _channel.askApproval(prompt).timeout(timeout);
+      final bool granted = await _channel.askApproval(prompt).timeout(timeout);
+      return granted ? ApprovalOutcome.granted : ApprovalOutcome.refused;
     } on TimeoutException {
-      // No answer before the deadline is a refusal (section 8.8).
-      return false;
+      // No answer before the deadline is a refusal with its own reason
+      // (section 8.8); the bridge journals it as `timeout`.
+      return ApprovalOutcome.timeout;
     } catch (_) {
       // A closed channel, an EOF, a broken transport: refuse, do not fail the
-      // run. The reason stays out of the boolean; the bridge records the
-      // outcome as a refusal.
-      return false;
+      // run. The bridge journals the cause as `channel_error`.
+      return ApprovalOutcome.channelError;
     }
   }
 }

@@ -13,16 +13,21 @@ import 'tool_set.dart';
 /// (docs/spec/domain.md, section 9).
 ///
 /// They keep the composition root resolvable before the matching features
-/// land: the interactive approval channel (M4/M9), prompt rendering (section
-/// 13), and extensions (M5). Each one refuses or narrows rather than guessing,
-/// in line with the fail-closed defaults of the rest of the core. The
-/// `AgentConfig` default is `FailClosedAgentConfig`
-/// (`profile_agent_config.dart`), which keeps every tool at its declared risk.
+/// land: prompt rendering (section 13) and extensions (M5). The interactive
+/// approval channel exists (`ChannelApprovalService`, `StdinApprovalChannel`),
+/// so the approval default below is what stays when no channel is registered.
+/// Each one refuses or narrows rather than guessing, in line with the
+/// fail-closed defaults of the rest of the core. The `AgentConfig` default is
+/// `FailClosedAgentConfig` (`profile_agent_config.dart`), which keeps every
+/// tool at its declared risk.
 
 /// An [ApprovalService] that refuses every request.
 ///
-/// There is no interactive channel until M4/M9, so an `ask` decision always
-/// ends as `not_approved` (docs/spec/domain.md, section 8.8).
+/// The deliberate fail-closed default of the composition root: when
+/// `registerProfile` is given no `ApprovalChannel`, no one can be asked and an
+/// `ask` decision always ends as `not_approved` (docs/spec/domain.md,
+/// section 8.8). Registering a channel replaces this service, so the default
+/// never silently swallows a request that a human could have answered.
 final class DenyAllApprovals implements ApprovalService {
   /// Creates the defaults.
   const new();

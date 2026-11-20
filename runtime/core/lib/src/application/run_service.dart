@@ -15,6 +15,7 @@ import 'agent/agent_deps.dart';
 import 'agent/agent_loop.dart';
 import 'agent/approval_service.dart';
 import 'agent/run_result.dart';
+import 'approval/approval_outcome.dart';
 import 'approval/channel_approval_service.dart';
 import 'approval/serial_queue.dart';
 import 'approvals_bloc.dart';
@@ -323,6 +324,11 @@ final class RunService {
 /// decision are published on [StateTopic.approvals]. The inner service stays
 /// the only component that talks to the owner.
 ///
+/// The decision is journalled with the reason the inner service reported: a
+/// [ReasonedApprovalService] (the channel-backed `ChannelApprovalService`)
+/// distinguishes a timeout and a broken channel, while a plain
+/// [ApprovalService] answers a boolean and is journalled as `refused`.
+///
 /// Serialization (docs/spec/open-questions.md Q17): the agent loop runs a
 /// turn's tool calls with `Future.wait`, so two calls that both need approval
 /// would start two concurrent [ask]s. Every ask therefore runs inside one
@@ -458,18 +464,16 @@ final class _RunApprovalBridge implements ApprovalService {
           tool: tool.llmName,
         ),
       );
-      final granted = await _askWithCancellation(run, () {
-        return _inner.ask(run, tool, input);
-      });
+      final outcome = await _askWithCancellation(
+        run,
+        () => _decide(run, tool, input),
+      );
+      final granted = outcome == ApprovalOutcome.granted;
       // Resolve once: if the run stopped while this ask was abandoned, the
       // service already denied the request and cleared the flag, so no second
       // event is added here.
       if (_takePending()) {
-        await _journalApprovalResolved(
-          id,
-          granted,
-          granted ? 'granted' : _refusalReason,
-        );
+        await _journalApprovalResolved(id, granted, outcome.journalReason);
         _bloc.add(
           granted
               ? const RunApprovalGrantedEvent()
@@ -499,16 +503,35 @@ final class _RunApprovalBridge implements ApprovalService {
     }
   }
 
-  /// How a refusal that is not a cancellation is recorded.
-  ///
-  /// [ChannelApprovalService] collapses every failed attempt (a refusal, a
-  /// timeout, a broken channel) into `false`, so the bridge records `refused`.
-  /// A cancellation is its own reason.
-  static const String _refusalReason = 'refused';
-
-  /// The journal reason for [error]: a cancelled run, or a channel error.
+  /// The journal reason for a failure that is not a decision: a cancelled run,
+  /// or an error the inner service threw.
   static String _cancelledOrError(Object error) =>
       error is RunCancelledException ? 'cancelled' : 'channel_error';
+
+  /// Asks [inner] and keeps the reason of the decision.
+  ///
+  /// A service that implements [ReasonedApprovalService] (the channel-backed
+  /// `ChannelApprovalService`) reports why it decided, so a timeout is
+  /// journalled as `timeout` and a broken channel as `channel_error`. A plain
+  /// [ApprovalService] such as `DenyAllApprovals` answers a boolean only; its
+  /// `false` is journalled as `refused`, which is all the interface knows. A
+  /// thrown error is never turned into an outcome: it leaves [ask] and reaches
+  /// the `catch` below, which resolves the request as `cancelled` or
+  /// `channel_error`.
+  Future<ApprovalOutcome> _decide(
+    Run run,
+    ToolSpec tool,
+    Map<String, Object?> input,
+  ) {
+    final inner = _inner;
+    if (inner is ReasonedApprovalService) return inner.decide(run, tool, input);
+    return inner
+        .ask(run, tool, input)
+        .then(
+          (bool granted) =>
+              granted ? ApprovalOutcome.granted : ApprovalOutcome.refused,
+        );
+  }
 
   /// Writes the decision, but never lets a journal failure mask the error that
   /// is already on its way out of the ask.
@@ -531,13 +554,13 @@ final class _RunApprovalBridge implements ApprovalService {
   /// while the owner's answer is outstanding. On cancellation the returned
   /// future completes with [RunCancelledException] and the abandoned [ask]
   /// keeps running with its error handled, so nothing is left unawaited.
-  Future<bool> _askWithCancellation(
-    Run run,
-    Future<bool> Function() ask,
-  ) async {
+  ///
+  /// [T] is the answer of the inner service: `bool` for a plain
+  /// [ApprovalService], [ApprovalOutcome] for a [ReasonedApprovalService].
+  Future<T> _askWithCancellation<T>(Run run, Future<T> Function() ask) async {
     final pending = ask();
-    final completer = Completer<bool>();
-    void complete(bool value) {
+    final completer = Completer<T>();
+    void complete(T value) {
       if (!completer.isCompleted) completer.complete(value);
     }
 

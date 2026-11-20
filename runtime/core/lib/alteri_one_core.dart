@@ -22,6 +22,7 @@ export 'src/application/agent/profile_agent_config.dart';
 export 'src/application/agent/run_result.dart';
 export 'src/application/agent/tool_set.dart';
 export 'src/application/approval/approval_channel.dart';
+export 'src/application/approval/approval_outcome.dart';
 export 'src/application/approval/channel_approval_service.dart';
 export 'src/application/approval/serial_queue.dart';
 export 'src/application/approvals_bloc.dart';
