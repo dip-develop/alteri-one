@@ -18,6 +18,12 @@ Turn _finalTurn(String text) => Turn(text, Message.assistant(text), const []);
 ToolCall _call(String id, String name) =>
     ToolCall.valid(id: id, name: name, input: const {'q': 'x'});
 
+/// The boundary every run in this suite uses, so the wrapped output is
+/// deterministic (ADR-0017).
+final UntrustedBoundary _testBoundary = UntrustedBoundary.fromHex(
+  '00112233445566778899aabbccddeeff',
+);
+
 AgentDeps _deps({
   required FakeLlm llm,
   FakeJournal? journal,
@@ -26,6 +32,7 @@ AgentDeps _deps({
   FakeApprovals? approvals,
   AgentConfig? config,
   FakeContext? context,
+  UntrustedBoundary? boundary,
 }) => AgentDeps(
   llm,
   registry ?? FakeRegistry((_) => ToolSet(const [])),
@@ -34,6 +41,7 @@ AgentDeps _deps({
   approvals ?? FakeApprovals(false),
   config ?? FakeConfig(),
   context ?? FakeContext(),
+  boundary ?? _testBoundary,
 );
 
 void main() {
@@ -96,7 +104,10 @@ void main() {
       final toolMessage = llm.requests[1].last;
       expect(toolMessage.role, MessageRole.tool);
       expect(toolMessage.toolResults.single.callId, 'c1');
-      expect(toolMessage.toolResults.single.value, 'done');
+      expect(
+        toolMessage.toolResults.single.value,
+        wrapUntrusted(_testBoundary, 'done'),
+      );
       expect(toolMessage.toolResults.single.isOk, isTrue);
     });
 
@@ -147,6 +158,66 @@ void main() {
       expect(journal.records, contains('denied ext__post policy'));
       expect(llm.requests[2].last.toolResults.single.errorCode, 'denied');
     });
+
+    test('wraps a successful untrusted output in the run boundary', () async {
+      final tool = FakeTool(fakeSpec('fetch'), output: 'page text');
+      final journal = FakeJournal();
+      final run = fakeRun(tools: {'ext__fetch'});
+      final llm = FakeLlm((call, messages) {
+        if (call == 0) {
+          return _toolTurn([_call('c1', 'ext__fetch')]);
+        }
+        return _finalTurn('finished');
+      });
+
+      await runAgent(
+        run,
+        _deps(
+          llm: llm,
+          journal: journal,
+          registry: FakeRegistry((_) => ToolSet([tool])),
+          policy: PolicyGate(const {Risk.read: Decision.allow}, false),
+        ),
+      );
+
+      final value = llm.requests[1].last.toolResults.single.value;
+      expect(value, wrapUntrusted(_testBoundary, 'page text'));
+      expect(value, isA<String>());
+      expect(run.taints.map((t) => t.value), ['ext__fetch']);
+    });
+
+    test(
+      'leaves the output of a tool with untrustedOutput false unwrapped',
+      () async {
+        final tool = FakeTool(
+          fakeSpec('compute', untrustedOutput: false),
+          output: 42,
+        );
+        final journal = FakeJournal();
+        final run = fakeRun(tools: {'ext__compute'});
+        final llm = FakeLlm((call, messages) {
+          if (call == 0) {
+            return _toolTurn([_call('c1', 'ext__compute')]);
+          }
+          return _finalTurn('finished');
+        });
+
+        await runAgent(
+          run,
+          _deps(
+            llm: llm,
+            journal: journal,
+            registry: FakeRegistry((_) => ToolSet([tool])),
+            policy: PolicyGate(const {Risk.read: Decision.allow}, false),
+          ),
+        );
+
+        final value = llm.requests[1].last.toolResults.single.value;
+        expect(value, 42);
+        expect(value.toString(), isNot(contains(_testBoundary.value)));
+        expect(run.taints, isEmpty);
+      },
+    );
 
     test('a configured risk raise reaches policy and the journal', () async {
       final tool = FakeTool(fakeSpec('read'), output: 'data');
@@ -686,7 +757,12 @@ void main() {
       expect(run.taints, hasLength(1));
       final toolResult = llm.requests[1].last.toolResults.single;
       expect(toolResult.isOk, isTrue);
-      expect(toolResult.value, '[unserializable output]');
+      // The fallback replaces the unserializable value first; the boundary then
+      // wraps the fallback text.
+      expect(
+        toolResult.value,
+        wrapUntrusted(_testBoundary, '[unserializable output]'),
+      );
     });
 
     test('reports budgetExceeded after the last step', () async {
