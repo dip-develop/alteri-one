@@ -62,8 +62,10 @@ void main() {
     late StatePublisher publisher;
     late List<AgentEvent> runs;
     late List<AgentEvent> approvals;
+    late ApprovalsBloc approvalsBloc;
 
     setUp(() {
+      approvalsBloc = ApprovalsBloc();
       publisher = StatePublisher.withLimits(capacity: 64);
       runs = <AgentEvent>[];
       approvals = <AgentEvent>[];
@@ -75,7 +77,12 @@ void main() {
     RunService service({
       required AgentDepsFactory deps,
       required RunBloc Function(RunId) factory,
-    }) => RunService(deps: deps, publisher: publisher, blocFactory: factory);
+    }) => RunService(
+      deps: deps,
+      publisher: publisher,
+      approvalsBloc: approvalsBloc,
+      blocFactory: factory,
+    );
 
     AgentDepsFactory factory({
       required LlmPort llm,
@@ -89,7 +96,7 @@ void main() {
       journal ?? FakeJournal(),
       policy ?? PolicyGate(const {}, false),
       approval ?? FakeApprovals(false),
-      const DefaultAgentConfig(),
+      const FailClosedAgentConfig(),
       const PromptContextBuilder(),
     );
 
@@ -350,6 +357,237 @@ void main() {
       expect((approvals.last as ApprovalResolved).granted, isFalse);
     });
 
+    test('a refusal is journalled and the run continues', () async {
+      final journal = FakeJournal();
+      final tool = FakeTool(fakeSpec('save', risk: Risk.write), output: 'ok');
+      final llm = FakeLlm((call, messages) {
+        if (call == 0) {
+          return _toolTurn([_call('c1', 'ext__save')]);
+        }
+        return _finalTurn('nothing saved');
+      });
+
+      final result = await service(
+        deps: factory(
+          llm: llm,
+          journal: journal,
+          registry: FakeRegistry((_) => ToolSet([tool])),
+          policy: PolicyGate(const {Risk.write: Decision.ask}, true),
+          approval: FakeApprovals(false),
+        ),
+        factory: (id) => RunBloc(runId: id),
+      ).run(fakeRun(tools: {'ext__save'}));
+      await _settle();
+
+      expect(result, isA<RunCompleted>());
+      // The request reached the journal before the owner was asked.
+      expect(journal.approvalRecords, ['approvalRequested run-1:0 ext__save']);
+      final record = (await journal.approvalsForRun(RunId('run-1'))).single;
+      expect(record.granted, isFalse);
+      expect(record.reason, 'refused');
+      expect(record.decidedAt, isNotNull);
+    });
+
+    test('a timeout is journalled with reason timeout', () async {
+      final journal = FakeJournal();
+      final tool = FakeTool(fakeSpec('save', risk: Risk.write), output: 'ok');
+      final llm = FakeLlm((call, messages) {
+        if (call == 0) {
+          return _toolTurn([_call('c1', 'ext__save')]);
+        }
+        return _finalTurn('nothing saved');
+      });
+      // The channel-backed service refuses when no answer arrives in time.
+      final serviceWithChannel = RunService(
+        deps: factory(
+          llm: llm,
+          journal: journal,
+          registry: FakeRegistry((_) => ToolSet([tool])),
+          policy: PolicyGate(const {Risk.write: Decision.ask}, true),
+          approval: ChannelApprovalService(
+            channel: FakeApprovalChannel(true, never: true),
+            timeout: const Duration(milliseconds: 20),
+          ),
+        ),
+        publisher: publisher,
+        approvalsBloc: approvalsBloc,
+      );
+
+      final result = await serviceWithChannel.run(
+        fakeRun(tools: {'ext__save'}),
+      );
+      await _settle();
+
+      expect(result, isA<RunCompleted>());
+      final record = (await journal.approvalsForRun(RunId('run-1'))).single;
+      // A refusal with no answer: the run continues, the tool never ran.
+      expect(record.granted, isFalse);
+      expect(tool.calls, 0);
+      expect(journal.approvalResolutions, hasLength(1));
+      // The channel-backed service reports the reason, so the audit record
+      // tells a timeout apart from an owner who refused.
+      expect(record.reason, 'timeout');
+      expect(journal.approvalResolutions, ['approvalResolved run-1:0 timeout']);
+    });
+
+    test('a channel error is journalled with reason channel_error', () async {
+      final journal = FakeJournal();
+      final tool = FakeTool(fakeSpec('save', risk: Risk.write), output: 'ok');
+      final llm = FakeLlm((call, messages) {
+        if (call == 0) {
+          return _toolTurn([_call('c1', 'ext__save')]);
+        }
+        return _finalTurn('nothing saved');
+      });
+
+      await service(
+        deps: factory(
+          llm: llm,
+          journal: journal,
+          registry: FakeRegistry((_) => ToolSet([tool])),
+          policy: PolicyGate(const {Risk.write: Decision.ask}, true),
+          approval: ChannelApprovalService(
+            channel: FakeApprovalChannel(false, error: Exception('stdin gone')),
+          ),
+        ),
+        factory: (id) => RunBloc(runId: id),
+      ).run(fakeRun(tools: {'ext__save'}));
+      await _settle();
+
+      final record = (await journal.approvalsForRun(RunId('run-1'))).single;
+      expect(record.granted, isFalse);
+      expect(record.reason, 'channel_error');
+      expect(tool.calls, 0);
+    });
+
+    test('a plain ApprovalService that refuses is journalled as refused', () async {
+      final journal = FakeJournal();
+      final tool = FakeTool(fakeSpec('save', risk: Risk.write), output: 'ok');
+      final llm = FakeLlm((call, messages) {
+        if (call == 0) {
+          return _toolTurn([_call('c1', 'ext__save')]);
+        }
+        return _finalTurn('nothing saved');
+      });
+
+      await service(
+        deps: factory(
+          llm: llm,
+          journal: journal,
+          registry: FakeRegistry((_) => ToolSet([tool])),
+          policy: PolicyGate(const {Risk.write: Decision.ask}, true),
+          // A boolean-only service: it cannot tell a refusal from a timeout, so
+          // the bridge records the only reason the interface has.
+          approval: const DenyAllApprovals(),
+        ),
+        factory: (id) => RunBloc(runId: id),
+      ).run(fakeRun(tools: {'ext__save'}));
+      await _settle();
+
+      final record = (await journal.approvalsForRun(RunId('run-1'))).single;
+      expect(record.granted, isFalse);
+      expect(record.reason, 'refused');
+      expect(tool.calls, 0);
+    });
+
+    test('serializes two approvals of one turn', () async {
+      late RecordingRunBloc bloc;
+      final journal = FakeJournal();
+      final first = FakeTool(fakeSpec('a', risk: Risk.write), output: 'a');
+      final second = FakeTool(fakeSpec('b', risk: Risk.write), output: 'b');
+      final llm = FakeLlm((call, messages) {
+        if (call == 0) {
+          return _toolTurn([_call('c1', 'ext__a'), _call('c2', 'ext__b')]);
+        }
+        return _finalTurn('done');
+      });
+
+      await service(
+        deps: factory(
+          llm: llm,
+          journal: journal,
+          registry: FakeRegistry((_) => ToolSet([first, second])),
+          policy: PolicyGate(const {Risk.write: Decision.ask}, true),
+          approval: FakeApprovals(true),
+        ),
+        factory: (id) => bloc = RecordingRunBloc(runId: id),
+      ).run(fakeRun(tools: {'ext__a', 'ext__b'}));
+      await _settle();
+
+      // Two approvals, one after the other, and no invalid transition: the
+      // second request was written only after the first was resolved.
+      expect(journal.approvalRecords, hasLength(2));
+      expect(journal.approvalResolutions, hasLength(2));
+      expect(bloc.errors, isEmpty);
+      expect(bloc.state.runState, RunState.completed);
+      expect(first.calls, 1);
+      expect(second.calls, 1);
+    });
+
+    test('mirrors approvals into ApprovalsBloc', () async {
+      final tool = FakeTool(fakeSpec('save', risk: Risk.write), output: 'ok');
+      final llm = FakeLlm((call, messages) {
+        if (call == 0) {
+          return _toolTurn([_call('c1', 'ext__save')]);
+        }
+        return _finalTurn('saved');
+      });
+
+      await service(
+        deps: factory(
+          llm: llm,
+          registry: FakeRegistry((_) => ToolSet([tool])),
+          policy: PolicyGate(const {Risk.write: Decision.ask}, true),
+          approval: FakeApprovals(true),
+        ),
+        factory: (id) => RunBloc(runId: id),
+      ).run(fakeRun(tools: {'ext__save'}));
+      await _settle();
+
+      // The request entered the queue and the decision removed it: nothing is
+      // left pending.
+      expect(approvalsBloc.state.pending, isEmpty);
+    });
+
+    test('a cancelled approval is journalled', () async {
+      final journal = FakeJournal();
+      final cancel = CancelToken();
+      final tool = FakeTool(fakeSpec('save', risk: Risk.write), output: 'ok');
+      final llm = FakeLlm((call, messages) {
+        if (call == 0) {
+          return _toolTurn([_call('c1', 'ext__save')]);
+        }
+        return _finalTurn('never');
+      });
+
+      await expectLater(
+        service(
+              deps: factory(
+                llm: llm,
+                journal: journal,
+                registry: FakeRegistry((_) => ToolSet([tool])),
+                policy: PolicyGate(const {Risk.write: Decision.ask}, true),
+                approval: FakeApprovals(
+                  true,
+                  never: true,
+                  onAsk: cancel.cancel,
+                ),
+              ),
+              factory: (id) => RunBloc(runId: id),
+            )
+            .run(fakeRun(tools: {'ext__save'}, cancel: cancel))
+            .timeout(const Duration(seconds: 2)),
+        throwsA(isA<RunCancelledException>()),
+      );
+      await _settle();
+
+      final record = (await journal.approvalsForRun(RunId('run-1'))).single;
+      expect(record.granted, isFalse);
+      // The exact reason, not just "some reason": the audit record must tell a
+      // cancelled approval apart from a refusal or a timeout.
+      expect(record.reason, 'cancelled');
+    });
+
     test('maps cancellation to RunCancelledEvent and rethrows', () async {
       late RunBloc bloc;
       final cancel = CancelToken()..cancel();
@@ -367,6 +605,135 @@ void main() {
       expect(bloc.state.runState, RunState.cancelled);
       expect((runs.last as RunFinished).state, RunState.cancelled.name);
       expect(llm.requests, isEmpty);
+    });
+
+    test('a cancel racing the approval answer journals cancelled, not granted', () async {
+      final journal = FakeJournal();
+      final cancel = CancelToken();
+      final tool = FakeTool(fakeSpec('save', risk: Risk.write), output: 'ok');
+      final llm = FakeLlm((call, messages) {
+        if (call == 0) {
+          return _toolTurn([_call('c1', 'ext__save')]);
+        }
+        return _finalTurn('never');
+      });
+
+      // The owner answers `true`, but the run is cancelled in the same window:
+      // a grant journalled for a call that never runs would be a false audit
+      // record. The cancellation path must win.
+      await expectLater(
+        service(
+              deps: factory(
+                llm: llm,
+                journal: journal,
+                registry: FakeRegistry((_) => ToolSet([tool])),
+                policy: PolicyGate(const {Risk.write: Decision.ask}, true),
+                approval: FakeApprovals(true, onAsk: cancel.cancel),
+              ),
+              factory: (id) => RunBloc(runId: id),
+            )
+            .run(fakeRun(tools: {'ext__save'}, cancel: cancel))
+            .timeout(const Duration(seconds: 2)),
+        throwsA(isA<RunCancelledException>()),
+      );
+      await _settle();
+
+      final record = (await journal.approvalsForRun(RunId('run-1'))).single;
+      expect(record.granted, isFalse);
+      expect(record.reason, 'cancelled');
+      expect(tool.calls, 0, reason: 'a cancelled run never calls the tool');
+    });
+
+    test('a journal failure on the cancel path does not replace the '
+        'cancellation', () async {
+      late RunBloc bloc;
+      final journal = FakeJournal()..failNextApprovalResolved = true;
+      final cancel = CancelToken();
+      final tool = FakeTool(fakeSpec('save', risk: Risk.write), output: 'ok');
+      final llm = FakeLlm((call, messages) {
+        if (call == 0) {
+          return _toolTurn([_call('c1', 'ext__save')]);
+        }
+        return _finalTurn('never');
+      });
+
+      // The owner never answers, so the cancellation is what stops the run
+      // while the request is still outstanding: the bridge's `catch` resolves
+      // the request and its `approvalResolved` write fails (the fake throws
+      // once), then `_stop` skips `denyPending` because the run was cancelled
+      // rather than failed. Unlike the resolution-focused test below, this one
+      // pins the durable request record: the approval was journalled exactly
+      // once, and the failing resolution write still must not replace the
+      // [RunCancelledException].
+      await expectLater(
+        service(
+              deps: factory(
+                llm: llm,
+                journal: journal,
+                registry: FakeRegistry((_) => ToolSet([tool])),
+                policy: PolicyGate(const {Risk.write: Decision.ask}, true),
+                approval: FakeApprovals(
+                  true,
+                  never: true,
+                  onAsk: cancel.cancel,
+                ),
+              ),
+              factory: (id) => bloc = RunBloc(runId: id),
+            )
+            .run(fakeRun(tools: {'ext__save'}, cancel: cancel))
+            .timeout(const Duration(seconds: 2)),
+        throwsA(isA<RunCancelledException>()),
+      );
+      await _settle();
+
+      // The cancelled record is durable and the bloc transition is intact.
+      expect(bloc.state.runState, RunState.cancelled);
+      expect((runs.last as RunFinished).state, RunState.cancelled.name);
+      expect(journal.approvalRecords, hasLength(1));
+      expect(tool.calls, 0);
+    });
+
+    test('a resolution abandoned by a run stop survives a journal failure', () async {
+      late RunBloc bloc;
+      final journal = FakeJournal()..failNextApprovalResolved = true;
+      final cancel = CancelToken();
+      final tool = FakeTool(fakeSpec('save', risk: Risk.write), output: 'ok');
+      final llm = FakeLlm((call, messages) {
+        if (call == 0) {
+          return _toolTurn([_call('c1', 'ext__save')]);
+        }
+        return _finalTurn('never');
+      });
+
+      // A cancel makes `_askWithCancellation` give up, so the bridge's `catch`
+      // resolves the request; the write after it, from that catch block, fails
+      // (the fake throws once). On the cancelled path `_stop` skips
+      // `denyPending`, so the bridge's write is the one that fails. The
+      // failure must not replace the [RunCancelledException].
+      await expectLater(
+        service(
+              deps: factory(
+                llm: llm,
+                journal: journal,
+                registry: FakeRegistry((_) => ToolSet([tool])),
+                policy: PolicyGate(const {Risk.write: Decision.ask}, true),
+                approval: FakeApprovals(
+                  true,
+                  never: true,
+                  onAsk: cancel.cancel,
+                ),
+              ),
+              factory: (id) => bloc = RunBloc(runId: id),
+            )
+            .run(fakeRun(tools: {'ext__save'}, cancel: cancel))
+            .timeout(const Duration(seconds: 2)),
+        throwsA(isA<RunCancelledException>()),
+      );
+      await _settle();
+
+      expect(bloc.state.runState, RunState.cancelled);
+      expect((runs.last as RunFinished).state, RunState.cancelled.name);
+      expect(tool.calls, 0);
     });
 
     test('stops the run when a cancellation arrives while the approval service '

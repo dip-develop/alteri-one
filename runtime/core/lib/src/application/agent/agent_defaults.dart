@@ -5,7 +5,6 @@ import 'package:alteri_one_contracts/alteri_one_contracts.dart';
 
 import '../../domain/messages.dart';
 import '../../domain/run.dart';
-import 'agent_config.dart';
 import 'approval_service.dart';
 import 'context_builder.dart';
 import 'tool_set.dart';
@@ -14,24 +13,21 @@ import 'tool_set.dart';
 /// (docs/spec/domain.md, section 9).
 ///
 /// They keep the composition root resolvable before the matching features
-/// land: profile configuration (section 14), the interactive approval channel
-/// (M2 step 9), prompt rendering (section 13), and extensions (M5). Each one
-/// refuses or narrows rather than guessing, in line with the fail-closed
-/// defaults of the rest of the core.
-
-/// An [AgentConfig] without overrides: every tool keeps its declared risk.
-final class DefaultAgentConfig implements AgentConfig {
-  /// Creates the defaults.
-  const new();
-
-  @override
-  Risk? riskFor(String toolName) => null;
-}
+/// land: prompt rendering (section 13) and extensions (M5). The interactive
+/// approval channel exists (`ChannelApprovalService`, `StdinApprovalChannel`),
+/// so the approval default below is what stays when no channel is registered.
+/// Each one refuses or narrows rather than guessing, in line with the
+/// fail-closed defaults of the rest of the core. The `AgentConfig` default is
+/// `FailClosedAgentConfig` (`profile_agent_config.dart`), which keeps every
+/// tool at its declared risk.
 
 /// An [ApprovalService] that refuses every request.
 ///
-/// There is no interactive channel until M2 step 9, so an `ask` decision always
-/// ends as `not_approved` (docs/spec/domain.md, section 8.8).
+/// The deliberate fail-closed default of the composition root: when
+/// `registerProfile` is given no `ApprovalChannel`, no one can be asked and an
+/// `ask` decision always ends as `not_approved` (docs/spec/domain.md,
+/// section 8.8). Registering a channel replaces this service, so the default
+/// never silently swallows a request that a human could have answered.
 final class DenyAllApprovals implements ApprovalService {
   /// Creates the defaults.
   const new();

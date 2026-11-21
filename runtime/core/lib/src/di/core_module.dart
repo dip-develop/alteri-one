@@ -9,27 +9,38 @@ import '../application/agent/agent_deps.dart';
 import '../application/agent/approval_service.dart';
 import '../application/agent/context_builder.dart';
 import '../application/agent/tool_set.dart';
+import '../application/approvals_bloc.dart';
 import '../application/run_service.dart';
 import '../application/state_publisher.dart';
 import '../domain/policy.dart';
 import '../domain/ports/journal_port.dart';
 import '../domain/ports/llm_port.dart';
+import 'runtime_config.dart';
 
 /// Third-party registrations for the core container
 /// (docs/spec/domain.md, section 8.10).
 @module
 abstract class CoreModule {
+  /// The mutable configuration a profile is installed into.
+  ///
+  /// Registered first so the two getters below read the profile that
+  /// `registerProfile` installed, not a default frozen at startup.
+  @lazySingleton
+  RuntimeConfig get runtimeConfig => RuntimeConfig();
+
   /// The single decision point for tool execution.
   ///
-  /// Fail-closed defaults until profile configuration loading lands in M2:
-  /// no profile rules and no interactive channel mean every tool call is
-  /// denied.
+  /// Fail-closed until `registerProfile` installs a profile: no profile rules
+  /// and no interactive channel mean every tool call is denied.
   @lazySingleton
-  PolicyGate get policyGate => PolicyGate(const {}, false);
+  PolicyGate policyGate(RuntimeConfig config) => config.policy;
 
-  /// Per-profile risk overrides; none are configured yet (section 14).
+  /// Per-profile risk overrides; none are configured until `registerProfile`.
+  ///
+  /// Fail-closed: without a profile, no risk is configured and every tool
+  /// keeps its declared risk, which the fail-closed [policyGate] denies.
   @lazySingleton
-  AgentConfig get agentConfig => const DefaultAgentConfig();
+  AgentConfig agentConfig(RuntimeConfig config) => config.agentConfig;
 
   /// Owner decisions for `ask`; there is no channel to ask through yet.
   @lazySingleton
@@ -74,6 +85,13 @@ abstract class CoreModule {
   /// `LlmPort` (providers arrive in M3), so building it fails at resolution
   /// time, not at startup.
   @lazySingleton
-  RunService runService(AgentDepsFactory deps, StatePublisher publisher) =>
-      RunService(deps: deps, publisher: publisher);
+  RunService runService(
+    AgentDepsFactory deps,
+    StatePublisher publisher,
+    ApprovalsBloc approvalsBloc,
+  ) => RunService(
+    deps: deps,
+    publisher: publisher,
+    approvalsBloc: approvalsBloc,
+  );
 }

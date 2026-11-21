@@ -64,13 +64,15 @@ Merge order: defaults from the package → `alterione.yaml` → `ALTERIONE_*` en
 ### 14.3 Loading
 
 1. Read the YAML.
-2. Substitute `${env:NAME}`. The value is not logged and does not enter the model context.
+2. Substitute `${env:NAME}`. The value is not logged and does not enter the model context. Substitution happens before validation, so a missing variable is reported even when the value would fail a later check.
 3. Validate against the JSON Schema (`validate`, asynchronous).
-4. Reject unknown keys. The schema does not reject them by itself, so the loader checks them [VERIFY].
-5. Semantic checks: referenced providers, prompts, and tools must exist; configuration must not lower a tool's risk.
+4. Reject unknown keys. The schema does not reject them by itself, so the loader checks them: an unknown top-level key or an unknown `budget` key is rejected, and the message names the key.
+5. Semantic checks: referenced providers, prompts, and tools must exist; configuration must not lower a tool's risk. `risk_rules` keys must be a `Risk` and values a `Decision`, `tool_risks` values a `Risk`, `memory` a `MemoryRights`, and budget values must not be negative.
 6. `fromJson` into domain types.
 
 Error messages never repeat substituted secret values. `alterione config check` runs steps 1–5 without starting the daemon.
+
+In M2 the loader implements steps 1–4 and 6 for the profile file itself, plus the token checks of step 5. The existence checks (providers, prompts, tools) wait for the daemon and the extension registry (M4, Q10); `Profile.validateToolRisks` rejects a risk-lowering rule as soon as the declared risks of the loaded tools are known ([ADR-0015](../adr/0015-schemantic-in-core-config-schema.md)).
 
 ### 14.4 YAML pitfalls
 
@@ -98,6 +100,9 @@ risk_rules:          # decision per effective risk
   write: ask
   external: ask
   destructive: deny
+tool_risks:          # raise a tool's declared risk, never lower it
+  wipe: destructive
+memory: propose      # none | read | propose | auto
 ```
 
 ### 14.6 Secrets

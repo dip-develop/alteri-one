@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'package:alteri_one_contracts/alteri_one_contracts.dart';
 import 'package:hive_ce/hive.dart';
 
+import '../../domain/approval_record.dart';
 import '../../domain/ids.dart';
 import '../../domain/invocation.dart';
 import '../../domain/model_call.dart';
@@ -15,9 +16,10 @@ import '../../domain/ports/journal_port.dart';
 ///
 /// One `steps` box holds both tool-invocation and model-call records, told
 /// apart by a `kind` discriminator and ordered by the shared `seq` counter
-/// (docs/spec/storage.md, section 15.1).
+/// (docs/spec/storage.md, section 15.1). The `approvals` box holds one
+/// [ApprovalRecord] per approval request, keyed `appr:{id}`.
 final class HiveJournal implements JournalPort {
-  new _(this._meta, this._steps);
+  new _(this._meta, this._steps, this._approvals);
 
   /// Kind discriminator for tool-invocation records.
   static const String _toolKind = 'tool';
@@ -31,17 +33,27 @@ final class HiveJournal implements JournalPort {
   /// Lazy box holding the journaled tool and model records.
   final LazyBox<String> _steps;
 
+  /// Box holding the approval records (docs/spec/storage.md, section 15.1).
+  ///
+  /// A normal `Box`, not a `LazyBox`: an approval is small and is read while
+  /// the owner is waiting, so keeping it in memory is cheap. Encryption of
+  /// this box is deferred with the keyring (spike T19, docs/spec/storage.md
+  /// section 15.4); until then it holds plaintext.
+  final Box<String> _approvals;
+
   /// Opens (or creates) a journal stored under [directory].
   static Future<HiveJournal> open(String directory) async {
     Hive.init(directory);
     final meta = await Hive.openBox<String>('meta');
     final steps = await Hive.openLazyBox<String>('steps');
-    return HiveJournal._(meta, steps);
+    final approvals = await Hive.openBox<String>('approvals');
+    return HiveJournal._(meta, steps, approvals);
   }
 
   Future<void> close() async {
     await _meta.close();
     await _steps.close();
+    await _approvals.close();
   }
 
   int get _seq => int.parse(_meta.get('seq', defaultValue: '0')!);
@@ -59,6 +71,8 @@ final class HiveJournal implements JournalPort {
 
   String _key(RunId runId, int seq) =>
       '${runId.value}:${seq.toString().padLeft(12, '0')}';
+
+  static String _approvalKey(ApprovalId id) => 'appr:${id.value}';
 
   @override
   Future<int> started(RunId runId, String tool, Risk risk) async {
@@ -139,6 +153,91 @@ final class HiveJournal implements JournalPort {
     existing['error'] = error;
     await _steps.put(key, jsonEncode(existing));
     await _steps.flush();
+  }
+
+  @override
+  Future<void> approvalRequested(
+    RunId runId,
+    ApprovalId id,
+    String tool,
+    DateTime deadline,
+  ) async {
+    final record = <String, Object?>{
+      'v': 1,
+      'id': id.value,
+      'runId': runId.value,
+      'tool': tool,
+      'requestedAt': DateTime.now().toUtc().toIso8601String(),
+      'deadline': deadline.toIso8601String(),
+      'granted': null,
+      'decidedAt': null,
+      'reason': null,
+    };
+    // Written and flushed before the owner is prompted: the audit record must
+    // exist before the side effect (the prompt) it guards
+    // (docs/spec/storage.md, section 15.2).
+    await _approvals.put(_approvalKey(id), jsonEncode(record));
+    await _approvals.flush();
+  }
+
+  @override
+  Future<void> approvalResolved(
+    ApprovalId id, {
+    required bool granted,
+    required String reason,
+    DateTime? at,
+  }) async {
+    final key = _approvalKey(id);
+    final existingRaw = _approvals.get(key);
+    if (existingRaw == null) {
+      throw StateError('No approval record for $key');
+    }
+    final existing = jsonDecode(existingRaw) as Map<String, dynamic>;
+    existing['granted'] = granted;
+    existing['decidedAt'] = (at ?? DateTime.now().toUtc()).toIso8601String();
+    existing['reason'] = reason;
+    await _approvals.put(key, jsonEncode(existing));
+    await _approvals.flush();
+  }
+
+  @override
+  Future<ApprovalRecord?> approvalById(ApprovalId id) async {
+    final raw = _approvals.get(_approvalKey(id));
+    if (raw == null) return null;
+    return _approvalFromJson(jsonDecode(raw) as Map<String, dynamic>);
+  }
+
+  @override
+  Future<List<ApprovalRecord>> approvalsForRun(RunId runId) async {
+    final result = <ApprovalRecord>[];
+    for (final key in _approvals.keys) {
+      final raw = _approvals.get(key as String);
+      if (raw == null) continue;
+      final record = _approvalFromJson(jsonDecode(raw) as Map<String, dynamic>);
+      if (record.runId == runId) result.add(record);
+    }
+    result.sort(
+      (a, b) => a.requestedAt.compareTo(b.requestedAt) != 0
+          ? a.requestedAt.compareTo(b.requestedAt)
+          : a.id.value.compareTo(b.id.value),
+    );
+    return result;
+  }
+
+  /// Decodes one approval record.
+  static ApprovalRecord _approvalFromJson(Map<String, dynamic> json) {
+    final granted = json['granted'] as bool?;
+    final decidedAt = json['decidedAt'] as String?;
+    return ApprovalRecord(
+      ApprovalId(json['id'] as String),
+      RunId(json['runId'] as String),
+      json['tool'] as String,
+      DateTime.parse(json['requestedAt'] as String),
+      DateTime.parse(json['deadline'] as String),
+      granted,
+      decidedAt == null ? null : DateTime.parse(decidedAt),
+      json['reason'] as String?,
+    );
   }
 
   /// The kind of [json]. A record written before the discriminator existed has
