@@ -11,7 +11,7 @@ Q8 was open on whether the section 13 wrapper belongs in the truncation function
 
 ## Decision
 
-**One boundary per run, on `AgentDeps`.** `UntrustedBoundary` (`runtime/core/lib/src/application/agent/untrusted_wrap.dart`) is a 128-bit value generated from `Random.secure()` and rendered as 32 lowercase hex characters. It lives on `AgentDeps`, not on `Run` and not derived from the run id: `Run` is the journalled aggregate and its state is a projection of the journal, while the boundary is an unjournalled secret that protects the context. `AgentDepsFactory.forRun` generates one boundary per run, so production gets a fresh boundary with no call-site change; `forRun(boundary: ...)` is a test seam.
+**One boundary per run, on `AgentDeps`.** `UntrustedBoundary` (`runtime/core/lib/src/application/agent/untrusted_wrap.dart`) is a 128-bit value generated from `Random.secure()` and rendered as 32 lowercase hex characters. Its textual form is always 32 lowercase hex characters: `UntrustedBoundary.fromHex` normalizes upper case to lower case and requires exactly that length, so `value` cannot be shorter, longer, or mixed case. It lives on `AgentDeps`, not on `Run` and not derived from the run id: `Run` is the journalled aggregate and its state is a projection of the journal, while the boundary is an unjournalled secret that protects the context. `AgentDepsFactory.forRun` generates one boundary per run, so production gets a fresh boundary with no call-site change; `forRun(boundary: ...)` is a test seam.
 
 **The delimiter.** `wrapUntrusted` produces
 
@@ -23,7 +23,7 @@ Q8 was open on whether the section 13 wrapper belongs in the truncation function
 
 **Truncate, then wrap.** `truncateToolOutput` runs first and measures only the payload, so wrapper overhead is not counted against `ToolSpec.maxOutputBytes` (Q8). This keeps the truncation contract pure and testable without a boundary.
 
-**Redaction.** Every occurrence of the boundary inside the payload is replaced with `[redacted]` before wrapping. Without this an attacker who learns or guesses the boundary could emit the closing delimiter and escape the block.
+**Redaction.** Every occurrence of the boundary inside the payload is replaced with `[redacted]` before wrapping. Without this an attacker who learns or guesses the boundary could emit the closing delimiter and escape the block. Because truncation runs first, a `maxOutputBytes` cut can slice the boundary itself; the wrapper therefore redacts every substring of the boundary of at least eight characters, so a fragment left behind by a cut is redacted too.
 
 **Only untrusted content.** The loop wraps a successful output when `ToolSpec.untrustedOutput` is `true`; `false` keeps the plain truncated value. Error results (`malformed_arguments`, `tool_unavailable`, `denied`, `not_approved`, `failed`) are core messages, not tool output, and are never wrapped.
 
@@ -31,7 +31,7 @@ Q8 was open on whether the section 13 wrapper belongs in the truncation function
 
 **The boundary is not journalled.** The journal records the tool name, the risk, and the status. The boundary is a run-local value and never enters the journal or the model-visible transcript beyond the block itself.
 
-**dotprompt rendering is deferred (T8).** The same wrapper is applied when prompts are rendered through dotprompt; until then the core code wraps tool output, and a context fragment uses the variable name `untrusted_<source>`, where `<source>` has every character outside `[A-Za-z0-9_]` replaced by `_` (`untrustedVariableName`).
+**dotprompt rendering is deferred (T8).** The same wrapper is applied when prompts are rendered through dotprompt; until then the core code wraps tool output, and a context fragment uses the variable name `untrusted_<source>`, where `<source>` has every character outside `[A-Za-z0-9_]` replaced by `_` (`untrustedVariableName`). A source with no letter or digit falls back to its code points in hex, so the name is never the bare `untrusted_` prefix.
 
 ## Alternatives
 

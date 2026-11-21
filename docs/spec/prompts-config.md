@@ -50,12 +50,14 @@ The loop applies the same boundary to a tool output that the tool declares untru
 <<<end:untrusted:{boundary}>>>
 ```
 
+`value` is always 32 lowercase hex characters: `UntrustedBoundary.fromHex` normalizes case to lower case but requires exactly that length, and a value of any other length is rejected.
+
 The rules are fixed:
 
 - **Order: truncate, then wrap.** `truncateToolOutput` runs first and measures only the payload, so wrapper overhead is not counted against `ToolSpec.maxOutputBytes` (Q8).
-- **Redaction.** Every occurrence of the boundary inside the payload is replaced with `[redacted]` before wrapping, so a payload that contains the closing delimiter cannot escape the block.
+- **Redaction.** Every occurrence of the boundary inside the payload is replaced with `[redacted]` before wrapping, so a payload that contains the closing delimiter cannot escape the block. Truncation runs first, so the redaction also covers every substring of the boundary of at least eight characters (`minBoundaryFragmentLength`): a `maxOutputBytes` cut can leave a partial boundary, and a fragment that long is redacted too.
 - **Only untrusted content is wrapped.** A successful output is wrapped when `untrustedOutput` is `true`; `false` keeps the plain truncated value. Error results (`malformed_arguments`, `tool_unavailable`, `denied`, `not_approved`, `failed`) are never wrapped: they are core messages, not tool output.
-- **Naming.** A context fragment rendered through a template uses the variable name `untrusted_<source>`, where `<source>` has every character outside `[A-Za-z0-9_]` replaced by `_` (`untrustedVariableName`).
+- **Naming.** A context fragment rendered through a template uses the variable name `untrusted_<source>`, where `<source>` has every character outside `[A-Za-z0-9_]` replaced by `_` (`untrustedVariableName`). A source with no letter or digit (`""`, `"--"`, `"😀"`) falls back to its code points in lowercase hex (`untrusted_empty`, `untrusted_2d_2d`, `untrusted_1f600`), so the name is never the bare `untrusted_` prefix.
 - **Taint order is unchanged.** The taint is added after the successful journal write and before the result is returned; the tool calls of one turn run through `Future.wait`, so a taint added by one sibling may not be visible to its siblings until the next step (a documented limitation).
 - **The boundary is not journalled.** Only the tool name, risk, and status are recorded; the boundary is a run-local value and is never written to the journal.
 - **dotprompt rendering is deferred (T8).** The same wrapper is applied when the prompt is rendered through dotprompt; until then the context fragments are wrapped by the core code above.
