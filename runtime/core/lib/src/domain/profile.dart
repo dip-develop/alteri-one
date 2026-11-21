@@ -80,6 +80,8 @@ final class Profile {
   /// declares. A configured risk with a lower [Risk.index] than the declared
   /// one is rejected; an equal or higher one is accepted. The comparison is by
   /// [Risk.index], matching [effectiveRisk].
+  ///
+  // TODO(M4): call from the daemon once the tool registry is available.
   void validateToolRisks(Map<String, Risk> declaredRisks) {
     for (final MapEntry(key: name, value: configured) in toolRisks.entries) {
       final declared = declaredRisks[name];

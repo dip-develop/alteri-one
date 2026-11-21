@@ -87,6 +87,16 @@ final class FakeJournal implements JournalPort {
   /// the model call never runs.
   bool failOnModelStarted = false;
 
+  /// When set, [approvalResolved] throws instead of recording, so a test can
+  /// prove a lost audit write does not mask the error that stopped the run.
+  bool failOnApprovalResolved = false;
+
+  /// When set, the next [approvalResolved] call throws instead of recording,
+  /// so a test can prove a resolution abandoned by a run stop loses its audit
+  /// record without replacing the error that stopped the run. Cleared after
+  /// the call, so the earlier request of a run keeps its record.
+  bool failNextApprovalResolved = false;
+
   /// The risk passed to each [denied] call, in order.
   final List<Risk> deniedRisks = [];
 
@@ -236,6 +246,10 @@ final class FakeJournal implements JournalPort {
     required String reason,
     DateTime? at,
   }) {
+    if (failOnApprovalResolved || failNextApprovalResolved) {
+      if (failNextApprovalResolved) failNextApprovalResolved = false;
+      return Future<void>.error(StateError('journal unavailable'));
+    }
     approvalResolutions.add('approvalResolved $id $reason');
     log?.add('journal.approvalResolved $id');
     final existing = _approvals[id];

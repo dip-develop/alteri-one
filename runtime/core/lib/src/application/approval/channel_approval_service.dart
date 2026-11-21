@@ -79,7 +79,7 @@ final class ChannelApprovalService implements ReasonedApprovalService {
       // No answer before the deadline is a refusal with its own reason
       // (section 8.8); the bridge journals it as `timeout`.
       return ApprovalOutcome.timeout;
-    } catch (_) {
+    } on Exception catch (_) {
       // A closed channel, an EOF, a broken transport: refuse, do not fail the
       // run. The bridge journals the cause as `channel_error`.
       return ApprovalOutcome.channelError;

@@ -280,6 +280,18 @@ void main() {
       ),
     );
 
+    Decision writeDecision() => getIt<PolicyGate>().decide(
+      tool: 'weather__forecast',
+      risk: Risk.write,
+      taints: {},
+      caps: RunCapabilities(
+        {'weather__forecast'},
+        {},
+        const [],
+        MemoryRights.read,
+      ),
+    );
+
     test('swaps the fail-closed defaults', () {
       configureCore(environment: 'test');
       registerProfile(
@@ -303,20 +315,11 @@ void main() {
         profile: profile(riskRules: const {Risk.write: Decision.ask}),
       );
 
-      final decision = getIt<PolicyGate>().decide(
-        tool: 'weather__forecast',
-        risk: Risk.write,
-        taints: {},
-        caps: RunCapabilities(
-          {'weather__forecast'},
-          {},
-          const [],
-          MemoryRights.read,
-        ),
-      );
-
-      // `ask` without an interactive channel denies.
-      expect(decision, Decision.deny);
+      // No channel: the gate must deny the `ask` rule instead of leaving it
+      // to `DenyAllApprovals`, which would refuse without ever prompting the
+      // owner (a silent refusal). The approval service stays fail-closed.
+      expect(writeDecision(), Decision.deny);
+      expect(getIt<ApprovalService>(), isA<DenyAllApprovals>());
     });
 
     test('with a channel installs ChannelApprovalService', () {

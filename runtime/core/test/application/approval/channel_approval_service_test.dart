@@ -44,12 +44,12 @@ void main() {
     expect(await service.ask(run(), tool(), const {}), isFalse);
   });
 
-  test('refuses when the channel throws', () async {
+  test('refuses when the channel throws an Exception', () async {
     final service = ChannelApprovalService(
-      channel: FakeApprovalChannel(false, error: StateError('stdin closed')),
+      channel: FakeApprovalChannel(false, error: Exception('stdin closed')),
     );
 
-    // A broken channel stops one tool call, not the run.
+    // An I/O failure stops one tool call, not the run.
     expect(await service.ask(run(), tool(), const {}), isFalse);
   });
 
@@ -102,14 +102,30 @@ void main() {
     expect(outcome.journalReason, 'timeout');
   });
 
-  test('decide reports channel_error when the channel throws', () async {
+  test('propagates an Error from the channel instead of refusing', () async {
     final service = ChannelApprovalService(
-      channel: FakeApprovalChannel(false, error: StateError('stdin closed')),
+      channel: FakeApprovalChannel(false, error: StateError('programmer bug')),
     );
 
-    final outcome = await service.decide(run(), tool(), const {});
-
-    expect(outcome, ApprovalOutcome.channelError);
-    expect(outcome.journalReason, 'channel_error');
+    // A programmer error is not a broken channel: it must reach the caller
+    // instead of being reported as `channel_error` and quietly refusing.
+    await expectLater(
+      service.ask(run(), tool(), const {}),
+      throwsA(isA<Error>()),
+    );
   });
+
+  test(
+    'decide reports channel_error when the channel throws an Exception',
+    () async {
+      final service = ChannelApprovalService(
+        channel: FakeApprovalChannel(false, error: Exception('stdin closed')),
+      );
+
+      final outcome = await service.decide(run(), tool(), const {});
+
+      expect(outcome, ApprovalOutcome.channelError);
+      expect(outcome.journalReason, 'channel_error');
+    },
+  );
 }

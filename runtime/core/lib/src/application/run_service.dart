@@ -209,7 +209,9 @@ final class RunService {
     // failure is not, so deny an approval that is still outstanding (its own
     // resolution was abandoned when the run stopped).
     if (runState != RunState.cancelled) {
-      approvals.denyPending();
+      // Awaited: the cancel reason reaches the journal before the terminal
+      // state below and before the caller closes anything.
+      await approvals.denyPending();
     }
     bloc.add(switch (runState) {
       RunState.cancelled => const RunCancelledEvent(),
@@ -401,13 +403,18 @@ final class _RunApprovalBridge implements ApprovalService {
   /// approval is still outstanding (its own resolution was abandoned). The
   /// flag is cleared first, so a later resolution of the same request adds no
   /// second deny: there is exactly one deny per approval request.
-  bool denyPending() {
+  ///
+  /// The resolution is awaited, not fired and forgotten, so the cancel reason
+  /// is durable in the journal before the run reaches its terminal state
+  /// (invariant 5). A journal failure is swallowed, as in [_journalApprovalResolved]:
+  /// a lost audit record must not mask the error that stopped the run.
+  Future<bool> denyPending() async {
     final ApprovalId? id = _pending;
     if (id == null) return false;
     _pending = null;
     _bloc.add(const RunApprovalDeniedEvent());
     _approvalsBloc.add(ApprovalDecidedEvent(id, granted: false));
-    unawaited(_journalApprovalResolved(id, false, 'cancelled'));
+    await _journalApprovalResolved(id, false, 'cancelled');
     return true;
   }
 
@@ -468,6 +475,10 @@ final class _RunApprovalBridge implements ApprovalService {
         run,
         () => _decide(run, tool, input),
       );
+      // The answer arrived, but a cancel may have won the race while it was in
+      // flight. A grant journalled for a run that is already cancelled would
+      // claim a side effect that never runs, so the cancellation path wins.
+      run.cancel.throwIfCancelled();
       final granted = outcome == ApprovalOutcome.granted;
       // Resolve once: if the run stopped while this ask was abandoned, the
       // service already denied the request and cleared the flag, so no second

@@ -54,31 +54,32 @@ Future<void> registerJournal({required String directory}) async {
 /// Installs [profile] as the active configuration of the container.
 ///
 /// Replaces the fail-closed defaults of [configureCore] with
-/// `PolicyGate(profile.riskRules, hasInteractiveChannel)` and
+/// `PolicyGate(profile.riskRules, channel != null)` and
 /// `ProfileAgentConfig(profile)`.
 ///
-/// [channel] is the interactive approval channel (docs/spec/domain.md,
-/// section 8.8). When it is given, the container's [ApprovalService] becomes a
-/// [ChannelApprovalService] and `hasInteractiveChannel` defaults to `true`, so
-/// an `ask` rule can reach the owner. When it is absent, the deliberate
-/// fail-closed default stays: `DenyAllApprovals` refuses every request and
-/// `hasInteractiveChannel` is `false`, so an `ask` rule denies.
+/// The channel is the only source of interactivity: `hasInteractiveChannel` is
+/// derived from it, never accepted from the caller, so a policy that answers
+/// `ask` can never reach an approval service that cannot prompt the owner.
+/// When [channel] is given, the container's [ApprovalService] becomes a
+/// [ChannelApprovalService] and `PolicyGate` may answer `ask`; an `ask` rule
+/// can reach the owner. When it is absent, the deliberate fail-closed default
+/// stays: `DenyAllApprovals` refuses every request and `PolicyGate` is
+/// installed with `hasInteractiveChannel: false`, so an `ask` rule denies
+/// instead of reaching an approval service that would silently refuse.
 ///
 /// Throws a [StateError] when a profile is already installed. Call this after
 /// [configureCore] and before `AgentDepsFactory` or `RunService` is first
 /// resolved: both capture the policy and the agent config they read from
 /// [RuntimeConfig] when they are built.
-void registerProfile({
-  required Profile profile,
-  ApprovalChannel? channel,
-  bool hasInteractiveChannel = false,
-}) {
+void registerProfile({required Profile profile, ApprovalChannel? channel}) {
   final config = getIt<RuntimeConfig>();
   if (config.profile != null) {
     throw StateError('A profile is already registered');
   }
-  final bool interactive = channel != null || hasInteractiveChannel;
-  config.install(profile, hasInteractiveChannel: interactive);
+  // Interactivity is the channel: no channel, no way to ask the owner, so the
+  // gate must deny an `ask` rule instead of leaving it to a DenyAllApprovals
+  // that would refuse without a prompt.
+  config.install(profile, hasInteractiveChannel: channel != null);
   if (channel == null) return;
   // Replace the fail-closed default registered by `configureCore`. A lazy
   // singleton that was never resolved is replaced silently; one that was

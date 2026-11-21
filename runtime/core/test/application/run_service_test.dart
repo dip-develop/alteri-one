@@ -447,10 +447,7 @@ void main() {
           registry: FakeRegistry((_) => ToolSet([tool])),
           policy: PolicyGate(const {Risk.write: Decision.ask}, true),
           approval: ChannelApprovalService(
-            channel: FakeApprovalChannel(
-              false,
-              error: StateError('stdin gone'),
-            ),
+            channel: FakeApprovalChannel(false, error: Exception('stdin gone')),
           ),
         ),
         factory: (id) => RunBloc(runId: id),
@@ -586,7 +583,9 @@ void main() {
 
       final record = (await journal.approvalsForRun(RunId('run-1'))).single;
       expect(record.granted, isFalse);
-      expect(record.reason, isNotNull);
+      // The exact reason, not just "some reason": the audit record must tell a
+      // cancelled approval apart from a refusal or a timeout.
+      expect(record.reason, 'cancelled');
     });
 
     test('maps cancellation to RunCancelledEvent and rethrows', () async {
@@ -606,6 +605,128 @@ void main() {
       expect(bloc.state.runState, RunState.cancelled);
       expect((runs.last as RunFinished).state, RunState.cancelled.name);
       expect(llm.requests, isEmpty);
+    });
+
+    test('a cancel racing the approval answer journals cancelled, not granted', () async {
+      final journal = FakeJournal();
+      final cancel = CancelToken();
+      final tool = FakeTool(fakeSpec('save', risk: Risk.write), output: 'ok');
+      final llm = FakeLlm((call, messages) {
+        if (call == 0) {
+          return _toolTurn([_call('c1', 'ext__save')]);
+        }
+        return _finalTurn('never');
+      });
+
+      // The owner answers `true`, but the run is cancelled in the same window:
+      // a grant journalled for a call that never runs would be a false audit
+      // record. The cancellation path must win.
+      await expectLater(
+        service(
+              deps: factory(
+                llm: llm,
+                journal: journal,
+                registry: FakeRegistry((_) => ToolSet([tool])),
+                policy: PolicyGate(const {Risk.write: Decision.ask}, true),
+                approval: FakeApprovals(true, onAsk: cancel.cancel),
+              ),
+              factory: (id) => RunBloc(runId: id),
+            )
+            .run(fakeRun(tools: {'ext__save'}, cancel: cancel))
+            .timeout(const Duration(seconds: 2)),
+        throwsA(isA<RunCancelledException>()),
+      );
+      await _settle();
+
+      final record = (await journal.approvalsForRun(RunId('run-1'))).single;
+      expect(record.granted, isFalse);
+      expect(record.reason, 'cancelled');
+      expect(tool.calls, 0, reason: 'a cancelled run never calls the tool');
+    });
+
+    test('a journal failure on the cancel path does not replace the '
+        'cancellation', () async {
+      late RunBloc bloc;
+      final journal = FakeJournal();
+      final cancel = CancelToken();
+      final tool = FakeTool(fakeSpec('save', risk: Risk.write), output: 'ok');
+      final llm = FakeLlm((call, messages) {
+        if (call == 0) {
+          return _toolTurn([_call('c1', 'ext__save')]);
+        }
+        return _finalTurn('never');
+      });
+
+      // The owner never answers, so the cancellation is what stops the run
+      // while the request is still outstanding; `denyPending` then writes the
+      // resolution before the terminal state.
+      await expectLater(
+        service(
+              deps: factory(
+                llm: llm,
+                journal: journal,
+                registry: FakeRegistry((_) => ToolSet([tool])),
+                policy: PolicyGate(const {Risk.write: Decision.ask}, true),
+                approval: FakeApprovals(
+                  true,
+                  never: true,
+                  onAsk: cancel.cancel,
+                ),
+              ),
+              factory: (id) => bloc = RunBloc(runId: id),
+            )
+            .run(fakeRun(tools: {'ext__save'}, cancel: cancel))
+            .timeout(const Duration(seconds: 2)),
+        throwsA(isA<RunCancelledException>()),
+      );
+      await _settle();
+
+      // The cancelled record is durable and the bloc transition is intact.
+      expect(bloc.state.runState, RunState.cancelled);
+      expect((runs.last as RunFinished).state, RunState.cancelled.name);
+      expect(journal.approvalRecords, hasLength(1));
+      expect(tool.calls, 0);
+    });
+
+    test('a resolution abandoned by a run stop survives a journal failure', () async {
+      late RunBloc bloc;
+      final journal = FakeJournal()..failNextApprovalResolved = true;
+      final cancel = CancelToken();
+      final tool = FakeTool(fakeSpec('save', risk: Risk.write), output: 'ok');
+      final llm = FakeLlm((call, messages) {
+        if (call == 0) {
+          return _toolTurn([_call('c1', 'ext__save')]);
+        }
+        return _finalTurn('never');
+      });
+
+      // A cancel makes `_askWithCancellation` give up, so the bridge's `catch`
+      // resolves the request; only the write after it, from `_stop`, fails.
+      // The failure must not replace the [RunCancelledException].
+      await expectLater(
+        service(
+              deps: factory(
+                llm: llm,
+                journal: journal,
+                registry: FakeRegistry((_) => ToolSet([tool])),
+                policy: PolicyGate(const {Risk.write: Decision.ask}, true),
+                approval: FakeApprovals(
+                  true,
+                  never: true,
+                  onAsk: cancel.cancel,
+                ),
+              ),
+              factory: (id) => bloc = RunBloc(runId: id),
+            )
+            .run(fakeRun(tools: {'ext__save'}, cancel: cancel))
+            .timeout(const Duration(seconds: 2)),
+        throwsA(isA<RunCancelledException>()),
+      );
+      await _settle();
+
+      expect(bloc.state.runState, RunState.cancelled);
+      expect((runs.last as RunFinished).state, RunState.cancelled.name);
+      expect(tool.calls, 0);
     });
 
     test('stops the run when a cancellation arrives while the approval service '
