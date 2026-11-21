@@ -208,6 +208,17 @@ final class RunService {
     // A cancellation is valid from `waitingApproval` and needs no deny; a
     // failure is not, so deny an approval that is still outstanding (its own
     // resolution was abandoned when the run stopped).
+    //
+    // Failed-path reachability: the loop runs a turn's calls with
+    // `Future.wait`, which rejects only once every call has completed. A call
+    // that fails therefore leaves its own approval already resolved by the
+    // bridge (which clears the pending flag), and a call still waiting on its
+    // approval keeps `Future.wait` pending, so the run cannot reach this
+    // `failed` stop while a request is genuinely outstanding. This `await` is
+    // the defensive net for that invariant (and for any future change that
+    // stops a run out of band); today `denyPending` finds nothing to deny
+    // here. If a test ever needs to exercise the pending branch directly, it
+    // must drive `_RunApprovalBridge` in isolation, not a full `run`.
     if (runState != RunState.cancelled) {
       // Awaited: the cancel reason reaches the journal before the terminal
       // state below and before the caller closes anything.

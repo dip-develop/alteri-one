@@ -647,7 +647,7 @@ void main() {
     test('a journal failure on the cancel path does not replace the '
         'cancellation', () async {
       late RunBloc bloc;
-      final journal = FakeJournal();
+      final journal = FakeJournal()..failNextApprovalResolved = true;
       final cancel = CancelToken();
       final tool = FakeTool(fakeSpec('save', risk: Risk.write), output: 'ok');
       final llm = FakeLlm((call, messages) {
@@ -658,8 +658,13 @@ void main() {
       });
 
       // The owner never answers, so the cancellation is what stops the run
-      // while the request is still outstanding; `denyPending` then writes the
-      // resolution before the terminal state.
+      // while the request is still outstanding: the bridge's `catch` resolves
+      // the request and its `approvalResolved` write fails (the fake throws
+      // once), then `_stop` skips `denyPending` because the run was cancelled
+      // rather than failed. Unlike the resolution-focused test below, this one
+      // pins the durable request record: the approval was journalled exactly
+      // once, and the failing resolution write still must not replace the
+      // [RunCancelledException].
       await expectLater(
         service(
               deps: factory(
@@ -701,8 +706,10 @@ void main() {
       });
 
       // A cancel makes `_askWithCancellation` give up, so the bridge's `catch`
-      // resolves the request; only the write after it, from `_stop`, fails.
-      // The failure must not replace the [RunCancelledException].
+      // resolves the request; the write after it, from that catch block, fails
+      // (the fake throws once). On the cancelled path `_stop` skips
+      // `denyPending`, so the bridge's write is the one that fails. The
+      // failure must not replace the [RunCancelledException].
       await expectLater(
         service(
               deps: factory(

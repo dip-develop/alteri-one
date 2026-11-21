@@ -74,14 +74,13 @@ final class Profile {
        riskRules = Map.unmodifiable(riskRules),
        toolRisks = Map.unmodifiable(toolRisks);
 
+  // TODO(M4): call from the daemon once the tool registry is available.
   /// Rejects [toolRisks] that try to lower a tool's declared risk.
   ///
   /// [declaredRisks] maps the canonical tool name to the risk the tool
   /// declares. A configured risk with a lower [Risk.index] than the declared
   /// one is rejected; an equal or higher one is accepted. The comparison is by
   /// [Risk.index], matching [effectiveRisk].
-  ///
-  // TODO(M4): call from the daemon once the tool registry is available.
   void validateToolRisks(Map<String, Risk> declaredRisks) {
     for (final MapEntry(key: name, value: configured) in toolRisks.entries) {
       final declared = declaredRisks[name];
