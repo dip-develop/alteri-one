@@ -10,6 +10,7 @@ import 'approval_service.dart';
 import 'context_builder.dart';
 import 'journaling_llm.dart';
 import 'tool_set.dart';
+import 'untrusted_wrap.dart';
 
 /// The collaborators of the agent loop (docs/spec/domain.md, section 9).
 ///
@@ -36,6 +37,10 @@ final class AgentDeps(
 
   /// Starting conversation.
   final ContextBuilder context,
+
+  /// The run's untrusted boundary, used to wrap untrusted tool output
+  /// (docs/spec/prompts-config.md, section 13.2; ADR-0017).
+  final UntrustedBoundary boundary,
 );
 
 /// Hands out [AgentDeps] for one run
@@ -103,7 +108,14 @@ final class AgentDepsFactory {
   /// passes a bridge that mirrors every ask into the run's bloc and the state
   /// publisher (docs/spec/domain.md, section 8.11), so the loop keeps calling
   /// one [ApprovalService] and nothing else changes.
-  AgentDeps forRun(RunId runId, {ApprovalService? approvals}) => AgentDeps(
+  ///
+  /// [boundary] replaces the boundary of this run and is a test seam: in
+  /// production one secure boundary is generated per run (ADR-0017).
+  AgentDeps forRun(
+    RunId runId, {
+    ApprovalService? approvals,
+    UntrustedBoundary? boundary,
+  }) => AgentDeps(
     JournalingLlm(_llm, _journal, runId),
     _registry,
     _journal,
@@ -111,5 +123,6 @@ final class AgentDepsFactory {
     approvals ?? _approvals,
     _config,
     _context,
+    boundary ?? UntrustedBoundary.generate(),
   );
 }

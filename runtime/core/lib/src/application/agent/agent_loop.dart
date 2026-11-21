@@ -9,6 +9,7 @@ import 'agent_deps.dart';
 import 'run_result.dart';
 import 'tool_output.dart';
 import 'tool_set.dart';
+import 'untrusted_wrap.dart';
 
 /// Runs the agent loop of one run (docs/spec/domain.md, section 9).
 ///
@@ -78,6 +79,14 @@ Future<RunResult> runAgent(Run run, AgentDeps d) async {
 /// The order is fixed (docs/spec/domain.md, section 9). Refusals before a call
 /// starts (`malformed`, `tool_unavailable`, `not_approved`) are not journalled;
 /// a policy denial is.
+///
+/// The taint is added after the successful journal write and before the result
+/// is returned, and the tool output is truncated and then wrapped in the run's
+/// boundary when the tool declares `untrustedOutput` (ADR-0017). Taint order is
+/// unchanged, which has one consequence: the tool calls of one turn run through
+/// `Future.wait`, so a taint added by one sibling may not be visible to its
+/// siblings until the next step. The documented behaviour is a limitation, not
+/// a fix; serializing a turn's calls is a separate decision.
 Future<ToolResultBlock> _invoke(
   Run run,
   ToolSet tools,
@@ -148,8 +157,12 @@ Future<ToolResultBlock> _invoke(
   if (spec.untrustedOutput) {
     run.addTaint(UntrustedSource(call.name));
   }
+  final Object? truncated = truncateToolOutput(out, spec.maxOutputBytes);
+  if (!spec.untrustedOutput || truncated == null) {
+    return ToolResultBlock.ok(call.id, truncated);
+  }
   return ToolResultBlock.ok(
     call.id,
-    truncateToolOutput(out, spec.maxOutputBytes),
+    wrapUntrusted(d.boundary, toolOutputText(truncated)),
   );
 }
