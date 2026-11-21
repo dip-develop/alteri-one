@@ -18,6 +18,12 @@ import 'package:test/test.dart';
 
 import 'agent_fakes.dart';
 
+/// The boundary every `forRun` call in this suite uses, so the wrapped tool
+/// output is deterministic (ADR-0017).
+final UntrustedBoundary _testBoundary = UntrustedBoundary.fromHex(
+  '00112233445566778899aabbccddeeff',
+);
+
 /// A [JournalPort] that writes through [inner] and appends one line per write
 /// to [log], so a test can assert the order the journal is written in.
 final class _RecordingJournal implements JournalPort {
@@ -222,7 +228,7 @@ void main() {
           llm: llm,
           registry: FakeRegistry((_) => ToolSet(const [])),
           journal: journal,
-        ).forRun(run.id),
+        ).forRun(run.id, boundary: _testBoundary),
       );
 
       expect(
@@ -256,7 +262,7 @@ void main() {
           llm: llm,
           registry: FakeRegistry((_) => ToolSet([tool])),
           journal: journal,
-        ).forRun(run.id),
+        ).forRun(run.id, boundary: _testBoundary),
       );
 
       expect(result, isA<RunCompleted>());
@@ -281,7 +287,10 @@ void main() {
       final secondRequest = llm.requests[1];
       expect(secondRequest.last.role, MessageRole.tool);
       expect(secondRequest.last.toolResults, hasLength(1));
-      expect(secondRequest.last.toolResults.single.value, 'done');
+      expect(
+        secondRequest.last.toolResults.single.value,
+        wrapUntrusted(_testBoundary, 'done'),
+      );
       expect(secondRequest.last.toolResults.single.isOk, isTrue);
     });
 
@@ -300,7 +309,7 @@ void main() {
             llm: llm,
             registry: FakeRegistry((_) => ToolSet([tool])),
             journal: journal,
-          ).forRun(run.id),
+          ).forRun(run.id, boundary: _testBoundary),
         );
 
         expect(result, isA<RunBudgetExceeded>());
@@ -329,7 +338,7 @@ void main() {
             llm: llm,
             registry: FakeRegistry((_) => ToolSet(const [])),
             journal: failing,
-          ).forRun(run.id),
+          ).forRun(run.id, boundary: _testBoundary),
         ),
         throwsA(
           isA<StateError>().having(
