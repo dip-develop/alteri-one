@@ -4,7 +4,7 @@
 
 ## 25.1 Questions for the owner
 
-Added during the M0 scaffold (2026-10-17); Q7–Q18 added during M2 (2026-11-08, 2026-11-18 and 2026-11-19). Until answered, the scaffold takes the conservative choice listed under each question.
+Added during the M0 scaffold (2026-10-17); Q7–Q18 added during M2 (2026-11-08, 2026-11-18 and 2026-11-19); Q19–Q23 added during M3 (2026-11-22). Until answered, the scaffold takes the conservative choice listed under each question.
 
 | ID | Question | Conservative choice taken |
 |---|---|---|
@@ -26,6 +26,11 @@ Added during the M0 scaffold (2026-10-17); Q7–Q18 added during M2 (2026-11-08,
 | Q16 | Run lifecycle is not journalled: `RunStarted`, `RunFinished` and the approval events have no journal record, so `RunStarted.seq`, `ApprovalRequested.seq` and `ApprovalResolved.seq` are `null`, and `RunFinished.seq` is only the last effect `seq` (best effort). Section 16.4 expects a `seq` for ordering and replay. Should the journal gain a run-lifecycle record, or should the service derive the `seq` differently? | no new journal method in M2; the `null` `seq` is documented in code and pinned by a test; revisit with the SSE API in M4 |
 | Q17 | ~~Concurrent approvals: the agent loop runs a turn's tool calls with `Future.wait`, so two tool calls that both need approval start two concurrent `ask`s; `RunBloc` holds a single pending approval, so the second request and its resolution would raise `InvalidTransition`. Serialize approvals per run, or extend the state and the bloc to hold several pending approvals?~~ Resolved 2026-11-19: serialize per run. Every approval of a run goes through one `SerialQueue`, so the second request is journalled and asked only after the first is resolved; the bloc keeps its single `pendingApproval`. See [ADR-0016](../adr/0016-interactive-approval-channel.md). | resolved |
 | Q18 | ~~What does "interactive channel" mean concretely for M2? The spec (section 8.8) names CLI and Flutter channels but not a transport.~~ Resolved 2026-11-19: a port, `ApprovalChannel`, plus a `StdinApprovalChannel` adapter with injectable I/O; the channel returns `false` and the service reports the reason. Real transports (socket, IPC) land in M4. See [ADR-0016](../adr/0016-interactive-approval-channel.md). | resolved |
+| Q19 | Real-`llama-server` conformance is a scheduled follow-up (M3 part 2, ADR-0018); a fake OpenAI-compatible server runs in every PR. Confirm the real-build scenarios before release. | fake OpenAI-compatible server in every PR; real build scheduled |
+| Q20 | `GET /tools` is upstream-unstable: the endpoint and its schema change across `llama-server` builds, so `doctor` cannot rely on it to enumerate the server's built-in tools. | `doctor` tolerates a 404 (warn, not fail) |
+| Q21 | `native_tools: auto` is resolved by a probe and by the conformance suite, which can disagree on whether the model emits native tool calls. | `auto` resolves to `false` if the probe and the suite disagree |
+| Q22 | A schema-less `ToolSpec.inputSchema == null` gives the provider no `parameters` to send; the server then applies its own default for the argument schema. | send no `parameters`; accept any arguments |
+| Q23 | `LlmUnavailable` is logged and journalled, and a local server's response body can echo fragments of the prompt. | carry the HTTP status only, never a response body or a secret |
 
 Previously none were open. Decisions are recorded in ADR-0005, ADR-0006, ADR-0009, ADR-0012 (Q13), ADR-0015 (Q9), ADR-0016 (Q12, Q17, Q18) and ADR-0017 (Q8).
 

@@ -46,9 +46,16 @@ LlmPort wrap(LlmPort raw, ModelConfig c) => RedactingLlm(
 
 ## 12.3 First provider: llama.cpp
 
-Package: `providers/alteri_one_provider_llama_cpp`. Registered as `kind: llama_cpp`.
+Package: `providers/llama_cpp`. Registered as `kind: llama_cpp` (ADR-0018).
 
-**Implementation.** The primary path is `genkit_openai` with `baseUrl` pointing at `llama-server`. The fallback is a custom HTTP client on `package:http` behind the same `LlmPort`. Switch to the fallback if the conformance suite (section 12.4) shows that `genkit_openai` hides raw tool arguments or cannot handle invalid JSON. The decision is recorded in an ADR.
+**Implementation.** The provider is HTTP-only: it talks to LlamaPulse's
+OpenAI-compatible API at `/v1` (default `http://127.0.0.1:8080/v1`) and takes no
+dependency on a wrapper package. The primary path is `genkit_openai` with
+`baseUrl` pointing at `llama-server`. The fallback is a custom HTTP client on
+`package:http` behind the same `LlmPort`. Switch to the fallback if the
+conformance suite (section 12.4) shows that `genkit_openai` hides raw tool
+arguments or cannot handle invalid JSON. The decision is recorded in
+[ADR-0018](../adr/0018-llm-provider-contract-and-llamapulse-adapter.md).
 
 **Configuration (`alterione.yaml`):**
 

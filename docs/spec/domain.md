@@ -168,7 +168,7 @@ abstract interface class LlmPort {
   Future<Turn> complete({
     required List<Message> messages,
     required List<ToolSpec> tools,
-    required Budget budget,
+    required int maxOutputTokens,
   });
 }
 
@@ -192,7 +192,7 @@ abstract interface class ToolPort {
 }
 ```
 
-`RunId`, `MemoryId`, `Message`, `Turn`, `ToolCall`, and `CancelToken` are domain types. `ToolSpec` and `Risk` are shared with the contracts.
+`Message`, `MessageRole`, `ToolCall`, `ToolResultBlock`, `Turn`, and `LlmPort` are declared in `alteri_one_provider_api` and re-exported by the core (ADR-0018). `RunId`, `MemoryId`, `CancelToken`, and `Budget` remain core domain types. `ToolSpec` and `Risk` are shared with the contracts.
 
 Implementation note: this sketch lists the ports and their central methods, not every method of each port. In particular, model calls use a start method plus the existing `seq`-addressed `finished(...)`: the application-layer `JournalingLlm` decorator wraps `LlmPort`, holds the `RunId`, calls `JournalPort.modelStarted` before the call, closes that record through `finished`, and reads the records back with `JournalPort.modelCallsForRun`. The section 9 loop does not journal model calls itself (ADR-0012, Q13).
 

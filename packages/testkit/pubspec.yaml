@@ -15,5 +15,5 @@ topics:
 resolution: workspace
 dependencies:
   alteri_one_contracts: ^0.1.0
-  alteri_one_provider_api: ^0.1.0
+  alteri_one_provider_api: ^0.2.0
   test: ^1.33.0

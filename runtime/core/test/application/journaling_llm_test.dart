@@ -84,7 +84,7 @@ void main() {
         final result = await decorator.complete(
           messages: [Message.user('hello')],
           tools: const [],
-          budget: fakeRun().budget,
+          maxOutputTokens: fakeRun().budget.maxOutputTokens,
         );
 
         expect(
@@ -112,7 +112,7 @@ void main() {
         decorator.complete(
           messages: [Message.user('hello')],
           tools: const [],
-          budget: fakeRun().budget,
+          maxOutputTokens: fakeRun().budget.maxOutputTokens,
         ),
         throwsA(same(error)),
       );
@@ -134,7 +134,7 @@ void main() {
         decorator.complete(
           messages: [Message.user('SECRET-PROMPT')],
           tools: const [],
-          budget: fakeRun().budget,
+          maxOutputTokens: fakeRun().budget.maxOutputTokens,
         ),
         throwsA(same(error)),
       );
@@ -161,7 +161,7 @@ void main() {
         decorator.complete(
           messages: [Message.user('SECRET-PROMPT')],
           tools: const [],
-          budget: fakeRun().budget,
+          maxOutputTokens: fakeRun().budget.maxOutputTokens,
         ),
         throwsA(same(error)),
       );
@@ -180,7 +180,7 @@ void main() {
         decorator.complete(
           messages: [Message.user('hello')],
           tools: const [],
-          budget: fakeRun().budget,
+          maxOutputTokens: fakeRun().budget.maxOutputTokens,
         ),
         throwsA(isA<StateError>()),
       );
@@ -202,7 +202,7 @@ void main() {
           decorator.complete(
             messages: [Message.user('hello')],
             tools: const [],
-            budget: fakeRun().budget,
+            maxOutputTokens: fakeRun().budget.maxOutputTokens,
           ),
           throwsA(isA<StateError>()),
         );
@@ -223,7 +223,7 @@ void main() {
         decorator.complete(
           messages: [Message.user('hello')],
           tools: const [],
-          budget: fakeRun().budget,
+          maxOutputTokens: fakeRun().budget.maxOutputTokens,
         ),
         throwsA(same(error)),
       );
@@ -239,7 +239,7 @@ void main() {
       await decorator.complete(
         messages: [Message.user('SECRET-PROMPT')],
         tools: const [],
-        budget: fakeRun().budget,
+        maxOutputTokens: fakeRun().budget.maxOutputTokens,
       );
 
       expect(journal.records, ['modelStarted', 'finished succeeded 1']);

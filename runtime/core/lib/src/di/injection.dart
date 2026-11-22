@@ -1,6 +1,7 @@
 // Copyright 2026 The AlteriOne Authors.
 // SPDX-License-Identifier: Apache-2.0
 
+import 'package:alteri_one_provider_api/alteri_one_provider_api.dart';
 import 'package:get_it/get_it.dart';
 import 'package:injectable/injectable.dart';
 
@@ -12,6 +13,7 @@ import '../domain/ports/journal_port.dart';
 import '../domain/profile.dart';
 import '../infrastructure/journal/hive_journal.dart';
 import 'injection.config.dart';
+import 'provider_registry.dart';
 import 'runtime_config.dart';
 
 /// The core's container. Ports (`LlmPort`, `JournalPort`, `MemoryPort`) are
@@ -90,4 +92,29 @@ void registerProfile({required Profile profile, ApprovalChannel? channel}) {
   getIt.registerLazySingleton<ApprovalService>(
     () => ChannelApprovalService(channel: channel),
   );
+}
+
+/// Registers the provider plugins available to this process.
+///
+/// The providers are validated before any is stored, so a rejected call leaves
+/// the container's [ProviderRegistry] exactly as it was (all-or-nothing).
+///
+/// Throws a [StateError] when two of [providers] share a [ModelProvider.kind],
+/// or when a kind is already registered.
+void registerProviders(Iterable<ModelProvider> providers) {
+  getIt<ProviderRegistry>().registerAll(providers);
+}
+
+/// Registers a ready [LlmPort] as the container's model port.
+///
+/// The providers themselves are registered through [registerProviders]; this
+/// binds the one port the core resolves `AgentDepsFactory` against. Call it
+/// after [registerProviders] and before `RunService` is first resolved.
+///
+/// Throws a [StateError] if an [LlmPort] is already registered.
+void registerLlmPort(LlmPort port) {
+  if (getIt.isRegistered<LlmPort>()) {
+    throw StateError('An LlmPort is already registered');
+  }
+  getIt.registerSingleton<LlmPort>(port);
 }

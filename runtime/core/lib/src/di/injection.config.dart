@@ -26,6 +26,7 @@ import 'package:alteri_one_core/src/application/scheduler_bloc.dart' as _i221;
 import 'package:alteri_one_core/src/application/state_publisher.dart' as _i869;
 import 'package:alteri_one_core/src/application/triggers_cubit.dart' as _i476;
 import 'package:alteri_one_core/src/di/core_module.dart' as _i398;
+import 'package:alteri_one_core/src/di/provider_registry.dart' as _i777;
 import 'package:alteri_one_core/src/di/runtime_config.dart' as _i1058;
 import 'package:alteri_one_core/src/domain/policy.dart' as _i665;
 import 'package:alteri_one_core/src/domain/ports/journal_port.dart' as _i673;
@@ -48,6 +49,7 @@ extension GetItInjectableX on _i174.GetIt {
     gh.lazySingleton<_i869.StatePublisher>(() => _i869.StatePublisher());
     gh.lazySingleton<_i476.TriggersCubit>(() => _i476.TriggersCubit());
     gh.lazySingleton<_i1058.RuntimeConfig>(() => coreModule.runtimeConfig);
+    gh.lazySingleton<_i777.ProviderRegistry>(() => coreModule.providerRegistry);
     gh.lazySingleton<_i194.ApprovalService>(() => coreModule.approvalService);
     gh.lazySingleton<_i186.ContextBuilder>(() => coreModule.contextBuilder);
     gh.lazySingleton<_i454.ToolRegistry>(() => coreModule.toolRegistry);

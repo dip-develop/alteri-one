@@ -15,6 +15,7 @@ import '../application/state_publisher.dart';
 import '../domain/policy.dart';
 import '../domain/ports/journal_port.dart';
 import '../domain/ports/llm_port.dart';
+import 'provider_registry.dart';
 import 'runtime_config.dart';
 
 /// Third-party registrations for the core container
@@ -27,6 +28,10 @@ abstract class CoreModule {
   /// `registerProfile` installed, not a default frozen at startup.
   @lazySingleton
   RuntimeConfig get runtimeConfig => RuntimeConfig();
+
+  /// The mutable registry of the model providers available to this process.
+  @lazySingleton
+  ProviderRegistry get providerRegistry => ProviderRegistry();
 
   /// The single decision point for tool execution.
   ///

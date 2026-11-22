@@ -1,7 +1,7 @@
 name: alteri_one_provider_api
 description: >-
   Ports for LLM model providers in AlteriOne: LlmPort, ModelProvider, and declared capabilities.
-version: 0.1.0
+version: 0.2.0
 homepage: https://alteri.one
 repository: https://github.com/dip-develop/alteri-one
 issue_tracker: https://github.com/dip-develop/alteri-one/issues
