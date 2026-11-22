@@ -35,17 +35,20 @@ final class ProviderRegistry {
     return provider;
   }
 
-  /// Registers [providers], rejecting a duplicate [ModelProvider.kind].
+  /// Registers [providers], rejecting a duplicate or empty [ModelProvider.kind].
   ///
   /// All-or-nothing: every provider is validated before any is stored, so a
   /// rejected call leaves the registry exactly as it was. Throws a
-  /// [StateError] when two of the new providers share a `kind`, or when a new
-  /// `kind` is already registered.
+  /// [StateError] when two of the new providers share a `kind`, when a new
+  /// `kind` is empty, or when a new `kind` is already registered.
   void registerAll(Iterable<ModelProvider> providers) {
     final incoming = <ModelProvider>[];
     final seen = <String>{};
     for (final provider in providers) {
       final kind = provider.kind;
+      if (kind.isEmpty) {
+        throw StateError('Model provider kind must not be empty');
+      }
       if (!seen.add(kind)) {
         throw StateError('Duplicate model provider kind "$kind"');
       }

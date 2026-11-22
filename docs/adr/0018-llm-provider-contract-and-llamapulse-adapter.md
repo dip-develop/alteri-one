@@ -1,7 +1,13 @@
 # 0018. LLM provider contract and the LlamaPulse adapter
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-22
+- Owner approval: the owner approved the contract boundary (A′: the vocabulary
+  and `LlmPort` live in `alteri_one_provider_api`, the core re-exports them
+  through shims), the HTTP-only provider, and the `genkit_openai`-first
+  direction with a `package:http` fallback. Decision 3 stays provisional until
+  the real-LlamaPulse evidence is collected (section "Real-LlamaPulse
+  confirmation pending").
 
 ## Context
 
@@ -80,10 +86,11 @@ of M3 (ADR acceptance evidence), not in this part.
 
 ## Consequences
 
-- `alteri_one_provider_api` is now a real public package (0.2.0) that re-exports
-  `alteri_one_contracts`; it carries the vocabulary and the port. It follows
-  semver; the `Budget` → `maxOutputTokens` change is a pre-1.0 minor bump with a
-  changelog entry.
+- `alteri_one_provider_api` is now a real public package: `0.1.0` → `0.2.0`
+  (owner-approved) that re-exports `alteri_one_contracts`; it carries the
+  vocabulary and the port. It follows semver under the 0.x rule: a breaking
+  change bumps the minor, not the major. The `Budget` → `maxOutputTokens` change
+  is such a break, recorded in the package changelog.
 - `runtime/core` keeps every existing import path through shims, so no call site
   changes except the `budget:` → `maxOutputTokens:` migration at the
   `LlmPort.complete` boundary.

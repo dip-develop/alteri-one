@@ -5,9 +5,6 @@
 enum MessageRole { system, user, assistant, tool }
 
 /// One message of the model conversation (docs/spec/domain.md, section 9).
-///
-/// Skeleton: M2 pins the exact shape when the agent loop and the prompt
-/// wrapping (section 13) are implemented.
 final class Message(
   /// Who produced the message.
   final MessageRole role,

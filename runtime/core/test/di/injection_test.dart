@@ -133,6 +133,26 @@ void main() {
       );
     });
 
+    test('rejects an empty kind without storing any provider', () {
+      configureCore(environment: 'test');
+      final other = _FakeProvider('other');
+
+      expect(
+        () => registerProviders([_FakeProvider(''), other]),
+        throwsStateError,
+      );
+      // All-or-nothing: the non-empty provider is not stored either.
+      expect(getIt<ProviderRegistry>().isRegistered(''), isFalse);
+      expect(getIt<ProviderRegistry>().isRegistered('other'), isFalse);
+    });
+
+    test('operator [] throws a StateError for an unknown kind', () {
+      configureCore(environment: 'test');
+      registerProviders([_FakeProvider('fake')]);
+
+      expect(() => getIt<ProviderRegistry>()['missing'], throwsStateError);
+    });
+
     test('an empty registration is a no-op', () {
       configureCore(environment: 'test');
 
