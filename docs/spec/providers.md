@@ -51,13 +51,13 @@ Package: `providers/llama_cpp`. Registered as `kind: llama_cpp` (ADR-0018).
 **Implementation.** The provider is HTTP-only in the sense that it binds no
 `llama-server` wrapper package (`llama_pulse_core` is not a dependency): it talks
 to LlamaPulse's OpenAI-compatible API at `/v1` (default
-`http://127.0.0.1:8080/v1`). The adapter that speaks that HTTP surface is
-`genkit_openai`, which is the primary path, with `baseUrl` pointing at
-`llama-server`. The fallback is a custom HTTP client on `package:http` behind the
-same `LlmPort`. Switch to the fallback if the conformance suite (section 12.4)
-shows that `genkit_openai` hides raw tool arguments or cannot handle invalid
-JSON. The decision is recorded in
-[ADR-0018](../adr/0018-llm-provider-contract-and-llamapulse-adapter.md).
+`http://127.0.0.1:8080/v1`). Two adapters speak that HTTP surface behind one
+`LlmPort`: a custom HTTP client on `package:http` (primary) and `genkit_openai`
+(comparison). The conformance discriminator (section 12.4, scenario 3) showed
+that `genkit_openai` 1.0.0 rethrows the raw `jsonDecode` error on invalid JSON
+tool arguments instead of surfacing `ToolCall.malformed`, so the `package:http`
+client is the primary path. The decision and its evidence are recorded in
+[ADR-0018](../adr/0018-llm-provider-contract-and-llamapulse-adapter.md), part 2.
 
 **Configuration (`alterione.yaml`):**
 

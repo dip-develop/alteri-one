@@ -1,7 +1,7 @@
 name: alteri_one_provider_llama_cpp
 description: >-
   llama.cpp (llama-server) LLM provider for AlteriOne, built on the OpenAI-compatible API.
-version: 0.1.0
+version: 0.2.0
 homepage: https://alteri.one
 repository: https://github.com/dip-develop/alteri-one
 issue_tracker: https://github.com/dip-develop/alteri-one/issues
@@ -19,5 +19,6 @@ dependencies:
   genkit: ^1.0.0
   genkit_openai: ^1.0.0
   http: ^1.6.0
+  schemantic: ^1.0.0
 dev_dependencies:
   test: ^1.33.0

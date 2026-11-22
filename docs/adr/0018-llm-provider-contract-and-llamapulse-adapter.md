@@ -109,3 +109,32 @@ JSON Schema (T5), and `GET /tools` stability (Q20) — is a scheduled follow-up
 recorded in part 2. Until then this ADR's decision 3 is provisional: the
 discriminator evidence that would promote the `package:http` fallback to the
 primary path is not yet collected.
+
+## Part 2 evidence: the discriminator (2026-11-22)
+
+The conformance discriminator (T4, invalid JSON tool arguments) was run against
+a fake OpenAI-compatible server in `providers/llama_cpp/test/llama_cpp_llm_test.dart`
+using `genkit` and `genkit_openai` 1.0.0. Two behaviours of `genkit_openai`
+1.0.0 make it unsuitable as the primary path:
+
+1. **Invalid JSON tool arguments throw.** When the server returns
+   `function.arguments` that is not valid JSON (or is valid JSON but not an
+   object), `genkit_openai` rethrows the raw `jsonDecode` error instead of
+   surfacing a `ToolCall.malformed`. The run would fail, violating
+   `providers.md` §12.4 scenario 3 ("the run does not fail").
+2. **Schema-less tools get a default `parameters`.** When `ToolSpec.inputSchema`
+   is `null`, `genkit_openai` sends
+   `parameters: {type: object, properties: {}, ...}` instead of omitting the
+   member, contrary to `providers.md` §12.3 / Q22.
+
+The `package:http` client (`LlamaCppHttpLlm`) parses
+`choices[0].message.tool_calls[].function.arguments` itself and turns a
+`jsonDecode` failure or a non-object into `ToolCall.malformed` (verified in
+`providers/llama_cpp/test/llama_cpp_http_llm_test.dart`).
+
+**Decision 3 as shipped.** The `package:http` client is the primary path:
+`LlamaCppProvider.transport` now defaults to `LlamaCppTransport.http`.
+`LlamaCppTransport.genkit` remains available for comparison and is still
+covered by the fake-server tests. The real-`llama-server` confirmation of T3
+(`returnToolRequests`), T5 (`response_format`) and Q20 (`GET /tools`) is still
+pending and stays a scheduled follow-up.
