@@ -3,7 +3,6 @@
 
 import 'package:alteri_one_contracts/alteri_one_contracts.dart';
 
-import '../../domain/budget.dart';
 import '../../domain/ids.dart';
 import '../../domain/invocation.dart';
 import '../../domain/messages.dart';
@@ -63,7 +62,7 @@ final class JournalingLlm implements LlmPort {
   Future<Turn> complete({
     required List<Message> messages,
     required List<ToolSpec> tools,
-    required Budget budget,
+    required int maxOutputTokens,
   }) async {
     // Invariant 5: the record is written (and flushed) before the side effect.
     // If the write throws, the provider must not run, so the error propagates.
@@ -74,7 +73,7 @@ final class JournalingLlm implements LlmPort {
       turn = await _inner.complete(
         messages: messages,
         tools: tools,
-        budget: budget,
+        maxOutputTokens: maxOutputTokens,
       );
     } catch (err, st) {
       // A provider that throws has returned control, so the outcome is known

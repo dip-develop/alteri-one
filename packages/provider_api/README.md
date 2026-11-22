@@ -4,8 +4,10 @@
 
 A public library published to pub.dev as part of AlteriOne.
 
-**Status: pre-alpha.** M0 (scaffold) and M1 (core skeleton) are complete;
-M2 (domain, run journal, agent loop, chat mode) is in progress. APIs are
+**Status: pre-alpha.** M0 (scaffold), M1 (core skeleton) and M2 (domain, run
+journal, agent loop, chat mode) are complete. The package ships the model-call
+vocabulary (`Message`, `MessageRole`, `ToolCall`, `ToolResultBlock`, `Turn`) and
+the ports (`LlmPort`, `ModelProvider`); the first provider lands in M3. APIs are
 not stable yet; see
 [`docs/spec/roadmap.md`](https://github.com/dip-develop/alteri-one/blob/main/docs/spec/roadmap.md).
 
@@ -23,5 +25,5 @@ Apache-2.0. See [LICENSE](LICENSE) in this package and the repository root.
 
 ## Usage
 
-This package is not yet functional; the API is being established milestone by
-milestone. Do not depend on it until a `1.0.0` or a clearly announced preview.
+The vocabulary and ports are usable, but the API is being established milestone
+by milestone. Do not depend on it until a `1.0.0` or a clearly announced preview.

@@ -48,7 +48,7 @@ Future<RunResult> runAgent(Run run, AgentDeps d) async {
     final turn = await d.llm.complete(
       messages: messages,
       tools: tools.specs,
-      budget: run.budget,
+      maxOutputTokens: run.budget.maxOutputTokens,
     );
     messages.add(turn.assistant);
     // Checked before branching: a cancel requested during the model call must

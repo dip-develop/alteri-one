@@ -38,6 +38,7 @@ export 'src/application/scheduler_bloc.dart';
 export 'src/application/state_publisher.dart';
 export 'src/application/triggers_cubit.dart';
 export 'src/di/injection.dart';
+export 'src/di/provider_registry.dart';
 export 'src/domain/approval_record.dart';
 export 'src/domain/budget.dart';
 export 'src/domain/cancel_token.dart';

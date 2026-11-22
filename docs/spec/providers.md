@@ -46,9 +46,18 @@ LlmPort wrap(LlmPort raw, ModelConfig c) => RedactingLlm(
 
 ## 12.3 First provider: llama.cpp
 
-Package: `providers/alteri_one_provider_llama_cpp`. Registered as `kind: llama_cpp`.
+Package: `providers/llama_cpp`. Registered as `kind: llama_cpp` (ADR-0018).
 
-**Implementation.** The primary path is `genkit_openai` with `baseUrl` pointing at `llama-server`. The fallback is a custom HTTP client on `package:http` behind the same `LlmPort`. Switch to the fallback if the conformance suite (section 12.4) shows that `genkit_openai` hides raw tool arguments or cannot handle invalid JSON. The decision is recorded in an ADR.
+**Implementation.** The provider is HTTP-only in the sense that it binds no
+`llama-server` wrapper package (`llama_pulse_core` is not a dependency): it talks
+to LlamaPulse's OpenAI-compatible API at `/v1` (default
+`http://127.0.0.1:8080/v1`). The adapter that speaks that HTTP surface is
+`genkit_openai`, which is the primary path, with `baseUrl` pointing at
+`llama-server`. The fallback is a custom HTTP client on `package:http` behind the
+same `LlmPort`. Switch to the fallback if the conformance suite (section 12.4)
+shows that `genkit_openai` hides raw tool arguments or cannot handle invalid
+JSON. The decision is recorded in
+[ADR-0018](../adr/0018-llm-provider-contract-and-llamapulse-adapter.md).
 
 **Configuration (`alterione.yaml`):**
 
@@ -79,11 +88,19 @@ Normalizing `base_url` is required. `Uri.resolve('chat/completions')` against `h
 - `--jinja` is enabled by default in current builds; `--no-jinja` disables it. Without Jinja templates, tool calls do not work [VERIFY on your build].
 - `--api-key` or the `LLAMA_API_KEY` environment variable. If a key is configured, it is taken from `api_key`.
 - **The server's own tools must be disabled.** The flags `--tools` and `--agent` give the server built-in tools (files, shell). MCP servers started by `llama-server` run with the server's privileges. Either one allows the server to act outside `PolicyGate`. `alterione doctor` queries `GET /tools` and refuses to work if the list is not empty. The complete list of flags is taken from `llama-server --help` for your build [VERIFY].
+- `GET /tools` is upstream-unstable: the endpoint and its schema change across `llama-server` builds. `alterione doctor` therefore cannot rely on it to enumerate the server's built-in tools and tolerates a 404 with a warning instead of failing (Q20 resolved, ADR-0018).
 - The server's web UI is not needed by the daemon. Disable it with the flag shown in `--help` [VERIFY].
 
 **Structured output.** For models without native tools, `response_format` with a JSON Schema is used. `llama-server` accepts the schema in the OpenAI format `response_format.json_schema.schema`. Do not send `json_schema` and `grammar` in one request: the server returns an error for that combination (a known issue in the tracker) [VERIFY on your build].
 
-**Errors.** A local server's response body can contain fragments of the prompt. It is never logged. Errors map to `LlmUnavailable(status)` and `ToolCall.malformed(reason)`.
+**Errors.** A local server's response body can contain fragments of the prompt.
+It is never logged. Errors map to `LlmUnavailable(status)` and
+`ToolCall.malformed(reason)`: `LlmUnavailable` carries the HTTP status only,
+never a response body or a secret (Q23 resolved, ADR-0018).
+
+**Schema-less tools.** When `ToolSpec.inputSchema == null` the provider sends no
+`parameters` member and accepts any arguments; the server then applies its own
+default for the argument schema (Q22 resolved, ADR-0018).
 
 ## 12.4 Conformance suite
 

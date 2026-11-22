@@ -300,7 +300,7 @@ final class FakeLlm implements LlmPort {
   Future<Turn> complete({
     required List<Message> messages,
     required List<ToolSpec> tools,
-    required Budget budget,
+    required int maxOutputTokens,
   }) {
     final call = requests.length;
     requests.add(List.of(messages));

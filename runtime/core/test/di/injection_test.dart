@@ -100,6 +100,105 @@ void main() {
     });
   });
 
+  group('registerProviders', () {
+    test('registers every provider and looks them up by kind', () {
+      configureCore(environment: 'test');
+      final provider = _FakeProvider('fake');
+
+      registerProviders([provider]);
+
+      expect(getIt<ProviderRegistry>().isRegistered('fake'), isTrue);
+      expect(getIt<ProviderRegistry>()['fake'], same(provider));
+    });
+
+    test('rejects a duplicate kind without storing any provider', () {
+      configureCore(environment: 'test');
+      final first = _FakeProvider('fake');
+      final second = _FakeProvider('fake');
+      final other = _FakeProvider('other');
+
+      expect(() => registerProviders([first, second, other]), throwsStateError);
+      // All-or-nothing: even the non-duplicate provider is not stored.
+      expect(getIt<ProviderRegistry>().isRegistered('fake'), isFalse);
+      expect(getIt<ProviderRegistry>().isRegistered('other'), isFalse);
+    });
+
+    test('rejects a kind that is already registered', () {
+      configureCore(environment: 'test');
+      registerProviders([_FakeProvider('fake')]);
+
+      expect(
+        () => registerProviders([_FakeProvider('fake')]),
+        throwsStateError,
+      );
+    });
+
+    test('rejects an empty kind without storing any provider', () {
+      configureCore(environment: 'test');
+      final other = _FakeProvider('other');
+
+      expect(
+        () => registerProviders([_FakeProvider(''), other]),
+        throwsStateError,
+      );
+      // All-or-nothing: the non-empty provider is not stored either.
+      expect(getIt<ProviderRegistry>().isRegistered(''), isFalse);
+      expect(getIt<ProviderRegistry>().isRegistered('other'), isFalse);
+    });
+
+    test('operator [] throws a StateError for an unknown kind', () {
+      configureCore(environment: 'test');
+      registerProviders([_FakeProvider('fake')]);
+
+      expect(() => getIt<ProviderRegistry>()['missing'], throwsStateError);
+    });
+
+    test('an empty registration is a no-op', () {
+      configureCore(environment: 'test');
+
+      registerProviders(const []);
+
+      expect(getIt<ProviderRegistry>().kinds, isEmpty);
+    });
+  });
+
+  group('registerLlmPort', () {
+    test('binds the port and RunService resolves after it', () async {
+      configureCore(environment: 'test');
+      tempDir = Directory.systemTemp.createTempSync('injection_llm_');
+      await registerJournal(directory: tempDir!.path);
+
+      final llm = FakeLlm(
+        (call, messages) => Turn('done', Message.assistant('done'), const []),
+      );
+      registerLlmPort(llm);
+
+      expect(identical(getIt<LlmPort>(), llm), isTrue);
+      // RunService depends on AgentDepsFactory, which depends on LlmPort; once
+      // the port is bound the whole chain resolves.
+      expect(getIt<RunService>(), isA<RunService>());
+    });
+
+    test('a second call throws a StateError', () {
+      configureCore(environment: 'test');
+      registerLlmPort(
+        FakeLlm(
+          (call, messages) => Turn('done', Message.assistant('done'), const []),
+        ),
+      );
+
+      expect(
+        () => registerLlmPort(
+          FakeLlm(
+            (call, messages) =>
+                Turn('again', Message.assistant('again'), const []),
+          ),
+        ),
+        throwsStateError,
+      );
+    });
+  });
+
   group('registerJournal', () {
     test('registers a HiveJournal as the JournalPort', () async {
       configureCore(environment: 'test');
@@ -198,12 +297,12 @@ void main() {
       await first.llm.complete(
         messages: const [],
         tools: const [],
-        budget: budget,
+        maxOutputTokens: budget.maxOutputTokens,
       );
       await second.llm.complete(
         messages: const [],
         tools: const [],
-        budget: budget,
+        maxOutputTokens: budget.maxOutputTokens,
       );
 
       final journal = getIt<JournalPort>();
@@ -396,4 +495,25 @@ void main() {
       );
     });
   });
+}
+
+/// A [ModelProvider] with a fixed [kind] for the DI tests.
+final class _FakeProvider implements ModelProvider {
+  new(this.kind);
+
+  @override
+  final String kind;
+
+  @override
+  Map<String, Object?> get optionsSchema => const <String, Object?>{};
+
+  @override
+  Future<LlmCapabilities> probe(Map<String, Object?> options) async =>
+      LlmCapabilities(false, false, false, null);
+
+  @override
+  LlmPort create(Map<String, Object?> options, LlmCapabilities capabilities) =>
+      FakeLlm(
+        (call, messages) => Turn('done', Message.assistant('done'), const []),
+      );
 }
