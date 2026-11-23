@@ -24,18 +24,24 @@ void main() {
   runProviderConformance(port: port, tools: ConformanceTools());
 
   test(
-    'the fake server records the request body so a test can assert size',
+    'the whole large prompt reaches the server, not a truncated one',
     () async {
+      final lastUser = 'x' * 135_000;
       await port.complete(
-        messages: <Message>[Message.user('x' * 40_000)],
+        messages: <Message>[Message.user(lastUser)],
         tools: const <ToolSpec>[],
         maxOutputTokens: 16,
       );
       expect(server.requests, isNotEmpty);
       expect(
         server.requests.last.body.length,
-        greaterThan(40_000),
+        greaterThan(135_000),
         reason: 'the whole prompt must reach the server',
+      );
+      expect(
+        server.lastUserLengths.last,
+        greaterThanOrEqualTo(lastUser.length),
+        reason: 'a provider that truncated the context would record less',
       );
     },
   );

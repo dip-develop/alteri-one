@@ -6,14 +6,8 @@ import 'dart:io';
 
 /// The scripted response of the fake LlamaPulse server.
 enum LlamaPulseMode {
-  /// A plain assistant reply with no tool call.
-  ok,
-
-  /// One well-formed tool call.
+  /// One well-formed tool call, also used for a plain request.
   toolCall,
-
-  /// Two tool calls in one reply.
-  twoCalls,
 
   /// A plain assistant reply for a request that needs no tool.
   noToolCall,
@@ -71,6 +65,13 @@ final class FakeLlamaPulseServer {
   /// The requests received, in order.
   final List<RecordedRequest> requests = <RecordedRequest>[];
 
+  /// The length of the last user message of every chat completion request.
+  ///
+  /// A test uses this to prove the provider delivered the whole prompt, so a
+  /// provider that silently truncates the context fails the large-context
+  /// scenario.
+  final List<int> lastUserLengths = <int>[];
+
   HttpServer? _server;
 
   LlamaPulseMode? _forcedMode;
@@ -118,6 +119,8 @@ final class FakeLlamaPulseServer {
     if (request.method == 'POST' && path == '/v1/chat/completions') {
       final body = await utf8.decodeStream(request);
       requests.add(RecordedRequest(request.method, path, body));
+      final messages = _messages(body);
+      lastUserLengths.add(_lastUserText(messages).length);
       final mode = _forcedMode ?? _autoMode(body);
       _forcedMode = null;
       if (mode == LlamaPulseMode.error) {
@@ -156,8 +159,6 @@ final class FakeLlamaPulseServer {
     final lastUser = _lastUserText(messages);
     final Map<String, Object?> message;
     switch (mode) {
-      case LlamaPulseMode.ok:
-        message = <String, Object?>{'role': 'assistant', 'content': 'ok'};
       case LlamaPulseMode.noToolCall:
         message = <String, Object?>{'role': 'assistant', 'content': 'Paris'};
       case LlamaPulseMode.invalidJsonArgs:
@@ -171,11 +172,6 @@ final class FakeLlamaPulseServer {
       case LlamaPulseMode.bigContext:
         message = _assistantWithCalls(<Object?>[
           _toolCallArgs('call_big', 'echo', <String, Object?>{'text': 'ok'}),
-        ]);
-      case LlamaPulseMode.twoCalls:
-        message = _assistantWithCalls(<Object?>[
-          _toolCallArgs('call_1', 'echo', <String, Object?>{'text': 'a'}),
-          _toolCallArgs('call_2', 'echo', <String, Object?>{'text': 'b'}),
         ]);
       case LlamaPulseMode.toolCall:
         message = _conversationCall(hasTool, lastUser, messages);

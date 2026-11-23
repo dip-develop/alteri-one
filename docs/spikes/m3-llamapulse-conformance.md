@@ -35,13 +35,15 @@ llamapulse serve --model <small.gguf> --port 8080
 From `providers/llama_cpp`:
 
 ```sh
-ALTERIONE_LLAMA_URL=http://127.0.0.1:8080/v1 dart test --tags llamapulse
+ALTERIONE_LLAMA_URL=http://127.0.0.1:8080/v1 flutter test --tags llamapulse
 ```
 
+Run it with `flutter test`, not `dart test`: in this container `dart pub` and
+`dart test` cannot resolve the Flutter workspace members.
+
 The `llamapulse` tag selects only the real test. Without
-`ALTERIONE_LLAMA_URL` the test is skipped, so the normal `dart test` run never
-contacts a model. The same command works with `flutter test --tags llamapulse`
-in this workspace.
+`ALTERIONE_LLAMA_URL` the test is skipped, so a normal `flutter test` run never
+contacts a model.
 
 ## What to record
 

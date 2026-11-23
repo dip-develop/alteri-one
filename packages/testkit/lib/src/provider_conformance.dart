@@ -115,9 +115,10 @@ List<ConformanceScenario> providerConformanceScenarios({
 
 /// Registers the provider conformance scenarios with `package:test`.
 ///
-/// A provider that declares `nativeTools: true` must pass scenarios 1–4. The
-/// scenarios run against [port] unchanged; tool execution is the agent loop's
-/// job, not the provider's, so the suite never executes a tool.
+/// A provider that declares `nativeTools: true` is expected to pass these
+/// scenarios. They run unconditionally: the suite never inspects the provider's
+/// declared capabilities and never executes a tool, because tool execution is
+/// the agent loop's job, not the provider's.
 void runProviderConformance({required LlmPort port, ConformanceTools? tools}) {
   group('provider conformance', () {
     for (final scenario in providerConformanceScenarios(
@@ -247,10 +248,20 @@ Future<void> _bigContext(LlmPort port, ConformanceTools tools) async {
   // About 32k tokens: roughly four characters per token.
   const sentence = 'The quick brown fox jumps over the lazy dog. ';
   final filler = sentence * 3000;
+  const suffix = '\nEcho the word ok.';
+  // The prompt the caller sends. The length the provider must deliver to the
+  // server is asserted at the HTTP level in the provider's own test; here we
+  // only require that the request still completes.
+  final sent = filler + suffix;
   final turn = await port.complete(
-    messages: <Message>[Message.user('$filler\nEcho the word ok.')],
+    messages: <Message>[Message.user(sent)],
     tools: tools.all,
     maxOutputTokens: 128,
+  );
+  expect(
+    sent.length,
+    greaterThanOrEqualTo(135000),
+    reason: 'scenario 6 must send a context of about 32k tokens',
   );
   expect(
     turn.text.isNotEmpty || turn.toolCalls.isNotEmpty,

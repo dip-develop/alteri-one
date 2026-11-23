@@ -117,7 +117,7 @@ default for the argument schema (Q22 resolved, ADR-0018, kept by ADR-0019).
 `alteri_one_testkit` contains scenarios that run against any provider:
 
 1. One tool call with valid arguments.
-2. Arguments that do not match the schema: the model receives an error and corrects them.
+2. Arguments that do not match the schema: the provider surfaces them to the caller (it does not turn them into `malformed`). The correction loop is covered by the agent-loop tests.
 3. Invalid JSON in `arguments`: the run does not fail.
 4. Two consecutive calls, where the second depends on the first result.
 5. A request that does not need the tool: the model does not call it.
