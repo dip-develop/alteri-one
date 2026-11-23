@@ -6,6 +6,9 @@ keep. The fake-server level runs in every PR
 (`providers/llama_cpp/test/conformance_test.dart`); the real level is the
 `tagged` test `providers/llama_cpp/test/conformance_real_test.dart`.
 
+The M3 part-2 acceptance record for the conformance suite is
+[ADR-0020](../adr/0020-m3-part-2-llamacpp-conformance-acceptance.md).
+
 ## Why
 
 The fake server verifies response parsing, not model behavior. A real model
