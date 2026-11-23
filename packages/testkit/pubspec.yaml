@@ -1,7 +1,7 @@
 name: alteri_one_testkit
 description: >-
   Conformance test suites for AlteriOne LLM providers and extensions.
-version: 0.1.0
+version: 0.2.0
 homepage: https://alteri.one
 repository: https://github.com/dip-develop/alteri-one
 issue_tracker: https://github.com/dip-develop/alteri-one/issues
