@@ -3,10 +3,12 @@
 
 /// Conformance suites for AlteriOne providers and extensions.
 ///
-/// A provider cannot declare `nativeTools: true` without passing the scenarios here.
+/// [runProviderConformance] registers the provider scenarios from
+/// `docs/spec/providers.md` section 12.4 (scenarios 1–6) with `package:test`.
+/// A provider cannot declare `nativeTools: true` without passing them.
 /// The e2e suite uses the same suites for both extension loading modes.
 ///
 /// Part of the [AlteriOne](https://alteri.one) monorepo.
-/// Status: scaffold only — implementation follows the milestones in
-/// `docs/spec/roadmap.md`.
 library;
+
+export 'src/provider_conformance.dart';

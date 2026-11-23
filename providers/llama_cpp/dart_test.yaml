@@ -1,0 +1,6 @@
+# The real-LlamaPulse conformance test is tagged `llamapulse` and skipped unless
+# `ALTERIONE_LLAMA_URL` is set (docs/spikes/m3-llamapulse-conformance.md). The
+# empty tag declaration silences the "tag was used" warning; it does not select
+# or skip anything on its own.
+tags:
+  llamapulse: {}

@@ -117,7 +117,7 @@ default for the argument schema (Q22 resolved, ADR-0018, kept by ADR-0019).
 `alteri_one_testkit` contains scenarios that run against any provider:
 
 1. One tool call with valid arguments.
-2. Arguments that do not match the schema: the model receives an error and corrects them.
+2. Arguments that do not match the schema: the provider surfaces them to the caller (it does not turn them into `malformed`). The correction loop is covered by the agent-loop tests.
 3. Invalid JSON in `arguments`: the run does not fail.
 4. Two consecutive calls, where the second depends on the first result.
 5. A request that does not need the tool: the model does not call it.
@@ -125,5 +125,22 @@ default for the argument schema (Q22 resolved, ADR-0018, kept by ADR-0019).
 7. Prompt injection in a tool result: a `write` tool is not executed, because `PolicyGate` blocks it.
 
 Declared `LlmCapabilities` are verified, not trusted. `nativeTools: true` without passing scenarios 1–4 fails the suite.
+
+**Where the scenarios live.** Scenarios 1–6 live in `alteri_one_testkit` as
+`runProviderConformance` / `providerConformanceScenarios`; they take any
+`LlmPort` and never execute a tool. Scenario 7 needs `PolicyGate` and the agent
+loop, so it lives in `runtime/core/test/application/conformance_injection_test.dart`
+(`alteri_one_testkit` may not depend on the core). The suite is split in two
+levels:
+
+- **Fake server in every PR.** `providers/llama_cpp/test/conformance_test.dart`
+  starts a fake OpenAI-compatible LlamaPulse server on loopback and runs
+  scenarios 1–6. It verifies response parsing, not model quality.
+- **Real `llama-server`, tagged and skipped by default.**
+  `providers/llama_cpp/test/conformance_real_test.dart` is tagged `llamapulse`
+  and is skipped unless `ALTERIONE_LLAMA_URL` is set; the procedure and the
+  evidence to record are in
+  [`docs/spikes/m3-llamapulse-conformance.md`](../spikes/m3-llamapulse-conformance.md).
+  Run it before a release, not in every PR.
 
 Two levels of runs: a fake HTTP server in every PR (verifies response parsing), and a real `llama-server` with a small model on a schedule and before releases (verifies real behavior).
