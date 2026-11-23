@@ -56,5 +56,34 @@ void main() {
         'http://127.0.0.1:8080/v1/models',
       );
     });
+
+    test('rejects credentials in the URL (S5)', () {
+      expect(
+        () => normalizeBaseUrl('http://user:pass@127.0.0.1:8080/v1'),
+        throwsA(
+          isA<LlamaCppConfigException>().having(
+            (e) => e.message,
+            'message',
+            isNot(contains('pass')),
+          ),
+        ),
+      );
+    });
+
+    test('resolves the root endpoints from the /v1 base', () {
+      final base = normalizeBaseUrl('http://127.0.0.1:8080/v1');
+      expect(
+        Uri.parse(base).resolve('../health').toString(),
+        'http://127.0.0.1:8080/health',
+      );
+      expect(
+        Uri.parse(base).resolve('../props').toString(),
+        'http://127.0.0.1:8080/props',
+      );
+      expect(
+        Uri.parse(base).resolve('chat/completions').toString(),
+        'http://127.0.0.1:8080/v1/chat/completions',
+      );
+    });
   });
 }

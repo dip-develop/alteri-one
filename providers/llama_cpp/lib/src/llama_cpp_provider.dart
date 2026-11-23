@@ -6,32 +6,25 @@ import 'dart:convert';
 import 'package:alteri_one_provider_api/alteri_one_provider_api.dart';
 import 'package:http/http.dart' as http;
 
-import 'llama_cpp_http_llm.dart';
 import 'llama_cpp_llm.dart';
 import 'llama_cpp_options.dart';
 
 /// The llama.cpp provider, registered as `kind: llama_cpp`
-/// (docs/spec/providers.md, section 12.3; ADR-0018).
+/// (docs/spec/providers.md, section 12.3; ADR-0019).
 ///
 /// The provider is HTTP-only: it talks to a llama-server-compatible server over
 /// its OpenAI-compatible `/v1` surface and binds no `llama-server` wrapper. It
 /// declares its capabilities by probing the server, never by inferring them
 /// from the model name.
 ///
-/// The default [transport] is [LlamaCppTransport.http]: the conformance
-/// discriminator (invalid JSON tool arguments) showed that `genkit_openai`
-/// 1.0.0 rethrows the raw `jsonDecode` error instead of surfacing
-/// [ToolCall.malformed], so the `package:http` client is the primary path
-/// (ADR-0018, decision 3, as amended in part 2). [LlamaCppTransport.genkit]
-/// remains available for comparison.
+/// The `package:http` client is the only adapter (ADR-0019). The
+/// `genkit_openai` path was dropped: its converters `jsonDecode` the tool
+/// arguments and so cannot represent a malformed tool call, and it injects a
+/// default schema for schema-less tools (ADR-0019; supersedes ADR-0018,
+/// decision 3).
 final class LlamaCppProvider implements ModelProvider {
-  /// Creates the provider. [transport] selects the `LlmPort` implementation:
-  /// [LlamaCppTransport.http] uses the `package:http` client (primary),
-  /// [LlamaCppTransport.genkit] uses `genkit_openai` (ADR-0018, decision 3).
-  const new({this.transport = LlamaCppTransport.http});
-
-  /// Which `LlmPort` implementation [create] returns.
-  final LlamaCppTransport transport;
+  /// Creates the provider.
+  const new();
 
   @override
   String get kind => 'llama_cpp';
@@ -39,6 +32,7 @@ final class LlamaCppProvider implements ModelProvider {
   @override
   Map<String, Object?> get optionsSchema => const {
     'type': 'object',
+    'additionalProperties': false,
     'properties': {
       'base_url': {'type': 'string'},
       'model': {'type': 'string'},
@@ -46,12 +40,14 @@ final class LlamaCppProvider implements ModelProvider {
       'timeout_seconds': {'type': 'integer', 'minimum': 0},
       'retry': {
         'type': 'object',
+        'additionalProperties': false,
         'properties': {
           'attempts': {'type': 'integer', 'minimum': 0},
         },
       },
       'capabilities': {
         'type': 'object',
+        'additionalProperties': false,
         'properties': {
           'native_tools': {
             'type': 'string',
@@ -70,9 +66,12 @@ final class LlamaCppProvider implements ModelProvider {
     final base = Uri.parse(config.baseUrl);
     final client = http.Client();
     try {
+      // `health` and `props` live at the server root, while the model surface
+      // lives under `/v1`. `../` resolves against the `/v1/` base and lands on
+      // the root: `/v1/` + `../health` is `/health`.
       await _checkHealth(client, base, config);
 
-      final props = await _getObject(client, base, config, 'props');
+      final props = await _getObject(client, base, config, '../props');
       final contextTokens =
           _contextTokens(props) ??
           await _contextTokensFromModels(client, base, config);
@@ -92,17 +91,12 @@ final class LlamaCppProvider implements ModelProvider {
 
   @override
   LlmPort create(Map<String, Object?> options, LlmCapabilities capabilities) {
+    // `capabilities` is the probe's declaration. The HTTP client needs none of
+    // it at call time: `complete` sends the schema and lets the server answer,
+    // so the port keeps no copy that could drift from the run's declaration
+    // (N3).
     final config = LlamaCppOptions.fromMap(options);
-    return switch (transport) {
-      LlamaCppTransport.genkit => LlamaCppLlm(
-        options: config,
-        capabilities: capabilities,
-      ),
-      LlamaCppTransport.http => LlamaCppHttpLlm(
-        options: config,
-        capabilities: capabilities,
-      ),
-    };
+    return LlamaCppLlm(options: config);
   }
 
   /// GET `/health`. Ready on `200` with `{"status":"ok"}`; loading on `200`
@@ -112,7 +106,7 @@ final class LlamaCppProvider implements ModelProvider {
     Uri base,
     LlamaCppOptions config,
   ) async {
-    final response = await _get(client, base, config, 'health');
+    final response = await _get(client, base, config, '../health');
     if (response == null) {
       throw const LlmUnavailable(null, 'health check failed');
     }
@@ -131,7 +125,8 @@ final class LlamaCppProvider implements ModelProvider {
     }
   }
 
-  /// GET `/props`; returns `default_generation_settings.n_ctx`.
+  /// GET `/props`; returns `default_generation_settings.n_ctx`, falling back to
+  /// the top-level `n_ctx` when the server omits the generation settings.
   int? _contextTokens(Map<String, Object?>? props) {
     if (props == null) return null;
     final settings = props['default_generation_settings'];
@@ -147,6 +142,9 @@ final class LlamaCppProvider implements ModelProvider {
   }
 
   /// GET `/v1/models`; falls back to `meta.n_ctx_train` for the context size.
+  ///
+  /// `n_ctx_train` is the training context, not the served one, so it is only a
+  /// fallback when `/props` carried no `n_ctx`.
   Future<int?> _contextTokensFromModels(
     http.Client client,
     Uri base,
@@ -254,11 +252,18 @@ final class LlamaCppProvider implements ModelProvider {
               'tool_choice': 'auto',
             }),
           )
-          .timeout(config.timeout);
+          // The probe is a startup check, not a model call: it must not inherit
+          // the configured per-call model timeout (300 s by default), or a
+          // wedged probe blocks startup for minutes.
+          .timeout(_toolProbeTimeout);
     } on Exception {
       return null;
     }
   }
+
+  /// Timeout for the native-tools probe POST. Deliberately short: the probe
+  /// decides a capability at startup and must fail fast.
+  static const Duration _toolProbeTimeout = Duration(seconds: 10);
 
   Map<String, String> _headers(String? apiKey) => {
     if (apiKey != null) 'authorization': 'Bearer $apiKey',

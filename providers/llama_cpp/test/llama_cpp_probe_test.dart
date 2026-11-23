@@ -37,9 +37,9 @@ void main() {
     test('ready server reports context tokens and native tools', () async {
       final server = _FakeServer((path) async {
         switch (path) {
-          case '/v1/health':
+          case '/health':
             return (status: 200, body: '{"status":"ok"}');
-          case '/v1/props':
+          case '/props':
             return (
               status: 200,
               body:
@@ -81,7 +81,7 @@ void main() {
       'loading on 200 with status loading raises LlmUnavailable(200)',
       () async {
         final server = _FakeServer((path) async {
-          if (path == '/v1/health') {
+          if (path == '/health') {
             return (status: 200, body: '{"status":"loading"}');
           }
           return (status: 404, body: '{}');
@@ -99,7 +99,7 @@ void main() {
 
     test('loading on 503 raises LlmUnavailable(503)', () async {
       final server = _FakeServer((path) async {
-        if (path == '/v1/health') return (status: 503, body: 'loading');
+        if (path == '/health') return (status: 503, body: 'loading');
         return (status: 404, body: '{}');
       });
       await server.start();
@@ -115,9 +115,9 @@ void main() {
     test('no tool call in the probe reply reports nativeTools false', () async {
       final server = _FakeServer((path) async {
         switch (path) {
-          case '/v1/health':
+          case '/health':
             return (status: 200, body: '{"status":"ok"}');
-          case '/v1/props':
+          case '/props':
             return (status: 200, body: '{"default_generation_settings":{}}');
           case '/v1/chat/completions':
             return (
@@ -143,9 +143,9 @@ void main() {
     test('explicit native_tools false skips the tool probe', () async {
       final server = _FakeServer((path) async {
         switch (path) {
-          case '/v1/health':
+          case '/health':
             return (status: 200, body: '{"status":"ok"}');
-          case '/v1/props':
+          case '/props':
             return (status: 200, body: '{}');
           case '/v1/models':
             return (status: 200, body: '{"data":[]}');
@@ -175,9 +175,9 @@ void main() {
     test('falls back to meta.n_ctx_train from /v1/models', () async {
       final server = _FakeServer((path) async {
         switch (path) {
-          case '/v1/health':
+          case '/health':
             return (status: 200, body: '{"status":"ok"}');
-          case '/v1/props':
+          case '/props':
             return (status: 200, body: '{}');
           case '/v1/models':
             return (
@@ -204,9 +204,9 @@ void main() {
       String? chatPath;
       final server = _FakeServer((path) async {
         switch (path) {
-          case '/v1/health':
+          case '/health':
             return (status: 200, body: '{"status":"ok"}');
-          case '/v1/props':
+          case '/props':
             return (status: 200, body: '{}');
           case '/v1/chat/completions':
             chatPath = path;
@@ -224,6 +224,46 @@ void main() {
       const provider = LlamaCppProvider();
       await provider.probe({'base_url': server.base.toString()});
       expect(chatPath, '/v1/chat/completions');
+    });
+
+    test('the probe requests /health and /props at the server root', () async {
+      final paths = <String>[];
+      final server = _FakeServer((path) async {
+        paths.add(path);
+        switch (path) {
+          case '/health':
+            return (status: 200, body: '{"status":"ok"}');
+          case '/props':
+            return (
+              status: 200,
+              body: '{"default_generation_settings":{"n_ctx":4096}}',
+            );
+          case '/v1/chat/completions':
+            return (status: 200, body: '{"choices":[]}');
+          default:
+            return (status: 404, body: '{}');
+        }
+      });
+      await server.start();
+      addTearDown(server.close);
+
+      const provider = LlamaCppProvider();
+      await provider.probe({'base_url': server.base.toString()});
+
+      // `../health` and `../props` resolve against `/v1/` to the root; the
+      // model surface stays under `/v1`.
+      expect(paths, contains('/health'));
+      expect(paths, contains('/props'));
+      expect(paths, isNot(contains('/v1/health')));
+      expect(paths, isNot(contains('/v1/props')));
+    });
+
+    test('create() returns a LlamaCppLlm', () {
+      const provider = LlamaCppProvider();
+      final port = provider.create(const {
+        'base_url': 'http://127.0.0.1:8080/v1',
+      }, LlmCapabilities(false, false, false, null));
+      expect(port, isA<LlamaCppLlm>());
     });
   });
 }

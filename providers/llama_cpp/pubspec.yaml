@@ -16,9 +16,6 @@ topics:
 resolution: workspace
 dependencies:
   alteri_one_provider_api: ^0.2.0
-  genkit: ^1.0.0
-  genkit_openai: ^1.0.0
   http: ^1.6.0
-  schemantic: ^1.0.0
 dev_dependencies:
   test: ^1.33.0

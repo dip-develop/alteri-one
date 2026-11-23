@@ -2,49 +2,35 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:alteri_one_provider_api/alteri_one_provider_api.dart';
-import 'package:genkit/genkit.dart' as gk;
-import 'package:genkit_openai/genkit_openai.dart';
-import 'package:schemantic/schemantic.dart';
+import 'package:http/http.dart' as http;
 
 import 'llama_cpp_options.dart';
 
-/// The `genkit_openai`-backed `LlmPort` for llama-server
-/// (docs/spec/providers.md, section 12.3; ADR-0018, decision 3).
+/// A `package:http` OpenAI-compatible `LlmPort` for llama-server
+/// (docs/spec/providers.md, section 12.3; ADR-0019).
 ///
-/// The port calls `generate(..., returnToolRequests: true)` and never lets
-/// Genkit run the automatic tool loop: the agent loop, not the provider,
-/// decides whether a tool runs (invariant 3). A tool request is converted into
-/// a [ToolCall]; arguments that fail `jsonDecode` or are not a JSON object
-/// become [ToolCall.malformed] rather than an exception.
-///
-/// A non-2xx reply becomes [LlmUnavailable] with the HTTP status only; a
-/// transport failure becomes [LlmUnavailable] with a `null` status. Response
-/// bodies and keys are never logged, and an error message never carries a
-/// response body.
+/// This is the only adapter: `genkit_openai` 1.0.0 rethrows the raw
+/// `jsonDecode` error on invalid JSON tool arguments instead of surfacing
+/// [ToolCall.malformed], and it injects a default schema for schema-less tools
+/// (ADR-0019). The client therefore parses
+/// `choices[0].message.tool_calls[].function.arguments` itself and turns
+/// arguments that fail `jsonDecode` or are not a JSON object into
+/// [ToolCall.malformed] rather than throwing.
 final class LlamaCppLlm implements LlmPort {
-  /// Creates the port for [options] and [capabilities].
-  new({required this.options, this.capabilities}) {
-    final plugin = openAI(
-      // `genkit_openai` refuses to build a client without a key (it throws
-      // `invalidArgument` even for a keyless llama-server). A keyless server
-      // ignores the header, so a fixed placeholder is sent when none is set.
-      apiKey: options.apiKey ?? 'llama-cpp',
-      baseUrl: options.baseUrl,
-    );
-    _ai = gk.Genkit(plugins: [plugin], promptDir: null, isDevEnv: false);
-    _model = openAI.model(options.model);
-  }
+  /// Creates the port for [options].
+  ///
+  /// [options] already carries the capabilities the probe declared, so the port
+  /// keeps no separate copy: a stale copy could drift from the run's declared
+  /// capabilities.
+  new({required this.options}) : _client = http.Client();
 
   /// The normalized provider options.
   final LlamaCppOptions options;
 
-  /// The capabilities declared by the probe.
-  final LlmCapabilities? capabilities;
-
-  late final gk.Genkit _ai;
-  late final gk.ModelRef<OpenAIChatOptions> _model;
+  final http.Client _client;
 
   @override
   Future<Turn> complete({
@@ -52,225 +38,204 @@ final class LlamaCppLlm implements LlmPort {
     required List<ToolSpec> tools,
     required int maxOutputTokens,
   }) async {
-    final genkitMessages = messages.map(_toGenkitMessage).toList();
+    final uri = Uri.parse(options.baseUrl).resolve('chat/completions');
+    final body = _buildBody(messages, tools, maxOutputTokens);
 
-    // Inert tools: their declarations reach the model, but `returnToolRequests`
-    // keeps Genkit from ever invoking the bodies. The bodies interrupt rather
-    // than respond, so even a misconfigured loop could not execute them.
-    final inertTools = <gk.Tool<Map<String, dynamic>, dynamic>>[
-      for (final tool in tools)
-        gk.Tool<Map<String, dynamic>, dynamic>(
-          name: tool.llmName,
-          description: tool.description,
-          inputSchema: _objectSchema(tool.inputSchema),
-          fn: (input, ctx) async => gk.ToolResult.interrupt(),
-        ),
-    ];
-
-    final gk.GenerateResult<dynamic> result;
+    http.Response response;
     try {
-      result = await _ai.generate<dynamic, OpenAIChatOptions>(
-        model: _model,
-        messages: genkitMessages,
-        tools: inertTools.isEmpty ? null : inertTools,
-        returnToolRequests: true,
-        config: OpenAIChatOptions(maxTokens: maxOutputTokens),
-      );
-    } on gk.GenkitException catch (error) {
-      // `status` carries the HTTP code; `message`/`details` may quote the
-      // prompt or the response body, so only the status crosses the boundary.
-      throw LlmUnavailable(
-        error.status.httpStatus,
-        'llama-server request failed',
-      );
-    } catch (error) {
-      // `genkit_openai` rethrows the raw `openai_dart`/`jsonDecode` error for
-      // some failures (a 500 status, or an arguments field that is not valid
-      // JSON). Those carry the response body, so the message is fixed here.
-      throw LlmUnavailable(null, _classify(error));
+      response = await _client
+          .post(
+            uri,
+            headers: {
+              if (options.apiKey != null)
+                'authorization': 'Bearer ${options.apiKey}',
+              'content-type': 'application/json',
+            },
+            body: jsonEncode(body),
+          )
+          .timeout(options.timeout);
+    } on Exception catch (error) {
+      // The message never echoes the request URI: a base URL can carry
+      // `user:pass@` credentials, and those must not reach an error or a log
+      // (AGENTS.md, providers/: server response bodies must not reach logs).
+      throw LlmUnavailable(null, _transportMessage(error));
     }
 
-    // Genkit 1.0 resolves a model failure to a failed `GenerateResult` rather
-    // than throwing: the structured `error` rides on `result.error`, while
-    // the raw cause (the `openai_dart` exception, with the real HTTP status)
-    // rides on `result.cause`. The body is never read.
-    final failure = result.error;
-    if (failure != null) {
+    if (response.statusCode < 200 || response.statusCode >= 300) {
       throw LlmUnavailable(
-        _statusFromCause(result.cause) ?? _statusFromWireName(failure.status),
-        'llama-server request failed',
+        response.statusCode,
+        'llama-server returned HTTP ${response.statusCode}',
       );
     }
 
-    return _toTurn(result);
+    return _parseResponse(response.body);
   }
 
-  /// A JSON Schema for the tool input: the declared [schema] when present,
-  /// otherwise an open object schema (Q22: a schema-less tool accepts any
-  /// arguments).
-  SchemanticType<Map<String, dynamic>> _objectSchema(
-    Map<String, Object?>? schema,
+  Map<String, Object?> _buildBody(
+    List<Message> messages,
+    List<ToolSpec> tools,
+    int maxOutputTokens,
   ) {
-    if (schema == null) {
-      return SchemanticType.map<String, dynamic>(
-        SchemanticType.string(),
-        SchemanticType.dynamicSchema(),
-      );
+    final wireMessages = <Map<String, Object?>>[];
+    for (final message in messages) {
+      switch (message.role) {
+        case MessageRole.system:
+          wireMessages.add({'role': 'system', 'content': message.text});
+        case MessageRole.user:
+          wireMessages.add({'role': 'user', 'content': message.text});
+        case MessageRole.assistant:
+          final entry = <String, Object?>{
+            'role': 'assistant',
+            'content': message.text,
+          };
+          if (message.toolCalls.isNotEmpty) {
+            entry['tool_calls'] = [
+              for (final call in message.toolCalls)
+                {
+                  'id': call.id,
+                  'type': 'function',
+                  'function': {
+                    'name': call.name,
+                    'arguments': jsonEncode(call.input),
+                  },
+                },
+            ];
+          }
+          wireMessages.add(entry);
+        case MessageRole.tool:
+          for (final result in message.toolResults) {
+            wireMessages.add({
+              'role': 'tool',
+              'tool_call_id': result.callId,
+              'content': result.isOk
+                  ? jsonEncode(result.value)
+                  : jsonEncode({'error': result.errorCode}),
+            });
+          }
+      }
     }
-    // A raw schema map is wrapped verbatim so the model sees the declared
-    // shape as given.
-    return SchemanticType.from<Map<String, dynamic>>(
-      jsonSchema: schema,
-      parse: (Object? json) {
-        if (json is Map<String, dynamic>) return json;
-        if (json is Map) return json.cast<String, dynamic>();
-        throw FormatException(
-          'expected a JSON object, got ${json.runtimeType}',
-        );
-      },
-    );
+
+    return {
+      'model': options.model,
+      'messages': wireMessages,
+      'max_tokens': maxOutputTokens,
+      if (tools.isNotEmpty)
+        'tools': [
+          for (final tool in tools)
+            {
+              'type': 'function',
+              'function': {
+                'name': tool.llmName,
+                'description': tool.description,
+                if (tool.inputSchema != null) 'parameters': tool.inputSchema,
+              },
+            },
+        ],
+    };
   }
 
-  /// Maps an arbitrary throw from the `genkit_openai` path to a bounded
-  /// message, using the HTTP status when the error is a recognizable API error.
-  String _classify(Object error) {
-    final status = _statusFromCause(error);
-    if (status != null) {
-      return 'llama-server returned HTTP $status';
+  Turn _parseResponse(String body) {
+    final decoded = _decodeObject(body);
+    final choices = decoded?['choices'];
+    if (choices is! List || choices.isEmpty) {
+      throw const LlmUnavailable(200, 'response carried no choices');
     }
-    return 'llama-server request failed';
-  }
-
-  /// Reads the HTTP status off an `openai_dart` API exception, or `null`.
-  ///
-  /// `openai_dart` exposes `statusCode` on its API exception type. It is read
-  /// dynamically to avoid a compile-time dependency on that package.
-  int? _statusFromCause(Object? cause) {
-    if (cause == null) return null;
-    int? statusCode;
-    try {
-      final raw = (cause as dynamic).statusCode;
-      if (raw is int) statusCode = raw;
-    } on NoSuchMethodError {
-      statusCode = null;
-    } on TypeError {
-      statusCode = null;
+    final first = choices.first;
+    if (first is! Map) {
+      throw const LlmUnavailable(200, 'response carried no choices');
     }
-    return statusCode;
-  }
+    final message = first['message'];
+    if (message is! Map) {
+      throw const LlmUnavailable(200, 'response carried no message');
+    }
 
-  /// Maps a Genkit wire status name to the closest HTTP status.
-  int? _statusFromWireName(String? wireName) {
-    if (wireName == null) return null;
-    final status = gk.StatusCode.fromWireName(wireName);
-    return status == gk.StatusCode.unknown ? null : status.httpStatus;
-  }
-
-  Turn _toTurn(gk.GenerateResult<dynamic> result) {
-    final content = result.message?.content ?? const <gk.Part>[];
-    final text = content
-        .where((part) => part.isText)
-        .map((part) => part.text ?? '')
-        .join();
+    final text = message['content'] is String
+        ? message['content']! as String
+        : '';
 
     final toolCalls = <ToolCall>[];
-    for (final part in content) {
-      if (!part.isToolRequest) continue;
-      final request = part.toolRequestPart?.toolRequest;
-      if (request == null) continue;
-      final id = request.ref ?? '';
-      final name = request.name;
-      toolCalls.add(_toolCall(id, name, request.input));
+    final rawCalls = message['tool_calls'];
+    if (rawCalls is List) {
+      for (final raw in rawCalls) {
+        if (raw is! Map) continue;
+        final function = raw['function'];
+        if (function is! Map) continue;
+        final id = raw['id'] is String ? raw['id']! as String : '';
+        final name = function['name'] is String
+            ? function['name']! as String
+            : '';
+        toolCalls.add(_parseToolCall(id, name, function['arguments']));
+      }
     }
 
     final assistant = Message.assistant(text, toolCalls);
     return Turn(text, assistant, toolCalls);
   }
 
-  ToolCall _toolCall(String id, String name, Object? input) {
-    if (input is Map) {
+  ToolCall _parseToolCall(String id, String name, Object? arguments) {
+    if (arguments is Map) {
       return ToolCall.valid(
         id: id,
         name: name,
-        input: input.cast<String, Object?>(),
+        input: arguments.cast<String, Object?>(),
       );
     }
-    if (input == null) {
+    if (arguments is! String) {
+      return ToolCall.malformed(
+        id: id,
+        name: name,
+        reason: 'arguments are not a JSON string or object',
+      );
+    }
+    if (arguments.isEmpty) {
       return ToolCall.valid(id: id, name: name, input: const {});
     }
-    if (input is String) {
-      final Object? decoded;
-      try {
-        decoded = jsonDecode(input);
-      } on FormatException {
-        return ToolCall.malformed(
-          id: id,
-          name: name,
-          reason: 'arguments are not valid JSON',
-        );
-      }
-      if (decoded is! Map) {
-        return ToolCall.malformed(
-          id: id,
-          name: name,
-          reason: 'arguments are not a JSON object',
-        );
-      }
-      return ToolCall.valid(
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(arguments);
+    } on FormatException {
+      return ToolCall.malformed(
         id: id,
         name: name,
-        input: decoded.cast<String, Object?>(),
+        reason: 'arguments are not valid JSON',
       );
     }
-    return ToolCall.malformed(
+    if (decoded is! Map) {
+      return ToolCall.malformed(
+        id: id,
+        name: name,
+        reason: 'arguments are not a JSON object',
+      );
+    }
+    return ToolCall.valid(
       id: id,
       name: name,
-      reason: 'arguments are not a JSON object',
+      input: decoded.cast<String, Object?>(),
     );
   }
 
-  gk.Message _toGenkitMessage(Message message) {
-    switch (message.role) {
-      case MessageRole.system:
-        return gk.Message(
-          role: gk.Role.system,
-          content: [gk.TextPart(text: message.text)],
-        );
-      case MessageRole.user:
-        return gk.Message(
-          role: gk.Role.user,
-          content: [gk.TextPart(text: message.text)],
-        );
-      case MessageRole.assistant:
-        final content = <gk.Part>[gk.TextPart(text: message.text)];
-        for (final call in message.toolCalls) {
-          content.add(
-            gk.ToolRequestPart(
-              toolRequest: gk.ToolRequest(
-                ref: call.id,
-                name: call.name,
-                input: call.input,
-              ),
-            ),
-          );
-        }
-        return gk.Message(role: gk.Role.model, content: content);
-      case MessageRole.tool:
-        final content = <gk.Part>[
-          for (final result in message.toolResults)
-            gk.ToolResponsePart(
-              toolResponse: gk.ToolResponse(
-                ref: result.callId,
-                // Genkit requires a non-empty name; llama-server matches the
-                // reply by call id, so the id doubles as the name.
-                name: result.callId,
-                output: result.isOk
-                    ? result.value
-                    : <String, Object?>{'error': result.errorCode},
-              ),
-            ),
-        ];
-        return gk.Message(role: gk.Role.tool, content: content);
+  Map<String, Object?>? _decodeObject(String body) {
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, Object?>) return decoded;
+      if (decoded is Map) return decoded.cast<String, Object?>();
+      return null;
+    } on FormatException {
+      return null;
     }
   }
+
+  /// A bounded transport message that never carries the request URI.
+  ///
+  /// `http.Client` failures stringify the full `ClientException`, which embeds
+  /// `uri=http://host/v1/chat/completions`. That URI can carry credentials or a
+  /// key, so the cause is never interpolated: the message is a fixed, secret-free
+  /// string (AGENTS.md, `providers/`: keys and secrets never appear in errors;
+  /// providers.md Q23). A `SocketException` name is kept because it is the only
+  /// detail that helps diagnose a transport failure, and it cannot carry the
+  /// request URI.
+  String _transportMessage(Object error) => switch (error) {
+    SocketException() => 'llama-server request failed: socket error',
+    _ => 'llama-server request failed',
+  };
 }

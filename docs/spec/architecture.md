@@ -23,7 +23,7 @@ Minimum versions as of the date of writing. Check the current version on pub.dev
 | genkit_a2ui | not used in the MVP | outside the MVP |
 | dotprompt | `^2.0.0` | `.prompt` files with JSON Schema in the frontmatter |
 | handlebars_dart | through dotprompt | no separate dependency unless custom helpers are needed |
-| schemantic | `^1.0.0` | stable release; matches genkit (`genkit: ^1.0.0`) |
+| schemantic | `^1.0.0` | stable release; matches genkit (`genkit: ^1.0.0`); used by `packages/contracts` and `runtime/core`, not by providers |
 | hive_ce | current | `Box` and `LazyBox` |
 | shelf | current | HTTP and HTTPS through `securityContext` [VERIFY signature] |
 | injectable | current | DI in `core` and `app`, environments `dev`, `prod`, `test` |
@@ -168,7 +168,7 @@ Generated files (`*.g.dart`, `*.schemantic.dart`, `*.config.dart`) are never edi
 | `packages/prompts` | dotprompt | core, Flutter |
 | `packages/design` | yaml and codegen dependencies | everything else |
 | `packages/testkit` | provider_api, contracts, test | core |
-| `providers/*` | provider_api, genkit, genkit_openai, http | core, sdk |
+| `providers/*` | provider_api, http | core, sdk, genkit, schemantic |
 | `extensions/*` | sdk, contracts, and their own dependencies | core, client, provider_api, genkit, bin |
 | `runtime/core` | contracts, provider_api, sdk, prompts, bloc, bloc_concurrency, genkit*, hive_ce, injectable, get_it, shelf, yaml, schemantic | Flutter, client, cli, bin, extensions |
 | `runtime/cli` | contracts, client | core |

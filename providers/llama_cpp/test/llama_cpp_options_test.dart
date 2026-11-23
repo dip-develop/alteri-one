@@ -88,12 +88,45 @@ void main() {
       );
     });
 
-    test(r'leaves a literal ${env:} reference untouched', () {
+    test(r'rejects a literal ${env:} reference in api_key', () {
+      // An unresolved reference means the environment variable was not set;
+      // it must fail loudly instead of being sent as a bearer key (N5).
+      expect(
+        () => LlamaCppOptions.fromMap(const {
+          'base_url': 'http://127.0.0.1:8080/v1',
+          'api_key': r'${env:ALTERIONE_LLAMA_KEY}',
+        }),
+        throwsA(isA<LlamaCppConfigException>()),
+      );
+    });
+
+    test(r'keeps a key that merely contains ${env:} text', () {
+      // Only a value that is exactly one reference is rejected: a literal key
+      // that happens to contain the characters is not.
       final options = LlamaCppOptions.fromMap(const {
         'base_url': 'http://127.0.0.1:8080/v1',
-        'api_key': r'${env:ALTERIONE_LLAMA_KEY}',
+        'api_key': r'prefix-${env:ALTERIONE_LLAMA_KEY}-suffix',
       });
-      expect(options.apiKey, r'${env:ALTERIONE_LLAMA_KEY}');
+      expect(options.apiKey, r'prefix-${env:ALTERIONE_LLAMA_KEY}-suffix');
+    });
+
+    test('rejects an unknown key inside retry', () {
+      expect(
+        () => LlamaCppOptions.fromMap(const {
+          'base_url': 'http://127.0.0.1:8080/v1',
+          'retry': {'unexpected': 1},
+        }),
+        throwsA(isA<LlamaCppConfigException>()),
+      );
+    });
+
+    test('rejects base_url credentials', () {
+      expect(
+        () => LlamaCppOptions.fromMap(const {
+          'base_url': 'http://user:pass@127.0.0.1:8080/v1',
+        }),
+        throwsA(isA<LlamaCppConfigException>()),
+      );
     });
 
     test('parses capabilities.native_tools', () {

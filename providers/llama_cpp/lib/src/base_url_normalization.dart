@@ -5,6 +5,8 @@
 /// section 12.3).
 library;
 
+import 'llama_cpp_errors.dart';
+
 /// Ensures [raw] has a trailing slash so `Uri.resolve` keeps the `/v1` prefix.
 ///
 /// `Uri.parse('http://host/v1').resolve('chat/completions')` drops the `v1`
@@ -14,9 +16,19 @@ library;
 /// because they would otherwise corrupt the join; the LlamaPulse base URL is
 /// always scheme, authority and path.
 ///
+/// Throws [LlamaCppConfigException] when [raw] carries `userInfo`
+/// (`http://user:pass@host/v1`): credentials in the URL would otherwise reach
+/// a request, an error message or a log (N5). Use the `api_key` option or
+/// `${env:...}` for a key instead.
+///
 /// The returned value always ends with `/`.
 String normalizeBaseUrl(String raw) {
   final base = Uri.parse(raw);
+  if (base.userInfo.isNotEmpty) {
+    throw const LlamaCppConfigException(
+      'base_url must not contain credentials; use the api_key option instead',
+    );
+  }
   final path = base.path.isEmpty
       ? '/'
       : (base.path.endsWith('/') ? base.path : '${base.path}/');
@@ -24,7 +36,6 @@ String normalizeBaseUrl(String raw) {
   // would leave a bare `?#`, so the fields are dropped explicitly.
   return Uri(
     scheme: base.scheme,
-    userInfo: base.userInfo,
     host: base.host,
     port: base.hasPort ? base.port : null,
     path: path,

@@ -125,12 +125,9 @@ class ArchChecker {
       case 'testkit':
         return dep == 'test';
       case 'providers':
-        // `schemantic` is the type-schema foundation every Genkit plugin and
-        // `Tool` input schema is built on; providers depend on it directly the
-        // same way `genkit` does.
-        return dep.startsWith('genkit') ||
-            dep.startsWith('http') ||
-            dep == 'schemantic';
+        // A provider speaks to a server over HTTP; it depends on `http` and
+        // nothing else outside the workspace (docs/spec/architecture.md §6).
+        return dep.startsWith('http');
       case 'extensions':
         return !dep.startsWith('genkit');
       case 'core':

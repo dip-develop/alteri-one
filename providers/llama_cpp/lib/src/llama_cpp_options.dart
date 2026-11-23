@@ -29,7 +29,9 @@ final class LlamaCppOptions {
   ///
   /// The map is the provider option subtree of the configuration, already
   /// passed through `${env:NAME}` substitution by the core. A literal
-  /// `${env:...}` reference that survived substitution stays literal.
+  /// `${env:...}` reference that survived substitution means the environment
+  /// variable was unset; it is rejected instead of being sent to the server as
+  /// a bearer key (N5).
   ///
   /// Throws [LlamaCppConfigException] when `base_url` is missing, when an
   /// option is unknown, or when a value is of the wrong shape or range.
@@ -69,6 +71,15 @@ final class LlamaCppOptions {
       throw const LlamaCppConfigException('api_key must be a string');
     }
     final apiKey = (rawKey as String?)?.trim();
+    if (apiKey != null && _isUnresolvedEnvReference(apiKey)) {
+      // An unresolved `${env:NAME}` would otherwise be sent verbatim as a
+      // bearer key: a loud configuration error is better than a confusing
+      // `401` from the server (N5).
+      throw const LlamaCppConfigException(
+        'api_key still references an environment variable; the variable is '
+        'not set or was not substituted',
+      );
+    }
     final normalizedKey = (apiKey == null || apiKey.isEmpty) ? null : apiKey;
 
     final rawTimeout = json['timeout_seconds'];
@@ -87,6 +98,13 @@ final class LlamaCppOptions {
     if (retry != null) {
       if (retry is! Map) {
         throw const LlamaCppConfigException('retry must be a map');
+      }
+      for (final key in retry.keys) {
+        if (key != 'attempts') {
+          // Consistent with the top-level unknown-key rejection: a typo in
+          // `retry` must fail loudly, not be ignored (N1).
+          throw LlamaCppConfigException('unknown retry option: $key');
+        }
       }
       final attempts = retry['attempts'];
       if (attempts != null) {
@@ -168,6 +186,11 @@ final class LlamaCppOptions {
   final Duration timeout;
 
   /// Number of retry attempts for a model call.
+  ///
+  /// Parsed and validated here but not acted on: the retry policy lives in the
+  /// core `RetryingLlm` decorator (`docs/spec/providers.md` §12.2), which will
+  /// consume this value in M4. Do not implement a retry loop in the provider
+  /// (N6).
   final int retryAttempts;
 
   /// Native-tool override from `capabilities.native_tools`.
@@ -179,4 +202,17 @@ final class LlamaCppOptions {
 
   /// Whether the model may emit several tool calls in one reply.
   final bool parallelToolCalls;
+}
+
+/// Whether [value] still carries an unsubstituted `${env:NAME}` reference.
+///
+/// The core substitutes `${env:NAME}` before the provider sees the options, so
+/// a surviving reference means the environment variable was not set. The check
+/// is anchored: only a value that is exactly one reference is rejected, so a
+/// literal key that merely contains the characters is not.
+bool _isUnresolvedEnvReference(String value) {
+  final trimmed = value.trim();
+  if (!trimmed.startsWith('\${env:')) return false;
+  if (!trimmed.endsWith('}')) return false;
+  return !trimmed.substring(6, trimmed.length - 1).contains('}');
 }
