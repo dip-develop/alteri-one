@@ -125,7 +125,9 @@ class ArchChecker {
       case 'testkit':
         return dep == 'test';
       case 'providers':
-        return dep.startsWith('genkit') || dep.startsWith('http');
+        // A provider speaks to a server over HTTP; it depends on `http` and
+        // nothing else outside the workspace (docs/spec/architecture.md §6).
+        return dep.startsWith('http');
       case 'extensions':
         return !dep.startsWith('genkit');
       case 'core':

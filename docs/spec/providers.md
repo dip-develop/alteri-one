@@ -46,18 +46,28 @@ LlmPort wrap(LlmPort raw, ModelConfig c) => RedactingLlm(
 
 ## 12.3 First provider: llama.cpp
 
-Package: `providers/llama_cpp`. Registered as `kind: llama_cpp` (ADR-0018).
+Package: `providers/llama_cpp`. Registered as `kind: llama_cpp` (ADR-0018, as
+amended by [ADR-0019](../adr/0019-llama-cpp-http-only-adapter.md)).
 
-**Implementation.** The provider is HTTP-only in the sense that it binds no
-`llama-server` wrapper package (`llama_pulse_core` is not a dependency): it talks
-to LlamaPulse's OpenAI-compatible API at `/v1` (default
-`http://127.0.0.1:8080/v1`). The adapter that speaks that HTTP surface is
-`genkit_openai`, which is the primary path, with `baseUrl` pointing at
-`llama-server`. The fallback is a custom HTTP client on `package:http` behind the
-same `LlmPort`. Switch to the fallback if the conformance suite (section 12.4)
-shows that `genkit_openai` hides raw tool arguments or cannot handle invalid
-JSON. The decision is recorded in
-[ADR-0018](../adr/0018-llm-provider-contract-and-llamapulse-adapter.md).
+**Implementation.** The provider is HTTP-only and has a single adapter: a custom
+HTTP client on `package:http` behind one `LlmPort`. It binds no `llama-server`
+wrapper package (`llama_pulse_core` is not a dependency) and no longer depends
+on `genkit` or `genkit_openai`: it talks to LlamaPulse's OpenAI-compatible API at
+`/v1` (default `http://127.0.0.1:8080/v1`).
+
+The `genkit_openai` path was dropped (ADR-0019, superseding ADR-0018 decision
+3). Its converters `jsonDecode` the tool arguments and so rethrow the raw
+`jsonDecode` error instead of surfacing `ToolCall.malformed`, which breaks the
+conformance discriminator (section 12.4, scenario 3), and it injects a default
+`parameters` schema for a schema-less tool, contrary to Q22. The `package:http`
+client parses `choices[0].message.tool_calls[].function.arguments` itself and
+turns arguments that are not valid JSON or not a JSON object into
+`ToolCall.malformed`.
+
+**Context endpoints are served at the server root.** `health` and `props` are
+requested at `/health` and `/props`, not under `/v1`; only `models` and
+`chat/completions` live under `/v1`. `base_url` therefore keeps the `/v1`
+prefix, and `probe` resolves the root endpoints with `../` from that base.
 
 **Configuration (`alterione.yaml`):**
 
@@ -79,9 +89,9 @@ models:
 Normalizing `base_url` is required. `Uri.resolve('chat/completions')` against `http://host/v1` without a trailing slash produces `http://host/chat/completions` and drops `/v1`.
 
 **What `probe` checks:**
-- `GET /health`: 200 when the server is ready, 503 while the model is loading. The endpoint is public and needs no key.
-- `GET /props`: context size and build parameters.
-- `GET /v1/models`: the model name.
+- `GET /health` (server root): 200 when the server is ready, 503 while the model is loading. The endpoint is public and needs no key.
+- `GET /props` (server root): context size and build parameters. `default_generation_settings.n_ctx` is preferred; `meta.n_ctx_train` from `GET /v1/models` is only a fallback.
+- `GET /v1/models`: the model name, and `meta.n_ctx_train` as the context fallback.
 - Native tools: a request with `tools` must produce a tool call. The model's chat template must support tools.
 
 **`llama-server` flags (checked at startup):**
@@ -100,7 +110,7 @@ never a response body or a secret (Q23 resolved, ADR-0018).
 
 **Schema-less tools.** When `ToolSpec.inputSchema == null` the provider sends no
 `parameters` member and accepts any arguments; the server then applies its own
-default for the argument schema (Q22 resolved, ADR-0018).
+default for the argument schema (Q22 resolved, ADR-0018, kept by ADR-0019).
 
 ## 12.4 Conformance suite
 
