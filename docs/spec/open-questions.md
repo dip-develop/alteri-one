@@ -32,7 +32,7 @@ Added during the M0 scaffold (2026-10-17); Q7–Q18 added during M2 (2026-11-08,
 | Q22 | ~~A schema-less `ToolSpec.inputSchema == null` gives the provider no `parameters` to send; the server then applies its own default for the argument schema.~~ Resolved 2026-11-22: the provider sends no `parameters` member and accepts any arguments; the server applies its own default for the argument schema. See [ADR-0018](../adr/0018-llm-provider-contract-and-llamapulse-adapter.md) and `docs/spec/providers.md` §12.3. | resolved |
 | Q23 | ~~`LlmUnavailable` is logged and journalled, and a local server's response body can echo fragments of the prompt.~~ Resolved 2026-11-22: `LlmUnavailable` carries the HTTP status only, never a response body or a secret. See [ADR-0018](../adr/0018-llm-provider-contract-and-llamapulse-adapter.md) and `docs/spec/providers.md` §12.3. | resolved |
 
-Previously none were open. Decisions are recorded in ADR-0005, ADR-0006, ADR-0009, ADR-0012 (Q13), ADR-0015 (Q9), ADR-0016 (Q12, Q17, Q18), ADR-0017 (Q8) and ADR-0018 (Q19, Q20, Q22, Q23).
+Previously none were open. Decisions are recorded in ADR-0005, ADR-0006, ADR-0009, ADR-0012 (Q13), ADR-0015 (Q9), ADR-0016 (Q12, Q17, Q18), ADR-0017 (Q8), ADR-0018 (Q19, Q20, Q22, Q23) and ADR-0019 (T3, T4).
 
 ## 25.2 Technical checks [VERIFY]
 
@@ -42,8 +42,8 @@ T1 is closed (ADR-0007). T14 is closed: the `RunBloc` suite in `alteri_one_core`
 |---|---|---|---|
 | T21 | bloc 9 applies each `on<E>()` transformer as a separate subscription: events of different types are never ordered against each other, so per-handler `sequential()` does not make a multi-handler bloc sequential. `Bloc.transformer` (static, set once in the composition root via `applyBlocDefaults()`) is the workspace default; ordering across types additionally requires one handler per bloc (an exhaustive `switch` over the sealed event type). Section 8.10 rule 4 should be rewritten accordingly. | M1 (done, record as ADR input) | — |
 | T2 | schemantic 1.0.0 annotations on SDK 3.13 — partially resolved: spike passed (docs/spikes/schemantic_spike); keep [VERIFY] for edge cases | M0 | write the JSON Schema by hand for the problematic type |
-| T3 | `returnToolRequests` together with `genkit_openai` and `llama-server` | M3 | a custom HTTP client behind the same port |
-| T4 | `genkit_openai` behavior with invalid tool arguments | M3 | a custom client that handles `malformed` |
+| T3 | ~~`returnToolRequests` together with `genkit_openai` and `llama-server`~~ Resolved 2026-11-23: `genkit_openai` was dropped; the provider's single HTTP client parses tool calls itself, so the question no longer applies (ADR-0019). | M3 | done (moot) |
+| T4 | ~~`genkit_openai` behavior with invalid tool arguments~~ Resolved 2026-11-23: with `genkit_openai` gone, invalid arguments are handled by the provider's HTTP client, which turns them into `ToolCall.malformed` (ADR-0019). | M3 | done (moot) |
 | T5 | `response_format` with JSON Schema on the `llama-server` build — open: llama-server not installed; environment gap recorded (docs/spikes/m0-environment.md) | M0, M3 | structured output through a prompt and parsing |
 | T6 | the complete list of `llama-server` flags for tools and the web UI — open: llama-server not installed; environment gap recorded (docs/spikes/m0-environment.md) | M0 | `doctor` blocks work until the server is configured |
 | T7 | durability guarantees of `flush` in Hive CE (fsync) — closed: flush sufficient; spike test passed (docs/spikes/m0-environment.md) | M0 | done |

@@ -46,7 +46,8 @@ LlmPort wrap(LlmPort raw, ModelConfig c) => RedactingLlm(
 
 ## 12.3 First provider: llama.cpp
 
-Package: `providers/llama_cpp`. Registered as `kind: llama_cpp` (ADR-0018).
+Package: `providers/llama_cpp`. Registered as `kind: llama_cpp` (ADR-0018, as
+amended by [ADR-0019](../adr/0019-llama-cpp-http-only-adapter.md)).
 
 **Implementation.** The provider is HTTP-only and has a single adapter: a custom
 HTTP client on `package:http` behind one `LlmPort`. It binds no `llama-server`

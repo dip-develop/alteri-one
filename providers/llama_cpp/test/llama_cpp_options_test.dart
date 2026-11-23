@@ -5,6 +5,25 @@ import 'package:alteri_one_provider_llama_cpp/alteri_one_provider_llama_cpp.dart
 import 'package:test/test.dart';
 
 void main() {
+  group('LlamaCppProvider.optionsSchema', () {
+    // `additionalProperties: false` is what makes `LlamaCppOptions.fromMap`
+    // reject a typo'd key instead of silently ignoring it (N1). The nested
+    // `retry` and `capabilities` objects need it too: an unknown key inside
+    // either must fail, not be dropped.
+    test('closes the top level, retry, and capabilities', () {
+      const provider = LlamaCppProvider();
+      final schema = provider.optionsSchema;
+
+      expect(schema['additionalProperties'], isFalse);
+
+      final retry = (schema['properties'] as Map)['retry'] as Map;
+      expect(retry['additionalProperties'], isFalse);
+
+      final capabilities = (schema['properties'] as Map)['capabilities'] as Map;
+      expect(capabilities['additionalProperties'], isFalse);
+    });
+  });
+
   group('LlamaCppOptions.fromMap', () {
     test('requires base_url', () {
       expect(
