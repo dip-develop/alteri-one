@@ -112,6 +112,14 @@ never a response body or a secret (Q23 resolved, ADR-0018).
 `parameters` member and accepts any arguments; the server then applies its own
 default for the argument schema (Q22 resolved, ADR-0018, kept by ADR-0019).
 
+[ADR-0020](../adr/0020-m3-part-2-llamacpp-conformance-acceptance.md) is the M3
+part-2 acceptance record for the provider. The fake-server run in every PR
+(`providers/llama_cpp/test/conformance_test.dart`) is the authoritative
+conformance check (section 12.4). Confirmation against a real `llama-server` is
+a pending manual gate before release, per
+`docs/spikes/m3-llamapulse-conformance.md`; T5 (`response_format` with a JSON
+Schema) is still open there.
+
 ## 12.4 Conformance suite
 
 `alteri_one_testkit` contains scenarios that run against any provider:
