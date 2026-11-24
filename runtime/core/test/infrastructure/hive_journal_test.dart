@@ -282,5 +282,107 @@ void main() {
       final next = await journal.modelStarted(run);
       expect(next, seq + 1);
     });
+
+    test('run lifecycle records round-trip with their payload', () async {
+      final run = RunId('run-life');
+      final started = await journal.runStarted(run, 'chat');
+      final finished = await journal.runFinished(run, 'completed', 'all done');
+
+      final records = await journal.lifecycleAfter(0);
+      expect(records, hasLength(2));
+      expect(records.first.seq, started);
+      expect(records.first.event, LifecycleEvent.runStarted);
+      expect(records.first.runId, run);
+      expect(records.first.profile, 'chat');
+      expect(records.last.seq, finished);
+      expect(records.last.event, LifecycleEvent.runFinished);
+      expect(records.last.state, 'completed');
+      expect(records.last.result, 'all done');
+      expect(records.last.profile, isNull);
+    });
+
+    test('lifecycle, tool, and model records share one seq counter', () async {
+      final run = RunId('run-shared');
+      final started = await journal.runStarted(run, 'task');
+      final model = await journal.modelStarted(run);
+      final tool = await journal.started(run, 'ext__a', Risk.read);
+      final finished = await journal.runFinished(run, 'completed', null);
+      expect([started, model, tool, finished], [1, 2, 3, 4]);
+
+      // The three kinds filter apart, so a run projection is unaffected.
+      expect((await journal.forRun(run)).map((i) => i.seq), [tool]);
+      expect((await journal.modelCallsForRun(run)).map((c) => c.seq), [model]);
+      expect((await journal.lifecycleAfter(0)).map((r) => r.seq), [
+        started,
+        finished,
+      ]);
+    });
+
+    test(
+      'lifecycleAfter returns only records after since, in seq order',
+      () async {
+        final first = RunId('run-after-a');
+        final second = RunId('run-after-b');
+        final s1 = await journal.runStarted(first, 'chat');
+        await journal.runFinished(first, 'completed', null);
+        final s2 = await journal.runStarted(second, 'task');
+
+        final afterFirst = await journal.lifecycleAfter(s1);
+        expect(afterFirst, hasLength(2));
+        expect(afterFirst.map((r) => r.seq), [s1 + 1, s2]);
+        expect(afterFirst.map((r) => r.runId), [first, second]);
+
+        expect(await journal.lifecycleAfter(s2), isEmpty);
+        // A `since` past the end is empty, not an error.
+        expect(await journal.lifecycleAfter(s2 + 100), isEmpty);
+      },
+    );
+
+    test('lifecycle records survive close and reopen', () async {
+      final run = RunId('run-life-reopen');
+      final started = await journal.runStarted(run, 'chat');
+      final finished = await journal.runFinished(run, 'failed', null);
+      await journal.close();
+      journal = await HiveJournal.open(dir.path);
+
+      final records = await journal.lifecycleAfter(0);
+      expect(records.map((r) => r.seq), [started, finished]);
+      expect(records.last.state, 'failed');
+      // The counter continues past the lifecycle records.
+      final next = await journal.runStarted(run, 'chat');
+      expect(next, finished + 1);
+    });
+
+    test('approval lifecycle records carry the approval payload', () async {
+      final run = RunId('run-appr-life');
+      final requested = await journal.approvalRequested(
+        run,
+        ApprovalId('run-appr-life:0'),
+        'ext__save',
+        DateTime.utc(2026, 1, 1, 12),
+      );
+      final resolved = await journal.approvalResolved(
+        ApprovalId('run-appr-life:0'),
+        granted: true,
+        reason: 'granted',
+      );
+
+      final records = await journal.lifecycleAfter(0);
+      expect(records.map((r) => r.seq), [requested, resolved]);
+      final request = records.first;
+      expect(request.event, LifecycleEvent.approvalRequested);
+      expect(request.approvalId, ApprovalId('run-appr-life:0'));
+      expect(request.tool, 'ext__save');
+      final decision = records.last;
+      expect(decision.event, LifecycleEvent.approvalResolved);
+      expect(decision.approvalId, ApprovalId('run-appr-life:0'));
+      expect(decision.granted, isTrue);
+      // The approvals box record is still written alongside the lifecycle one.
+      final approval = await journal.approvalById(
+        ApprovalId('run-appr-life:0'),
+      );
+      expect(approval!.granted, isTrue);
+      expect(approval.reason, 'granted');
+    });
   });
 }

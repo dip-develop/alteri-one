@@ -45,6 +45,7 @@ export 'src/domain/cancel_token.dart';
 export 'src/domain/context.dart';
 export 'src/domain/ids.dart';
 export 'src/domain/invocation.dart';
+export 'src/domain/lifecycle_record.dart';
 export 'src/domain/memory.dart';
 export 'src/domain/messages.dart';
 export 'src/domain/model_call.dart';
