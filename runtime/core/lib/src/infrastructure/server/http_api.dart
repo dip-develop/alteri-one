@@ -9,6 +9,8 @@ import 'package:alteri_one_contracts/alteri_one_contracts.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as shelf_io;
 
+import 'pairing.dart';
+
 /// The `/v1` HTTP surface of the local daemon (docs/spec/api.md, section 16).
 ///
 /// Step 1 of M4: `GET /v1/info` and `GET /v1/health`, the `Host` allowlist,
@@ -26,6 +28,13 @@ final class HttpApi {
   /// `localhost` and `127.0.0.1` (section 16.1). [runInputLimit] and
   /// [defaultLimit] are the request body limits in bytes: run input is capped
   /// at 32 KB and everything else at 256 KB (section 16.1).
+  ///
+  /// [pairing], when given, enables `POST /v1/pair` (section 16.3): the
+  /// bootstrap route that exchanges a one-time code for a device token. It is
+  /// mounted on the base router, so it is reachable without a bearer token
+  /// (a brand-new client has none yet); the daemon layers `authenticate` on the
+  /// protected routes, not on this one. When [pairing] is `null` the route is
+  /// absent and `/v1/pair` is a 404.
   // The named parameters (`serverInfo:`, `allowedHosts:`, ...) keep their
   // public names so the docs can refer to them, so they are not initializing
   // formals (docs/spec/dart-language.md, §7.12).
@@ -34,6 +43,7 @@ final class HttpApi {
     Set<String> allowedHosts = const {'localhost', '127.0.0.1'},
     int runInputLimit = _defaultRunInputLimit,
     int defaultLimit = _defaultRequestLimit,
+    PairingService? pairing,
     // ignore: prefer_initializing_formals
   }) : _serverInfo = serverInfo,
        // ignore: prefer_initializing_formals
@@ -41,7 +51,10 @@ final class HttpApi {
        // ignore: prefer_initializing_formals
        _runInputLimit = runInputLimit,
        // ignore: prefer_initializing_formals
-       _defaultLimit = defaultLimit;
+       _defaultLimit = defaultLimit,
+       // The public parameter is `pairing`, the field is `_pairing`.
+       // ignore: prefer_initializing_formals
+       _pairing = pairing;
 
   /// Body limit for run input paths, 32 KB (section 16.1).
   static const int _defaultRunInputLimit = 32 * 1024;
@@ -53,6 +66,10 @@ final class HttpApi {
   final Set<String> _allowedHosts;
   final int _runInputLimit;
   final int _defaultLimit;
+
+  /// The pairing service backing `POST /v1/pair`, or `null` when the route is
+  /// not mounted.
+  final PairingService? _pairing;
 
   /// The composed handler: host allowlist, then routing.
   Handler get handler =>
@@ -82,7 +99,8 @@ final class HttpApi {
     };
   };
 
-  /// Routes `GET /v1/info` and `GET /v1/health`; anything else is a 404.
+  /// Routes `GET /v1/info`, `GET /v1/health`, and `POST /v1/pair`; anything
+  /// else is a 404.
   ///
   /// A non-`GET` request is still read under the body limit so an oversized
   /// upload is rejected with 413 even before the resource routes exist
@@ -95,6 +113,9 @@ final class HttpApi {
     if (request.method == 'GET' && path == 'v1/health') {
       return _text(200, 'ok');
     }
+    if (request.method == 'POST' && path == 'v1/pair') {
+      return await _handlePair(request);
+    }
     if (request.method != 'GET') {
       if (await _readBody(request) == null) {
         return _text(413, 'payload too large');
@@ -102,6 +123,38 @@ final class HttpApi {
       return _text(404, 'not found');
     }
     return _text(404, 'not found');
+  }
+
+  /// Handles `POST /v1/pair`: exchanges a one-time code for a device token.
+  ///
+  /// This is the bootstrap route (section 16.2): a brand-new client has no
+  /// token, so the route is reachable without a bearer token. It is protected
+  /// only by the `Host` allowlist, the body limit, the 2-minute single-use code,
+  /// and — in M4b — a pairing rate limit (section 18.6). An absent [pairing]
+  /// service is a 404 (the route is not mounted).
+  Future<Response> _handlePair(Request request) async {
+    final pairing = _pairing;
+    if (pairing == null) {
+      return _text(404, 'not found');
+    }
+    final raw = await _readBody(request);
+    if (raw == null) {
+      return _text(413, 'payload too large');
+    }
+    final PairRequest? parsed;
+    try {
+      parsed = PairRequest.fromJson(jsonDecode(raw));
+    } on FormatException {
+      return _text(400, 'invalid_request');
+    }
+    if (parsed == null) {
+      return _text(400, 'invalid_request');
+    }
+    return switch (pairing.redeem(parsed.code)) {
+      PairingIssued(:final response) => _json(200, response.toJson()),
+      PairingCodeExpired() => _text(400, 'invalid_request'),
+      PairingCodeInvalid() => _text(400, 'invalid_request'),
+    };
   }
 
   /// Reads the request body, enforcing the limit that applies to [request].
