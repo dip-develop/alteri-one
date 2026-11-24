@@ -13,4 +13,5 @@ export 'src/agent_event.dart';
 export 'src/error_codes.dart';
 export 'src/manifest.dart';
 export 'src/risk.dart';
+export 'src/server_info.dart';
 export 'src/tool_spec.dart';

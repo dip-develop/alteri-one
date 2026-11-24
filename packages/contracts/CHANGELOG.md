@@ -4,6 +4,13 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and versions follow semver;
 `melos version` drives releases from conventional commits.
 
+## 0.2.0
+
+- **Additive change**: add `ServerInfo`, the `/v1/info` DTO carrying
+  `protocolVersion`, `sdk`, and `capabilities` (docs/spec/api.md, §16.3).
+  Generated with schemantic; the additive-only JSON shape is unchanged for
+  existing types.
+
 ## 0.1.0
 
 - **Breaking change**: the minimum Dart SDK is now `^3.14.0` (raised from `^3.13.0`).

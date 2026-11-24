@@ -121,4 +121,38 @@ void main() {
       expect(ApiErrorCode.budgetExceeded, 'budget_exceeded');
     });
   });
+
+  group('ServerInfo', () {
+    test('serializes protocol version, sdk, and capabilities', () {
+      final info = ServerInfo(
+        protocolVersion: 1,
+        sdk: '3.14.0',
+        capabilities: const ['sse'],
+      );
+      expect(info.toJson(), {
+        'protocol_version': 1,
+        'sdk': '3.14.0',
+        'capabilities': ['sse'],
+      });
+    });
+
+    test('round-trips through JSON', () {
+      final decoded = ServerInfo.fromJson(const {
+        'protocol_version': 2,
+        'sdk': '3.14.0',
+        'capabilities': ['sse', 'transcripts'],
+      });
+      expect(decoded.protocolVersion, 2);
+      expect(decoded.sdk, '3.14.0');
+      expect(decoded.capabilities, ['sse', 'transcripts']);
+    });
+
+    test('omits protocol_version when the default of 1 applies', () {
+      final info = ServerInfo(sdk: '3.14.0', capabilities: const []);
+      // A default-1 protocol version is left out so an older client that only
+      // knows `sdk` and `capabilities` still parses the document
+      // (docs/spec/api.md, section 16.5).
+      expect(info.toJson().containsKey('protocol_version'), isFalse);
+    });
+  });
 }
