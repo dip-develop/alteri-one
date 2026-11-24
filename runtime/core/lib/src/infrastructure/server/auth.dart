@@ -42,6 +42,21 @@ const String authenticatedTokenContextKey = 'alterione.auth.device';
 DeviceToken? authenticatedToken(Request request) =>
     request.context[authenticatedTokenContextKey] as DeviceToken?;
 
+/// Resolves the bearer token of [request] through [resolver], or returns `null`
+/// when the header is missing, not a `Bearer` scheme, or the token is unknown.
+///
+/// The resource routes call this for a per-route scope check: a `null` result
+/// is a 401 and a resolved [DeviceToken] without the route's scope is a 403
+/// (section 16.2). It is the same resolution [authenticate] performs, exposed
+/// so a single [HttpApi] handler can guard each route with its own scope while
+/// leaving the public routes (`/v1/info`, `/v1/health`, `/v1/pair`)
+/// unauthenticated.
+DeviceToken? resolveDevice(TokenResolver resolver, Request request) {
+  final token = _bearerToken(request.headers);
+  if (token == null) return null;
+  return resolver.resolve(token);
+}
+
 /// The response body for a 401, kept secret-free (docs/spec/api.md, 16.2).
 const String _unauthorizedBody = 'unauthorized';
 

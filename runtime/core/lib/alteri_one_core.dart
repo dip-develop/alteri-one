@@ -63,5 +63,6 @@ export 'src/infrastructure/paths.dart';
 export 'src/infrastructure/server/auth.dart';
 export 'src/infrastructure/server/http_api.dart';
 export 'src/infrastructure/server/pairing.dart';
+export 'src/infrastructure/server/routes.dart';
 export 'src/infrastructure/server/scope.dart';
 export 'src/infrastructure/server/token_store.dart';
