@@ -9,15 +9,16 @@ import 'package:hive_ce/hive.dart';
 import '../../domain/approval_record.dart';
 import '../../domain/ids.dart';
 import '../../domain/invocation.dart';
+import '../../domain/lifecycle_record.dart';
 import '../../domain/model_call.dart';
 import '../../domain/ports/journal_port.dart';
 
 /// Hive-backed implementation of [JournalPort].
 ///
-/// One `steps` box holds both tool-invocation and model-call records, told
-/// apart by a `kind` discriminator and ordered by the shared `seq` counter
-/// (docs/spec/storage.md, section 15.1). The `approvals` box holds one
-/// [ApprovalRecord] per approval request, keyed `appr:{id}`.
+/// One `steps` box holds tool-invocation, model-call, and run-lifecycle
+/// records, told apart by a `kind` discriminator and ordered by the shared
+/// `seq` counter (docs/spec/storage.md, section 15.1). The `approvals` box
+/// holds one [ApprovalRecord] per approval request, keyed `appr:{id}`.
 final class HiveJournal implements JournalPort {
   new _(this._meta, this._steps, this._approvals);
 
@@ -26,6 +27,9 @@ final class HiveJournal implements JournalPort {
 
   /// Kind discriminator for model-call records.
   static const String _modelKind = 'model';
+
+  /// Kind discriminator for run-lifecycle records.
+  static const String _lifecycleKind = 'lifecycle';
 
   /// Metadata box (sequence counter).
   final Box<String> _meta;
@@ -73,6 +77,57 @@ final class HiveJournal implements JournalPort {
       '${runId.value}:${seq.toString().padLeft(12, '0')}';
 
   static String _approvalKey(ApprovalId id) => 'appr:${id.value}';
+
+  /// Writes one `kind: lifecycle` record and returns its `seq`
+  /// (docs/spec/storage.md, section 15.2).
+  Future<int> _writeLifecycle(
+    RunId runId,
+    LifecycleEvent event,
+    DateTime at, {
+    String? profile,
+    String? state,
+    String? result,
+    ApprovalId? approvalId,
+    String? tool,
+    bool? granted,
+  }) async {
+    final seq = await _nextSeq();
+    final record = <String, Object?>{
+      'v': 1,
+      'kind': _lifecycleKind,
+      'seq': seq,
+      'runId': runId.value,
+      'event': event.name,
+      'at': at.toIso8601String(),
+      'profile': profile,
+      'state': state,
+      'result': result,
+      'approvalId': approvalId?.value,
+      'tool': tool,
+      'granted': granted,
+    };
+    await _steps.put(_key(runId, seq), jsonEncode(record));
+    await _steps.flush();
+    return seq;
+  }
+
+  @override
+  Future<int> runStarted(RunId runId, String profile) => _writeLifecycle(
+    runId,
+    LifecycleEvent.runStarted,
+    DateTime.now().toUtc(),
+    profile: profile,
+  );
+
+  @override
+  Future<int> runFinished(RunId runId, String state, String? result) =>
+      _writeLifecycle(
+        runId,
+        LifecycleEvent.runFinished,
+        DateTime.now().toUtc(),
+        state: state,
+        result: result,
+      );
 
   @override
   Future<int> started(RunId runId, String tool, Risk risk) async {
@@ -156,7 +211,7 @@ final class HiveJournal implements JournalPort {
   }
 
   @override
-  Future<void> approvalRequested(
+  Future<int> approvalRequested(
     RunId runId,
     ApprovalId id,
     String tool,
@@ -178,10 +233,20 @@ final class HiveJournal implements JournalPort {
     // (docs/spec/storage.md, section 15.2).
     await _approvals.put(_approvalKey(id), jsonEncode(record));
     await _approvals.flush();
+    // The lifecycle record carries the `seq` the event is published with; it
+    // is written before the prompt as well, so the published position is
+    // already on disk (docs/spec/api.md, section 16.4).
+    return await _writeLifecycle(
+      runId,
+      LifecycleEvent.approvalRequested,
+      DateTime.now().toUtc(),
+      approvalId: id,
+      tool: tool,
+    );
   }
 
   @override
-  Future<void> approvalResolved(
+  Future<int> approvalResolved(
     ApprovalId id, {
     required bool granted,
     required String reason,
@@ -198,6 +263,13 @@ final class HiveJournal implements JournalPort {
     existing['reason'] = reason;
     await _approvals.put(key, jsonEncode(existing));
     await _approvals.flush();
+    return await _writeLifecycle(
+      RunId(existing['runId'] as String),
+      LifecycleEvent.approvalResolved,
+      at ?? DateTime.now().toUtc(),
+      approvalId: id,
+      granted: granted,
+    );
   }
 
   @override
@@ -301,5 +373,37 @@ final class HiveJournal implements JournalPort {
           json['error'] as String?,
         ),
     ];
+  }
+
+  @override
+  Future<List<LifecycleRecord>> lifecycleAfter(int seq) async {
+    final result = <LifecycleRecord>[];
+    for (final key in _steps.keys) {
+      final raw = await _steps.get(key as String);
+      if (raw == null) continue;
+      final json = jsonDecode(raw) as Map<String, dynamic>;
+      if (_kindOf(json) != _lifecycleKind) continue;
+      if ((json['seq'] as int) <= seq) continue;
+      result.add(_lifecycleFromJson(json));
+    }
+    result.sort((a, b) => a.seq.compareTo(b.seq));
+    return result;
+  }
+
+  /// Decodes one run-lifecycle record.
+  static LifecycleRecord _lifecycleFromJson(Map<String, dynamic> json) {
+    final approvalId = json['approvalId'] as String?;
+    return LifecycleRecord(
+      seq: json['seq'] as int,
+      runId: RunId(json['runId'] as String),
+      event: LifecycleEvent.values.byName(json['event'] as String),
+      at: DateTime.parse(json['at'] as String),
+      profile: json['profile'] as String?,
+      state: json['state'] as String?,
+      result: json['result'] as String?,
+      approvalId: approvalId == null ? null : ApprovalId(approvalId),
+      tool: json['tool'] as String?,
+      granted: json['granted'] as bool?,
+    );
   }
 }

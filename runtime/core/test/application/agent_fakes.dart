@@ -25,7 +25,9 @@ final class EventLog {
 ///
 /// The records are also kept in memory, keyed by their `seq`, so a run
 /// projection can be read back. `forRun` and `modelCallsForRun` filter those
-/// in-memory records by run and return them in `seq` order.
+/// in-memory records by run and return them in `seq` order. Run-lifecycle
+/// records are kept in [lifecycle] and are never part of [records], so a test
+/// that counts tool and model writes is unaffected by them.
 final class FakeJournal implements JournalPort {
   /// Creates the journal.
   ///
@@ -51,6 +53,9 @@ final class FakeJournal implements JournalPort {
 
   /// One line per write, in call order.
   final List<String> records = [];
+
+  /// The run-lifecycle records, in write order.
+  final List<LifecycleRecord> lifecycle = [];
 
   /// Number of [started] calls.
   int starts = 0;
@@ -93,6 +98,11 @@ final class FakeJournal implements JournalPort {
   /// the call, so the earlier request of a run keeps its record.
   bool failNextApprovalResolved = false;
 
+  /// When set, the next [runFinished] call throws instead of recording, so a
+  /// test can prove a lost lifecycle record does not replace the run outcome.
+  /// Cleared after the call.
+  bool failNextRunFinished = false;
+
   /// The risk passed to each [denied] call, in order.
   final List<Risk> deniedRisks = [];
 
@@ -103,6 +113,48 @@ final class FakeJournal implements JournalPort {
   final Map<int, ModelCall> _modelCalls = <int, ModelCall>{};
 
   int _nextSeq = 1;
+
+  @override
+  Future<int> runStarted(RunId runId, String profile) {
+    final seq = _nextSeq++;
+    lifecycle.add(
+      LifecycleRecord(
+        seq: seq,
+        runId: runId,
+        event: LifecycleEvent.runStarted,
+        at: now(),
+        profile: profile,
+      ),
+    );
+    return Future.value(seq);
+  }
+
+  @override
+  Future<int> runFinished(RunId runId, String state, String? result) {
+    if (failNextRunFinished) {
+      failNextRunFinished = false;
+      return Future<int>.error(StateError('journal unavailable'));
+    }
+    final seq = _nextSeq++;
+    lifecycle.add(
+      LifecycleRecord(
+        seq: seq,
+        runId: runId,
+        event: LifecycleEvent.runFinished,
+        at: now(),
+        state: state,
+        result: result,
+      ),
+    );
+    return Future.value(seq);
+  }
+
+  @override
+  Future<List<LifecycleRecord>> lifecycleAfter(int seq) {
+    final records = lifecycle.where((record) => record.seq > seq).toList()
+      ..sort((a, b) => a.seq.compareTo(b.seq));
+    return Future.value(records);
+  }
 
   @override
   Future<int> started(RunId runId, String tool, Risk risk) {
@@ -214,7 +266,7 @@ final class FakeJournal implements JournalPort {
   }
 
   @override
-  Future<void> approvalRequested(
+  Future<int> approvalRequested(
     RunId runId,
     ApprovalId id,
     String tool,
@@ -232,11 +284,22 @@ final class FakeJournal implements JournalPort {
       null,
       null,
     );
-    return Future.value();
+    final seq = _nextSeq++;
+    lifecycle.add(
+      LifecycleRecord(
+        seq: seq,
+        runId: runId,
+        event: LifecycleEvent.approvalRequested,
+        at: now(),
+        approvalId: id,
+        tool: tool,
+      ),
+    );
+    return Future.value(seq);
   }
 
   @override
-  Future<void> approvalResolved(
+  Future<int> approvalResolved(
     ApprovalId id, {
     required bool granted,
     required String reason,
@@ -244,7 +307,7 @@ final class FakeJournal implements JournalPort {
   }) {
     if (failNextApprovalResolved) {
       failNextApprovalResolved = false;
-      return Future<void>.error(StateError('journal unavailable'));
+      return Future<int>.error(StateError('journal unavailable'));
     }
     approvalResolutions.add('approvalResolved $id $reason');
     log?.add('journal.approvalResolved $id');
@@ -262,7 +325,18 @@ final class FakeJournal implements JournalPort {
       at ?? now(),
       reason,
     );
-    return Future.value();
+    final seq = _nextSeq++;
+    lifecycle.add(
+      LifecycleRecord(
+        seq: seq,
+        runId: existing.runId,
+        event: LifecycleEvent.approvalResolved,
+        at: at ?? now(),
+        approvalId: id,
+        granted: granted,
+      ),
+    );
+    return Future.value(seq);
   }
 
   @override

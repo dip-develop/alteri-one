@@ -110,13 +110,15 @@ final class RunService {
     try {
       bloc.add(const RunStartedEvent());
       await _settle(bloc, RunState.running);
-      // No `seq`: the journal holds no run-lifecycle records yet, so this
-      // event cannot be replayed from a journal position (Q15). `RunFinished`
-      // below carries the projected last `seq` instead.
+      // The lifecycle record is written and flushed first: the `seq` it
+      // returns is the position the event is published with, so a replay from
+      // the journal can reproduce it (docs/spec/api.md, section 16.4).
+      final seq = await _deps.journal.runStarted(run.id, run.profile);
       _publisher.publish(
         StateTopic.runs,
         RunStarted(
           at: DateTime.now().toUtc(),
+          seq: seq,
           runId: run.id.value,
           profile: run.profile,
         ),
@@ -157,7 +159,7 @@ final class RunService {
     AgentDeps deps,
     RunResult result,
   ) async {
-    final projection = await _recordSteps(bloc, deps.journal, run.id);
+    await _recordSteps(bloc, deps.journal, run.id);
 
     final RunState runState;
     final String? resultText;
@@ -172,7 +174,8 @@ final class RunService {
         bloc.add(const RunBudgetExceededEvent());
     }
     await _settle(bloc, runState);
-    _publishFinished(run, runState, resultText, projection.lastSeq);
+    final seq = await _journalFinished(deps.journal, run, runState, resultText);
+    _publishFinished(run, runState, resultText, seq);
   }
 
   /// Projects the journal and stops the run in [runState].
@@ -203,7 +206,7 @@ final class RunService {
     _RunApprovalBridge approvals,
     RunState runState,
   ) async {
-    final projection = await _recordSteps(bloc, deps.journal, run.id);
+    await _recordSteps(bloc, deps.journal, run.id);
 
     // A cancellation is valid from `waitingApproval` and needs no deny; a
     // failure is not, so deny an approval that is still outstanding (its own
@@ -229,31 +232,31 @@ final class RunService {
       _ => const RunFailedEvent(),
     });
     await _settle(bloc, runState);
-    _publishFinished(run, runState, null, projection.lastSeq);
+    final seq = await _journalFinished(deps.journal, run, runState, null);
+    _publishFinished(run, runState, null, seq);
   }
 
   /// Adds one [RunStepDoneEvent] per projected step of [runId].
   ///
   /// The steps are recorded without settling the bloc: the caller decides
   /// whether the run returns to `running` or goes to a terminal state.
-  Future<({int steps, int? lastSeq})> _recordSteps(
+  Future<void> _recordSteps(
     RunBloc bloc,
     JournalPort journal,
     RunId runId,
   ) async {
     // The journal is a projection, never a gate: a read failure must not
     // change the outcome the loop already produced.
-    final projection = await _project(journal, runId);
-    for (var step = 0; step < projection.steps; step++) {
+    final steps = await _project(journal, runId);
+    for (var step = 0; step < steps; step++) {
       bloc.add(const RunStepDoneEvent());
     }
-    return projection;
   }
 
   /// Publishes the terminal `run.finished` event for [run].
   ///
-  /// [seq] is the projected last sequence number of the run, or `null` when
-  /// the journal holds no record for it (Q15).
+  /// [seq] is the `seq` of the run-lifecycle record written before the
+  /// publish, or `null` when that write failed (see [_journalFinished]).
   void _publishFinished(Run run, RunState state, String? result, int? seq) {
     _publisher.publish(
       StateTopic.runs,
@@ -265,6 +268,25 @@ final class RunService {
         result: result,
       ),
     );
+  }
+
+  /// Writes the run-finished lifecycle record and returns its `seq`.
+  ///
+  /// A journal failure returns `null` instead of throwing: the run outcome is
+  /// already decided, and a lost lifecycle record must not replace it — the
+  /// same rule the approval bridge applies to a resolution write. The event is
+  /// then published with `seq: null`, the documented degraded case.
+  Future<int?> _journalFinished(
+    JournalPort journal,
+    Run run,
+    RunState state,
+    String? result,
+  ) async {
+    try {
+      return await journal.runFinished(run.id, state.name, result);
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Longest wait for a bloc state. A bloc that never reaches the expected
@@ -289,38 +311,30 @@ final class RunService {
         .timeout(_settleTimeout, onTimeout: () => bloc.state);
   }
 
-  /// Projects the journal records of [runId] into the step count and the last
-  /// sequence number of the run.
+  /// Projects the journal records of [runId] into the step count.
   ///
   /// `steps` counts only model calls that succeeded: a failed or still-started
-  /// call, and every tool invocation, leaves the count unchanged. `lastSeq` is
-  /// the highest `seq` of either record kind, or `null` when neither exists.
+  /// call, and every tool invocation, leaves the count unchanged. The
+  /// run-lifecycle records are not projected: the terminal `seq` comes from
+  /// the `runFinished` record itself
+  /// (docs/adr/0021-run-lifecycle-journal-record.md).
   ///
-  /// A journal read failure returns the empty projection on purpose: the loop
-  /// already produced its outcome, and a lost step count is preferable to
-  /// turning a finished run into a failure. This fallback is deliberate and is
-  /// the documented behavior of the seam, not an oversight.
-  Future<({int steps, int? lastSeq})> _project(
-    JournalPort journal,
-    RunId runId,
-  ) async {
+  /// A journal read failure returns `0` on purpose: the loop already produced
+  /// its outcome, and a lost step count is preferable to turning a finished run
+  /// into a failure. This fallback is deliberate and is the documented
+  /// behavior of the seam, not an oversight.
+  Future<int> _project(JournalPort journal, RunId runId) async {
     try {
       final calls = await journal.modelCallsForRun(runId);
-      final invocations = await journal.forRun(runId);
-      var lastSeq = 0;
-      for (final call in calls) {
-        if (call.seq > lastSeq) lastSeq = call.seq;
-      }
-      for (final invocation in invocations) {
-        if (invocation.seq > lastSeq) lastSeq = invocation.seq;
-      }
-      final steps = calls
+      // Both record kinds form the run timeline, so a failure reading either
+      // falls back to the empty projection (docs/spec/storage.md, 15.3).
+      await journal.forRun(runId);
+      return calls
           .where((call) => call.status == InvocationStatus.succeeded)
           .length;
-      return (steps: steps, lastSeq: lastSeq == 0 ? null : lastSeq);
     } catch (_) {
       // Documented fallback: see the doc comment.
-      return (steps: 0, lastSeq: null);
+      return 0;
     }
   }
 
@@ -462,7 +476,12 @@ final class _RunApprovalBridge implements ApprovalService {
     // transition and mask the original error.
     try {
       // Invariant 5: the record reaches the disk before the owner is prompted.
-      await _journal.approvalRequested(_runId, id, tool.llmName, deadline);
+      final seq = await _journal.approvalRequested(
+        _runId,
+        id,
+        tool.llmName,
+        deadline,
+      );
 
       _pending = id;
       _bloc.add(RunRequestApprovalEvent(id));
@@ -471,12 +490,14 @@ final class _RunApprovalBridge implements ApprovalService {
           PendingApproval(id, _runId, tool.llmName, deadline),
         ),
       );
-      // No `seq`: the journal holds no run-lifecycle record, so this event
-      // cannot be replayed from a journal position (Q15).
+      // The `seq` is the position of the lifecycle record written above, so a
+      // replay from the journal reproduces this event
+      // (docs/spec/api.md, section 16.4).
       _publisher.publish(
         StateTopic.approvals,
         ApprovalRequested(
           at: DateTime.now().toUtc(),
+          seq: seq,
           approvalId: id.value,
           runId: _runId.value,
           tool: tool.llmName,
@@ -495,14 +516,18 @@ final class _RunApprovalBridge implements ApprovalService {
       // service already denied the request and cleared the flag, so no second
       // event is added here.
       if (_takePending()) {
-        await _journalApprovalResolved(id, granted, outcome.journalReason);
+        final resolvedSeq = await _journalApprovalResolved(
+          id,
+          granted,
+          outcome.journalReason,
+        );
         _bloc.add(
           granted
               ? const RunApprovalGrantedEvent()
               : const RunApprovalDeniedEvent(),
         );
         _approvalsBloc.add(ApprovalDecidedEvent(id, granted: granted));
-        _publish(id, granted);
+        _publish(id, granted, resolvedSeq);
       }
       return granted;
     } catch (error) {
@@ -513,9 +538,13 @@ final class _RunApprovalBridge implements ApprovalService {
       if (_takePending()) {
         _bloc.add(const RunApprovalDeniedEvent());
         _approvalsBloc.add(ApprovalDecidedEvent(id, granted: false));
-        await _journalApprovalResolved(id, false, _cancelledOrError(error));
+        final resolvedSeq = await _journalApprovalResolved(
+          id,
+          false,
+          _cancelledOrError(error),
+        );
         try {
-          _publish(id, false);
+          _publish(id, false, resolvedSeq);
         } catch (_) {
           // Keep the original error: a failing decision publish must not mask
           // it.
@@ -555,18 +584,29 @@ final class _RunApprovalBridge implements ApprovalService {
         );
   }
 
-  /// Writes the decision, but never lets a journal failure mask the error that
-  /// is already on its way out of the ask.
-  Future<void> _journalApprovalResolved(
+  /// Writes the decision and returns the `seq` of its lifecycle record, but
+  /// never lets a journal failure mask the error that is already on its way out
+  /// of the ask.
+  ///
+  /// A failed write returns `null`: the run outcome is already decided, and a
+  /// lost audit record is preferable to replacing the real error. The caller
+  /// then publishes the decision with `seq: null`, the documented degraded
+  /// case (docs/adr/0021-run-lifecycle-journal-record.md).
+  Future<int?> _journalApprovalResolved(
     ApprovalId id,
     bool granted,
     String reason,
   ) async {
     try {
-      await _journal.approvalResolved(id, granted: granted, reason: reason);
+      return await _journal.approvalResolved(
+        id,
+        granted: granted,
+        reason: reason,
+      );
     } catch (_) {
       // The run outcome is already decided; a lost audit record is preferable
       // to replacing the real error.
+      return null;
     }
   }
 
@@ -603,15 +643,15 @@ final class _RunApprovalBridge implements ApprovalService {
     }
   }
 
-  void _publish(ApprovalId id, bool granted) =>
-      // No `seq`: the journal holds no run-lifecycle record, so this event
-      // cannot be replayed from a journal position (Q15).
-      _publisher.publish(
-        StateTopic.approvals,
-        ApprovalResolved(
-          at: DateTime.now().toUtc(),
-          approvalId: id.value,
-          granted: granted,
-        ),
-      );
+  /// Publishes the decision with the `seq` of its lifecycle record, or `null`
+  /// when that write failed (see [_journalApprovalResolved]).
+  void _publish(ApprovalId id, bool granted, int? seq) => _publisher.publish(
+    StateTopic.approvals,
+    ApprovalResolved(
+      at: DateTime.now().toUtc(),
+      seq: seq,
+      approvalId: id.value,
+      granted: granted,
+    ),
+  );
 }

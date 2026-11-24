@@ -872,8 +872,8 @@ void main() {
       );
     });
 
-    test('publishes run.started and the approvals with seq null and the '
-        'projected last seq on run.finished', () async {
+    test('publishes run.started, the approvals, and run.finished with a '
+        'non-null monotonic seq', () async {
       final journal = FakeJournal();
       final tool = FakeTool(fakeSpec('save', risk: Risk.write), output: 'ok');
       final llm = FakeLlm((call, messages) {
@@ -895,23 +895,77 @@ void main() {
       ).run(fakeRun(tools: {'ext__save'}));
       await _settle();
 
-      // The journal holds no run-lifecycle and no approval records yet
-      // (Q15), so those events carry no `seq` and cannot be replayed from a
-      // journal position. `RunFinished` carries the projected last `seq`.
+      // Every state-changing event carries the `seq` of the lifecycle record
+      // written before it was published (Q16, ADR-0021), so SSE can replay it.
       final started = runs.first as RunStarted;
-      expect(started.seq, isNull);
+      expect(started.seq, isNotNull);
       expect(started.at.isUtc, isTrue);
-      expect((approvals[0] as ApprovalRequested).seq, isNull);
-      expect((approvals[0] as ApprovalRequested).at.isUtc, isTrue);
-      expect((approvals[1] as ApprovalResolved).seq, isNull);
-      expect((approvals[1] as ApprovalResolved).at.isUtc, isTrue);
-
+      final requested = approvals[0] as ApprovalRequested;
+      expect(requested.seq, isNotNull);
+      expect(requested.at.isUtc, isTrue);
+      final resolved = approvals[1] as ApprovalResolved;
+      expect(resolved.seq, isNotNull);
+      expect(resolved.at.isUtc, isTrue);
       final finished = runs.last as RunFinished;
       expect(finished.at.isUtc, isTrue);
+      expect(finished.seq, isNotNull);
+
+      // Strictly increasing in publish order, and the run-finished position is
+      // the lifecycle record's, not the last model call's.
+      final seqs = <int>[
+        started.seq!,
+        requested.seq!,
+        resolved.seq!,
+        finished.seq!,
+      ];
+      for (var i = 1; i < seqs.length; i++) {
+        expect(
+          seqs[i],
+          greaterThan(seqs[i - 1]),
+          reason: 'a replay orders the events by seq',
+        );
+      }
       final calls = await journal.modelCallsForRun(RunId('run-1'));
       expect(calls, hasLength(2));
-      expect(finished.seq, isNotNull);
-      expect(finished.seq, calls.last.seq);
+      expect(finished.seq, isNot(calls.last.seq));
+      expect(
+        journal.lifecycle.map((record) => record.seq),
+        seqs,
+        reason: 'the published positions are the journalled ones',
+      );
+      expect(
+        journal.lifecycle.any(
+          (record) =>
+              record.seq == finished.seq &&
+              record.event == LifecycleEvent.runFinished,
+        ),
+        isTrue,
+        reason: 'run.finished carries its own lifecycle position',
+      );
+    });
+
+    test('publishes run.finished with seq null when the lifecycle write '
+        'fails, without changing the outcome', () async {
+      late RunBloc bloc;
+      final journal = FakeJournal()..failNextRunFinished = true;
+      final llm = FakeLlm((call, messages) => _finalTurn('ok'));
+
+      final result = await service(
+        deps: factory(llm: llm, journal: journal),
+        factory: (id) => bloc = RunBloc(runId: id),
+      ).run(fakeRun());
+      await _settle();
+
+      // The run outcome is already decided: a lost lifecycle record is
+      // preferable to turning a completed run into a failure (ADR-0021).
+      expect(result, isA<RunCompleted>());
+      expect(bloc.state.runState, RunState.completed);
+      final finished = runs.last as RunFinished;
+      expect(finished.state, RunState.completed.name);
+      expect(finished.seq, isNull);
+      expect(journal.lifecycle.map((record) => record.event), [
+        LifecycleEvent.runStarted,
+      ]);
     });
 
     test(
@@ -1046,7 +1100,8 @@ void main() {
       ).run(fakeRun());
 
       // Only model-call records: no transcript box, no prompt or reply text.
-      expect(journal.records, ['modelStarted', 'finished succeeded 1']);
+      // The run-lifecycle records are not part of `records`.
+      expect(journal.records, ['modelStarted', 'finished succeeded 2']);
       expect(await journal.forRun(RunId('run-1')), isEmpty);
       final calls = await journal.modelCallsForRun(RunId('run-1'));
       expect(calls.single.error, isNull);

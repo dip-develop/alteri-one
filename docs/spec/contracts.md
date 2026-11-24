@@ -97,7 +97,7 @@ final class RunStarted extends AgentEvent {
 
 Subtypes are in the same library (a requirement of `sealed`). They use classic constructors.
 
-Rules: `run.delta` is ephemeral (`seq == null`) and is not replayed. Every other event that changes state is written to the journal first and receives a `seq`.
+Rules: `run.delta` is ephemeral (`seq == null`) and is not replayed. Every other event that changes state is written to the journal first and receives a `seq`; for the run-lifecycle and approval events that `seq` is the one the `kind: lifecycle` journal record received, so the "written first, receives a `seq`" rule is literally true (section 15.1 of `storage.md`, [ADR-0021](../adr/0021-run-lifecycle-journal-record.md)).
 
 ## 10.5 Extension manifest (YAML)
 

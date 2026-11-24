@@ -37,6 +37,14 @@ final class _RecordingJournal implements JournalPort {
   final EventLog _log;
 
   @override
+  Future<int> runStarted(RunId runId, String profile) =>
+      _inner.runStarted(runId, profile);
+
+  @override
+  Future<int> runFinished(RunId runId, String state, String? result) =>
+      _inner.runFinished(runId, state, result);
+
+  @override
   Future<int> started(RunId runId, String tool, Risk risk) {
     _log.add('journal.started $tool');
     return _inner.started(runId, tool, risk);
@@ -73,7 +81,11 @@ final class _RecordingJournal implements JournalPort {
       _inner.modelCallsForRun(runId);
 
   @override
-  Future<void> approvalRequested(
+  Future<List<LifecycleRecord>> lifecycleAfter(int seq) =>
+      _inner.lifecycleAfter(seq);
+
+  @override
+  Future<int> approvalRequested(
     RunId runId,
     ApprovalId id,
     String tool,
@@ -81,7 +93,7 @@ final class _RecordingJournal implements JournalPort {
   ) => _inner.approvalRequested(runId, id, tool, deadline);
 
   @override
-  Future<void> approvalResolved(
+  Future<int> approvalResolved(
     ApprovalId id, {
     required bool granted,
     required String reason,
@@ -105,6 +117,14 @@ final class _FailOnModelStarted implements JournalPort {
 
   /// The journal that receives every other write.
   final JournalPort _inner;
+
+  @override
+  Future<int> runStarted(RunId runId, String profile) =>
+      _inner.runStarted(runId, profile);
+
+  @override
+  Future<int> runFinished(RunId runId, String state, String? result) =>
+      _inner.runFinished(runId, state, result);
 
   @override
   Future<int> modelStarted(RunId runId) =>
@@ -134,7 +154,11 @@ final class _FailOnModelStarted implements JournalPort {
       _inner.modelCallsForRun(runId);
 
   @override
-  Future<void> approvalRequested(
+  Future<List<LifecycleRecord>> lifecycleAfter(int seq) =>
+      _inner.lifecycleAfter(seq);
+
+  @override
+  Future<int> approvalRequested(
     RunId runId,
     ApprovalId id,
     String tool,
@@ -142,7 +166,7 @@ final class _FailOnModelStarted implements JournalPort {
   ) => _inner.approvalRequested(runId, id, tool, deadline);
 
   @override
-  Future<void> approvalResolved(
+  Future<int> approvalResolved(
     ApprovalId id, {
     required bool granted,
     required String reason,
