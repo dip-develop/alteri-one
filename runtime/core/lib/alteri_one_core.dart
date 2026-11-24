@@ -59,4 +59,5 @@ export 'src/domain/run_state.dart';
 export 'src/domain/trigger.dart';
 export 'src/infrastructure/approval/stdin_approval_channel.dart';
 export 'src/infrastructure/journal/hive_journal.dart';
+export 'src/infrastructure/paths.dart';
 export 'src/infrastructure/server/http_api.dart';
