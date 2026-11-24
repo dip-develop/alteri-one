@@ -60,4 +60,7 @@ export 'src/domain/trigger.dart';
 export 'src/infrastructure/approval/stdin_approval_channel.dart';
 export 'src/infrastructure/journal/hive_journal.dart';
 export 'src/infrastructure/paths.dart';
+export 'src/infrastructure/server/auth.dart';
 export 'src/infrastructure/server/http_api.dart';
+export 'src/infrastructure/server/scope.dart';
+export 'src/infrastructure/server/token_store.dart';
