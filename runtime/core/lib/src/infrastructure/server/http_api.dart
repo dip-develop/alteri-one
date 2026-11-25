@@ -9,11 +9,14 @@ import 'package:alteri_one_contracts/alteri_one_contracts.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as shelf_io;
 
+import '../../application/state_publisher.dart';
+import '../../domain/ports/journal_port.dart';
 import '../../domain/run_state.dart';
 import 'auth.dart';
 import 'pairing.dart';
 import 'routes.dart';
 import 'scope.dart';
+import 'sse.dart';
 
 /// The `/v1` HTTP surface of the local daemon (docs/spec/api.md, section 16).
 ///
@@ -32,6 +35,12 @@ import 'scope.dart';
 /// (Step 9) supplies the adapters. The `transcript` and `invocations/{seq}/io`
 /// routes (`read.io`) and the extension `:load`/`:unload` routes (`admin`) are
 /// later steps and are intentionally absent.
+///
+/// Step 7 adds the SSE transport (section 16.4): `GET /v1/events` (scope
+/// `read`) replays journalled lifecycle events after `since`/`Last-Event-ID`
+/// and then forwards live events, deduplicated by `seq` and never replaying
+/// `run.delta`. It is mounted only when both [publisher] and [journal] are
+/// given; otherwise the route is a 404.
 ///
 /// It is a plain `shelf` [Handler] composition, not a router package: the
 /// public API is built on `shelf` directly (docs/spec/api.md, section 16.1),
@@ -70,6 +79,8 @@ final class HttpApi {
     RunResourcePort? runs,
     ApprovalResourcePort? approvals,
     ExtensionResourcePort? extensions,
+    StatePublisher? publisher,
+    JournalPort? journal,
     // ignore: prefer_initializing_formals
   }) : _serverInfo = serverInfo,
        // ignore: prefer_initializing_formals
@@ -88,7 +99,11 @@ final class HttpApi {
        // ignore: prefer_initializing_formals
        _approvals = approvals,
        // ignore: prefer_initializing_formals
-       _extensions = extensions;
+       _extensions = extensions,
+       // ignore: prefer_initializing_formals
+       _publisher = publisher,
+       // ignore: prefer_initializing_formals
+       _journal = journal;
 
   /// Body limit for run input paths, 32 KB (section 16.1).
   static const int _defaultRunInputLimit = 32 * 1024;
@@ -117,6 +132,14 @@ final class HttpApi {
 
   /// The extension resource port, or `null` when `/v1/extensions` is absent.
   final ExtensionResourcePort? _extensions;
+
+  /// The state publisher backing `GET /v1/events`, or `null` when the SSE
+  /// route is absent.
+  final StatePublisher? _publisher;
+
+  /// The journal the SSE route replays from, or `null` when the route is
+  /// absent.
+  final JournalPort? _journal;
 
   /// The composed handler: host allowlist, then routing.
   Handler get handler =>
@@ -173,6 +196,8 @@ final class HttpApi {
           return await _handleApprovals(request, segments);
         case 'extensions':
           return await _handleExtensions(request, segments);
+        case 'events':
+          return await _handleEvents(request);
       }
     }
 
@@ -438,6 +463,29 @@ final class HttpApi {
     if (denied != null) return denied;
     final views = await extensions.listExtensions();
     return _json(200, {'extensions': views.map((e) => e.toJson()).toList()});
+  }
+
+  /// Handles `GET /v1/events` (section 16.4, scope `read`): the SSE stream
+  /// that replays lifecycle events after `since` and then forwards live events.
+  ///
+  /// The last position comes from `?since=` or the `Last-Event-ID` header; a
+  /// malformed value is a 400. An absent [publisher] or [journal] is a 404.
+  Future<Response> _handleEvents(Request request) async {
+    final publisher = _publisher;
+    final journal = _journal;
+    if (publisher == null || journal == null) {
+      return _text(404, 'not found');
+    }
+    if (request.method != 'GET') {
+      return _text(404, 'not found');
+    }
+    final denied = _authorize(request, Scope.read);
+    if (denied != null) return denied;
+    final int? since = sseSince(request.url, request.headers);
+    if (since == null) {
+      return _text(400, ApiErrorCode.invalidRequest);
+    }
+    return sseResponse(publisher: publisher, journal: journal, since: since);
   }
 
   /// Returns `null` when [request] carries a token that grants [scope], else
