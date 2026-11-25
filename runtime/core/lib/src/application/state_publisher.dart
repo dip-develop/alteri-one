@@ -57,10 +57,12 @@ final class StatePublisherResyncRequired implements Exception {
 /// `approvals.*` and `runs.finished` guarantee delivery and disconnect the
 /// subscriber with `resync_required` on overflow.
 ///
-/// Known limitation (T15): the bound limits this publisher's own queue. A
+/// Backpressure (T15): the bound limits this publisher's own queue. A
 /// consumer that never reads and never pauses can still grow the stream's
-/// internal buffer, so the M4 SSE transport and the M5 extension transport
-/// must apply their own backpressure.
+/// internal buffer, so a transport must apply its own backpressure by pausing
+/// its subscription. The M4 SSE transport does this
+/// (`infrastructure/server/sse.dart`); the M5 extension transport must do the
+/// same.
 @lazySingleton
 final class StatePublisher {
   /// Production capacity. T15 tunes this per topic in M5.
@@ -96,6 +98,25 @@ final class StatePublisher {
   /// snapshot. The returned stream is single-subscription.
   Stream<AgentEvent> subscribe(StateTopic topic) {
     final _Subscription subscription = _Subscription(topic, this);
+    _subscriptions[topic]!.add(subscription);
+    return Stream<AgentEvent>.multi(subscription.attach);
+  }
+
+  /// Returns a stream of the live events of [topic] without the initial
+  /// snapshot.
+  ///
+  /// The SSE transport (docs/spec/api.md, section 16.4) replays the journal
+  /// itself and must not also receive the per-entity snapshot, which coalesces
+  /// intermediate events and would break gapless replay. The returned stream is
+  /// single-subscription and has the same bounded-queue backpressure as
+  /// [subscribe]: a consumer that does not keep up fails with
+  /// [StatePublisherResyncRequired] on overflow.
+  Stream<AgentEvent> subscribeLive(StateTopic topic) {
+    final _Subscription subscription = _Subscription(
+      topic,
+      this,
+      emitSnapshot: false,
+    );
     _subscriptions[topic]!.add(subscription);
     return Stream<AgentEvent>.multi(subscription.attach);
   }
@@ -137,10 +158,14 @@ final class StatePublisher {
 
 /// One subscriber: its queue, its controller, and its liveness.
 final class _Subscription {
-  new(this.topic, this._publisher);
+  new(this.topic, this._publisher, {this.emitSnapshot = true});
 
   /// The topic this subscription listens to.
   final StateTopic topic;
+
+  /// Whether [attach] first replays the topic snapshot. False for the live-only
+  /// subscription the SSE transport uses, which replays the journal instead.
+  final bool emitSnapshot;
 
   final StatePublisher _publisher;
 
@@ -171,19 +196,21 @@ final class _Subscription {
       _paused = false;
       drain();
     };
-    for (final AgentEvent event in _publisher.snapshot(topic)) {
-      controller.add(event);
+    if (emitSnapshot) {
+      for (final AgentEvent event in _publisher.snapshot(topic)) {
+        controller.add(event);
+      }
+      // Every event still queued was published before this attach, so the
+      // snapshot just replayed already carries the latest value of each
+      // snapshotted entity. Drop those queued events so each is delivered
+      // exactly once; an event that was not snapshotted (`run.delta`, unknown
+      // events) is never in the snapshot and stays queued for live delivery.
+      // Without this, an event published between `subscribe` and `listen` would
+      // arrive twice (snapshot plus queue) and could even arrive out of order.
+      _queue.removeWhere(
+        (AgentEvent event) => StatePublisher._snapshotKey(event) != null,
+      );
     }
-    // Every event still queued was published before this attach, so the
-    // snapshot just replayed already carries the latest value of each
-    // snapshotted entity. Drop those queued events so each is delivered
-    // exactly once; an event that was not snapshotted (`run.delta`, unknown
-    // events) is never in the snapshot and stays queued for live delivery.
-    // Without this, an event published between `subscribe` and `listen` would
-    // arrive twice (snapshot plus queue) and could even arrive out of order.
-    _queue.removeWhere(
-      (AgentEvent event) => StatePublisher._snapshotKey(event) != null,
-    );
     drain();
   }
 
