@@ -32,6 +32,7 @@ import '../server/token_store.dart';
 import 'daemon_config.dart';
 import 'instance_lock.dart';
 import 'run_registry.dart';
+import 'stop_signal.dart';
 
 /// The composition root and lifecycle of the local daemon
 /// (docs/spec/deployment.md, sections 18.1–18.3; docs/plan/M4.md Step 9).
@@ -80,6 +81,9 @@ final class Daemon {
   RunRegistry? _runs;
   bool _started = false;
   bool _shuttingDown = false;
+  StopSignal? _stopSignal;
+  StreamSubscription<void>? _stopSubscription;
+  final Completer<void> _stopped = Completer<void>();
 
   /// The profile the daemon runs, loaded from the merged config.
   Profile get profile => _profile!;
@@ -93,6 +97,13 @@ final class Daemon {
 
   /// Whether the daemon is accepting new runs (started and not shutting down).
   bool get isAcceptingRuns => _started && !_shuttingDown;
+
+  /// Completes when [stop] has finished the section 18.2 shutdown sequence.
+  ///
+  /// The composition root awaits it to exit after a stop signal (SIGTERM or
+  /// the Windows IPC stop endpoint) has driven [stop]. It never completes if
+  /// the daemon was never started.
+  Future<void> get stopped => _stopped.future;
 
   /// Builds the daemon from the environment and CLI flags, loading the
   /// configuration and the profile (section 14.2 merge).
@@ -149,11 +160,15 @@ final class Daemon {
   /// given, lets an `ask` rule reach the owner; [toolRegistry], when given,
   /// replaces the empty default so a run can call tools (the e2e and daemon
   /// tests inject one; production builds it from the loaded extensions).
+  /// [stopSignal], when given, is the platform stop source (section 18.7,
+  /// T20): the daemon calls [stop] when it emits, so Windows stops without
+  /// SIGTERM. On Linux/macOS the caller passes none and stops on SIGTERM.
   Future<void> start({
     required LlmPort llm,
     ApprovalChannel? approvalChannel,
     PairingService? pairing,
     ToolRegistry? toolRegistry,
+    StopSignal? stopSignal,
   }) async {
     if (_started) throw StateError('The daemon is already started');
     final lock = InstanceLock.acquire(_paths.data);
@@ -213,6 +228,14 @@ final class Daemon {
         .addHandler(api.handler);
     _server = await shelf_io.serve(handler, _config.bindHost, _config.bindPort);
     _started = true;
+
+    // The platform stop source (section 18.7, T20): a Windows logon task has
+    // no SIGTERM, so the daemon listens for the IPC stop endpoint and runs the
+    // same [stop] sequence when it emits. A no-op signal never emits.
+    if (stopSignal != null) {
+      _stopSignal = stopSignal;
+      _stopSubscription = stopSignal.onStop.listen((_) => stop());
+    }
   }
 
   /// Runs the section 18.2 shutdown sequence in order
@@ -235,6 +258,10 @@ final class Daemon {
     _started = false;
     // 1. Refuse new runs from here on.
     _shuttingDown = true;
+
+    // Stop listening for the platform stop source; the shutdown is under way.
+    await _stopSubscription?.cancel();
+    _stopSubscription = null;
 
     // 2. Let active tool calls finish, bounded by the shutdown timeout.
     final registry = _runs;
@@ -279,6 +306,12 @@ final class Daemon {
       await getIt<ApprovalsBloc>().close();
     }
     await getIt.reset();
+
+    // Release the platform stop source (the IPC endpoint socket), then signal
+    // the composition root that the shutdown is complete.
+    await _stopSignal?.close();
+    _stopSignal = null;
+    if (!_stopped.isCompleted) _stopped.complete();
   }
 
   Set<String> _allowedHosts() => const {'localhost', '127.0.0.1'};

@@ -81,4 +81,58 @@ void main() {
       );
     });
   });
+
+  group('HomePaths Windows mapping (T20)', () {
+    test('maps %APPDATA% to config and %LOCALAPPDATA% to data and cache', () {
+      final paths = HomePaths.resolveWindows(
+        appData: r'C:\Users\owner\AppData\Roaming',
+        localAppData: r'C:\Users\owner\AppData\Local',
+      );
+      expect(paths.config, r'C:\Users\owner\AppData\Roaming\alterione');
+      expect(paths.data, r'C:\Users\owner\AppData\Local\alterione');
+      expect(paths.cache, r'C:\Users\owner\AppData\Local\alterione\cache');
+      // The journal directory is the data directory on Windows too.
+      expect(paths.journalDirectory, paths.data);
+    });
+
+    test('fromWindowsEnvironment reads APPDATA and LOCALAPPDATA', () {
+      final paths = HomePaths.fromWindowsEnvironment(
+        environment: {
+          'APPDATA': r'C:\Users\owner\AppData\Roaming',
+          'LOCALAPPDATA': r'C:\Users\owner\AppData\Local',
+        },
+      );
+      expect(paths.config, r'C:\Users\owner\AppData\Roaming\alterione');
+      expect(paths.data, r'C:\Users\owner\AppData\Local\alterione');
+      expect(paths.cache, r'C:\Users\owner\AppData\Local\alterione\cache');
+    });
+
+    test('ALTERIONE_HOME overrides the Windows roots for all three', () {
+      final paths = HomePaths.resolveWindows(
+        appData: r'C:\Users\owner\AppData\Roaming',
+        localAppData: r'C:\Users\owner\AppData\Local',
+        alterioneHome: r'D:\alterione',
+      );
+      expect(paths.config, r'D:\alterione\.config\alterione');
+      expect(paths.data, r'D:\alterione\.local\share\alterione');
+      expect(paths.cache, r'D:\alterione\.cache\alterione');
+    });
+
+    test('throws when the Windows roots are missing', () {
+      expect(
+        () => HomePaths.resolveWindows(appData: '', localAppData: ''),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('fromPlatform uses the XDG layout on non-Windows', () {
+      // The test runs on Linux/macOS; the XDG branch is the one exercised.
+      final paths = HomePaths.fromPlatform(
+        environment: {'HOME': '/home/owner'},
+      );
+      expect(paths.config, '/home/owner/.config/alterione');
+      expect(paths.data, '/home/owner/.local/share/alterione');
+      expect(paths.cache, '/home/owner/.cache/alterione');
+    });
+  });
 }

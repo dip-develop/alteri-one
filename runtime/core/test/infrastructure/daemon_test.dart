@@ -241,6 +241,32 @@ void main() {
       expect(InstanceLock.acquire(paths().data), isA<LockAcquired>());
     });
   });
+
+  group('platform stop signal (T20)', () {
+    test('the stop source triggers the graceful shutdown', () async {
+      final controller = StreamController<void>.broadcast();
+      final stopSignal = _ControllerStopSignal(controller);
+      final daemon = Daemon(
+        paths: paths(),
+        config: config(),
+        serverInfo: ServerInfo(sdk: '3.14.0', capabilities: const ['sse']),
+      );
+      await daemon.start(
+        llm: _llmRequestingTool('ext__echo'),
+        stopSignal: stopSignal,
+      );
+      expect(daemon.isAcceptingRuns, isTrue);
+
+      // The IPC stop endpoint fires (no SIGTERM involved).
+      controller.add(null);
+      await daemon.stopped.timeout(const Duration(seconds: 2));
+
+      expect(daemon.isAcceptingRuns, isFalse);
+      // The lock was released by the graceful shutdown.
+      expect(InstanceLock.acquire(paths().data), isA<LockAcquired>());
+      await controller.close();
+    });
+  });
 }
 
 /// Polls [registry] until run [id] reaches [state], or 2 s elapse.
@@ -272,4 +298,19 @@ final class _BlockingTool(
 final class _OneToolRegistry(final ToolPort tool) implements ToolRegistry {
   @override
   ToolSet snapshot(String profile) => ToolSet([tool]);
+}
+
+/// A [StopSignal] backed by a [StreamController] the test drives.
+final class _ControllerStopSignal implements StopSignal {
+  new(this._controller);
+
+  final StreamController<void> _controller;
+
+  @override
+  Stream<void> get onStop => _controller.stream;
+
+  @override
+  Future<void> close() async {
+    if (!_controller.isClosed) await _controller.close();
+  }
 }
