@@ -65,6 +65,37 @@ void main() {
 
   group('SSE replay', () {
     test(
+      'replays non-contiguous seq (a model record consumes a position)',
+      () async {
+        // The journal `seq` counter is shared with tool and model records
+        // (docs/adr/0021-run-lifecycle-journal-record.md), so a model call
+        // consumes seq 2 and the lifecycle events a client sees are 1 and 3.
+        // The stream must deliver both in order, not stall waiting for the
+        // never-published seq 2.
+        final journal = journalOf([
+          lifecycle(1, 'run-a', LifecycleEvent.runStarted),
+          lifecycle(3, 'run-a', LifecycleEvent.runFinished),
+        ]);
+        final publisher = StatePublisher();
+
+        final frames = _frames(
+          sseStream(
+            publisher: publisher,
+            journal: journal,
+            since: 0,
+            pingInterval: const Duration(hours: 1),
+          ),
+        );
+
+        final received = await _take(frames, 2);
+        expect(_id(received[0]), 1);
+        expect(_data(received[0])['type'], 'run.started');
+        expect(_id(received[1]), 3);
+        expect(_data(received[1])['type'], 'run.finished');
+      },
+    );
+
+    test(
       'replays lifecycle events with seq > since, in order, with id lines',
       () async {
         final journal = journalOf([

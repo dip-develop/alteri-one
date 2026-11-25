@@ -50,6 +50,11 @@ int? sseSince(Uri uri, Map<String, String> headers) {
 /// [since] is the last `seq` the client has seen (from [sseSince]); only
 /// lifecycle events with a greater `seq` are replayed. [pingInterval] is the
 /// keep-alive comment period (15 s in production; tests pass a short interval).
+///
+/// The `shelf.io.buffer_output` context flag is set to `false` so the body is
+/// pushed to the socket as each event arrives instead of being buffered until
+/// the connection closes: an event stream that never ends would otherwise never
+/// flush a single frame over a real `shelf_io` server (the default is `true`).
 Response sseResponse({
   required StatePublisher publisher,
   required JournalPort journal,
@@ -69,6 +74,7 @@ Response sseResponse({
       'cache-control': 'no-cache',
       'connection': 'keep-alive',
     },
+    context: const {'shelf.io.buffer_output': false},
   );
 }
 
@@ -113,8 +119,18 @@ final class _SseStream {
   /// The highest `seq` delivered so far; the dedupe and replay floor.
   int _highestSeq;
 
-  /// Live events waiting for a gap before them to be filled, keyed by `seq`.
+  /// Live events waiting for the replay to finish, keyed by `seq`.
+  ///
+  /// A live event that arrives during the journal replay is buffered here so it
+  /// is delivered after the replayed events it follows in `seq` order, never
+  /// before them. The map is drained in ascending `seq` order once the replay
+  /// completes.
   final Map<int, AgentEvent> _pending = <int, AgentEvent>{};
+
+  /// Whether the journal replay is still in progress. While it is, buffered
+  /// events are held so a live event cannot be delivered ahead of a replayed
+  /// event with a lower `seq`.
+  bool _replaying = true;
 
   /// The live subscriptions, paused and resumed with the response stream.
   final List<StreamSubscription<AgentEvent>> _live =
@@ -144,43 +160,66 @@ final class _SseStream {
     // the subscription queue and is drained (and deduped) after the replay, so
     // nothing published in the gap is lost (docs/spec/api.md, section 16.4).
     for (final StateTopic topic in _topics) {
-      _live.add(publisher.subscribeLive(topic).listen(_offer, onError: _fail));
+      _live.add(
+        publisher.subscribeLive(topic).listen(_offerLive, onError: _fail),
+      );
     }
     try {
       final List<LifecycleRecord> records = await journal.lifecycleAfter(since);
       for (final LifecycleRecord record in records) {
         final AgentEvent? event = _eventFromRecord(record);
-        if (event != null) _offer(event);
+        if (event != null) _deliver(event);
       }
     } catch (error) {
       _fail(error);
       return;
     }
     if (_closed) return;
+    _replaying = false;
+    _drainPending();
     _ping = Timer.periodic(pingInterval, (_) => _comment(': ping'));
   }
 
-  /// Offers a live or replayed event, applying the `seq` dedupe and ordering.
-  void _offer(AgentEvent event) {
+  /// Offers a live event: ephemeral events go straight out, others are buffered
+  /// while the replay is still running and delivered once it completes.
+  void _offerLive(AgentEvent event) {
     if (_closed) return;
     final int? seq = event.seq;
     if (seq == null) {
-      // Ephemeral (`run.delta`) or a degraded lifecycle event with no
-      // position: delivered live, never replayed, with no `id:` line.
+      _sendEvent(event);
+      return;
+    }
+    if (_replaying) {
+      _pending[seq] = event;
+      return;
+    }
+    _deliver(event);
+  }
+
+  /// Delivers [event] unless its `seq` was already sent.
+  ///
+  /// The journal `seq` counter is shared with the tool and model records
+  /// (docs/adr/0021-run-lifecycle-journal-record.md), so the lifecycle events a
+  /// client sees are not contiguous: a model call consumes a `seq` that is
+  /// never published as an event. The stream therefore delivers in ascending
+  /// `seq` order and deduplicates by `seq`, but never waits for a missing
+  /// position — doing so would stall the stream on the first model call.
+  void _deliver(AgentEvent event) {
+    final int? seq = event.seq;
+    if (seq == null) {
       _sendEvent(event);
       return;
     }
     if (seq <= _highestSeq) return;
-    _pending[seq] = event;
-    _flush();
+    _highestSeq = seq;
+    _sendEvent(event);
   }
 
-  /// Emits every contiguous pending event, in `seq` order.
-  void _flush() {
-    while (_pending.containsKey(_highestSeq + 1)) {
-      final AgentEvent next = _pending.remove(_highestSeq + 1)!;
-      _highestSeq++;
-      _sendEvent(next);
+  /// Delivers the live events buffered during the replay, in `seq` order.
+  void _drainPending() {
+    final List<int> seqs = _pending.keys.toList()..sort();
+    for (final int seq in seqs) {
+      _deliver(_pending.remove(seq)!);
     }
   }
 
