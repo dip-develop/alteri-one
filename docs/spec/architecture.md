@@ -30,6 +30,7 @@ Minimum versions as of the date of writing. Check the current version on pub.dev
 | build_runner | current | code generation for schemantic and injectable; ceiling `<2.17.0` due to `injectable_generator` (build 4) |
 | yaml | current | configuration parsing |
 | http | current | client in `alteri_one_client` and providers |
+| args | `^2.7.0` | command-line parsing in `runtime/cli` |
 | material_ui | `^1.11.1` | Flutter Material Design library, replacement for the deprecated `package:flutter/material.dart`; only in the client |
 
 All workspace members resolve together. Version conflicts appear immediately. Keep one schemantic line across the workspace and run `dart pub outdated` after every addition.
@@ -171,7 +172,7 @@ Generated files (`*.g.dart`, `*.schemantic.dart`, `*.config.dart`) are never edi
 | `providers/*` | provider_api, http | core, sdk, genkit, schemantic |
 | `extensions/*` | sdk, contracts, and their own dependencies | core, client, provider_api, genkit, bin |
 | `runtime/core` | contracts, provider_api, sdk, prompts, bloc, bloc_concurrency, genkit*, hive_ce, injectable, get_it, shelf, yaml, schemantic | Flutter, client, cli, bin, extensions |
-| `runtime/cli` | contracts, client | core |
+| `runtime/cli` | contracts, client, args | core |
 | `runtime/bin` | core, cli | extensions directly (only through a personal build) |
 | `clients/app` | contracts, client, design, bloc, injectable, Flutter, material_ui | core |
 | `clients/site` | design, jaspr | everything else |
