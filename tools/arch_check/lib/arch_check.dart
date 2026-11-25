@@ -145,7 +145,8 @@ class ArchChecker {
             }.contains(dep) ||
             dep.startsWith('genkit');
       case 'cli':
-        return false;
+        // `args` parses the command line (docs/spec/architecture.md §4).
+        return dep == 'args';
       case 'bin':
         return false;
       case 'app':
