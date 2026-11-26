@@ -16,6 +16,5 @@ dependencies:
     path: ../../runtime/core
   alteri_one_contracts:
     path: ../../packages/contracts
-  path: ^1.9.0
 dev_dependencies:
   test: ^1.25.0

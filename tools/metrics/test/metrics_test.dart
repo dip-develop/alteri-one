@@ -4,9 +4,11 @@
 /// Unit tests for the section 2.8 metrics report logic
 /// (docs/plan/M4.md Step 13; issue #49).
 ///
-/// The full harness is environment-dependent and slow, so these tests cover
+/// The full harness is environment-dependent and slow, so most tests cover
 /// the pure mapping from metric results to the report, its exit code, and its
-/// JSON and Markdown rendering — the branching the harness relies on.
+/// JSON and Markdown rendering — the branching the harness relies on. One
+/// regression test runs the harness once to prove the event-latency sampler
+/// reads real elapsed time rather than a never-started stopwatch.
 library;
 
 import 'dart:convert';
@@ -160,4 +162,18 @@ void main() {
     expect(decoded, isA<Map<String, Object?>>());
     expect((decoded as Map<String, Object?>)['measured'], 1.25);
   });
+
+  // Regression: the latency sampler once read a never-started [Stopwatch], so
+  // every sample was 0 and p99 was a false 0.00 ms pass. A real in-process
+  // publish-to-deliver path always takes a non-zero time, so the measured p99
+  // must be positive and within the 50 ms target.
+  test('event delivery latency is measured from real elapsed time', () async {
+    final report = await runMetricsHarness();
+    final latency = report.results.firstWhere(
+      (MetricResult r) => r.name.contains('event delivery latency'),
+    );
+    expect(latency.measured, isNotNull);
+    expect(latency.measured, greaterThan(0));
+    expect(latency.status, MetricStatus.pass);
+  }, timeout: const Timeout(Duration(seconds: 30)));
 }
