@@ -66,6 +66,7 @@ export 'src/infrastructure/daemon/run_registry.dart';
 export 'src/infrastructure/journal/hive_journal.dart';
 export 'src/infrastructure/paths.dart';
 export 'src/infrastructure/server/auth.dart';
+export 'src/infrastructure/server/doctor.dart';
 export 'src/infrastructure/server/http_api.dart';
 export 'src/infrastructure/server/pairing.dart';
 export 'src/infrastructure/server/routes.dart';

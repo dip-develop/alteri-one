@@ -170,3 +170,70 @@ final class ExtensionView {
   /// Encodes the view; mirrors [ExtensionView.fromJson].
   Map<String, Object?> toJson() => {'id': id, 'state': state};
 }
+
+/// One `alterione doctor` check result as `GET /v1/doctor` reports it
+/// (docs/spec/clients-cli.md, section 19).
+///
+/// Interim wire model, mirroring the core `DoctorCheck`. [status] is one of
+/// `ok`, `warn`, `fail`, or `skipped`; the CLI keeps it as a string so it does
+/// not depend on a core enum.
+final class DoctorCheckView {
+  /// Creates a doctor check view.
+  const new({required this.name, required this.status, required this.detail});
+
+  /// The check identifier, for example `daemon` or `llama_tools`.
+  final String name;
+
+  /// The outcome: `ok`, `warn`, `fail`, or `skipped`.
+  final String status;
+
+  /// A human-readable explanation, secret-free.
+  final String detail;
+
+  /// Decodes a doctor check from its JSON object.
+  factory fromJson(Map<String, Object?> json) => DoctorCheckView(
+    name: json['name']! as String,
+    status: json['status']! as String,
+    detail: json['detail']! as String,
+  );
+
+  /// Encodes the check; mirrors [DoctorCheckView.fromJson].
+  Map<String, Object?> toJson() => {
+    'name': name,
+    'status': status,
+    'detail': detail,
+  };
+}
+
+/// The `alterione doctor` report as `GET /v1/doctor` returns it
+/// (docs/spec/clients-cli.md, section 19).
+///
+/// Interim wire model, mirroring the core `DoctorReport`: the ordered [checks]
+/// and the [scopes] the caller's token grants.
+final class DoctorReportView {
+  /// Creates a doctor report view.
+  const new({required this.checks, required this.scopes});
+
+  /// The checks, in the order the CLI renders them.
+  final List<DoctorCheckView> checks;
+
+  /// The wire names of the scopes the caller's token grants.
+  final List<String> scopes;
+
+  /// Decodes a doctor report from its JSON object.
+  factory fromJson(Map<String, Object?> json) => DoctorReportView(
+    checks: (json['checks']! as List)
+        .map(
+          (Object? item) =>
+              DoctorCheckView.fromJson(item! as Map<String, Object?>),
+        )
+        .toList(),
+    scopes: (json['scopes']! as List).cast<String>(),
+  );
+
+  /// Encodes the report; mirrors [DoctorReportView.fromJson].
+  Map<String, Object?> toJson() => {
+    'checks': checks.map((check) => check.toJson()).toList(),
+    'scopes': scopes,
+  };
+}

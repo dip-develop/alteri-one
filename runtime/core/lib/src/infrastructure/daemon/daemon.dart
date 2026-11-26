@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:alteri_one_contracts/alteri_one_contracts.dart';
@@ -17,6 +18,7 @@ import '../../application/extensions_bloc.dart';
 import '../../application/run_service.dart';
 import '../../application/state_publisher.dart';
 import '../../di/injection.dart';
+import '../../di/provider_registry.dart';
 import '../../domain/ids.dart';
 import '../../domain/ports/journal_port.dart';
 import '../../domain/ports/llm_port.dart';
@@ -24,6 +26,7 @@ import '../../domain/profile.dart';
 import '../journal/hive_journal.dart';
 import '../paths.dart';
 import '../server/auth.dart';
+import '../server/doctor.dart';
 import '../server/http_api.dart';
 import '../server/pairing.dart';
 import '../server/routes.dart';
@@ -200,6 +203,12 @@ final class Daemon {
       runs: registry,
       approvals: _ApprovalsResource(approvalsBloc),
       extensions: _ExtensionsResource(getIt<ExtensionsBloc>()),
+      doctor: _DoctorResource(
+        config: _config,
+        registry: getIt<ProviderRegistry>(),
+        extensions: getIt<ExtensionsBloc>(),
+        fetch: _defaultToolsFetch,
+      ),
       publisher: publisher,
       journal: journal,
     );
@@ -392,4 +401,114 @@ final class _ExtensionsResource implements ExtensionResourcePort {
     for (final entry in _bloc.state.registry.entries)
       ExtensionView(id: entry.key, state: entry.value.name),
   ];
+}
+
+/// The real [DoctorResourcePort] over the daemon's configuration, extension
+/// registry, and provider (docs/spec/clients-cli.md, section 19; M4 Step 14).
+///
+/// It reports the facts only the core knows: the configuration loaded (a
+/// `ConfigurationException` would have stopped the daemon at `load`), the
+/// registered extensions (their signatures are verified when signed AOT modules
+/// land in M5, so the check is `skipped` for now), the registered providers, the
+/// `llama-server` built-in tools list (proxied from the provider `base_url`), and
+/// the `distribution.yaml` match (a build-time artifact the running binary does
+/// not carry yet, so it is `skipped`). TLS and token-strength checks are M4b.
+final class _DoctorResource implements DoctorResourcePort {
+  new({
+    required this.config,
+    required this.registry,
+    required this.extensions,
+    required this.fetch,
+  });
+  final DaemonConfig config;
+  final ProviderRegistry registry;
+  final ExtensionsBloc extensions;
+  final ToolsFetcher fetch;
+
+  @override
+  Future<DoctorReport> report(DeviceToken token) async {
+    final checks = <DoctorCheck>[
+      DoctorCheck(
+        name: 'configuration',
+        status: DoctorStatus.ok,
+        detail: 'configuration loaded (mode: ${config.mode})',
+      ),
+      _extensionsCheck(),
+      _providerCheck(),
+      await checkLlamaServerTools(baseUrl: _providerBaseUrl(), fetch: fetch),
+      const DoctorCheck(
+        name: 'distribution',
+        status: DoctorStatus.skipped,
+        detail:
+            'distribution.yaml is a build-time artifact; the running binary '
+            'does not carry it yet',
+      ),
+    ];
+    return DoctorReport(
+      checks: checks,
+      scopes: <String>[for (final scope in token.scopes) scope.wire],
+    );
+  }
+
+  DoctorCheck _extensionsCheck() {
+    final count = extensions.state.registry.entries.length;
+    if (count == 0) {
+      return const DoctorCheck(
+        name: 'extensions',
+        status: DoctorStatus.skipped,
+        detail: 'no extensions registered',
+      );
+    }
+    return DoctorCheck(
+      name: 'extensions',
+      status: DoctorStatus.skipped,
+      detail:
+          '$count extension(s) registered; signature verification lands '
+          'with signed AOT modules (M5)',
+    );
+  }
+
+  DoctorCheck _providerCheck() {
+    final kinds = registry.kinds.toList();
+    if (kinds.isEmpty) {
+      return const DoctorCheck(
+        name: 'providers',
+        status: DoctorStatus.skipped,
+        detail: 'no model provider registered',
+      );
+    }
+    return DoctorCheck(
+      name: 'providers',
+      status: DoctorStatus.ok,
+      detail: 'providers: ${kinds.join(', ')}',
+    );
+  }
+
+  /// The first `base_url` under `models` in the merged config, or `null`.
+  String? _providerBaseUrl() {
+    final models = config.layers['models'];
+    if (models is Map) {
+      for (final Object? entry in models.values) {
+        if (entry is Map && entry['base_url'] is String) {
+          return entry['base_url']! as String;
+        }
+      }
+    }
+    return null;
+  }
+}
+
+/// The default [ToolsFetcher]: a one-shot `dart:io` `GET` (docs/spec/providers.md,
+/// section 12.3). The core does not depend on `package:http`, so the proxy uses
+/// `dart:io` directly.
+Future<({int status, String body})> _defaultToolsFetch(Uri url) async {
+  final client = HttpClient();
+  try {
+    final request = await client.getUrl(url);
+    final response = await request.close();
+    final body = await response.transform(utf8.decoder).join();
+    return (status: response.statusCode, body: body);
+  } finally {
+    client.close();
+  }
 }
