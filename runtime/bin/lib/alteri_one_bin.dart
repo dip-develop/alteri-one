@@ -105,15 +105,24 @@ Future<int> _serve({
   }
 
   final Stream<void> stop = serveStop ?? _sigterm();
-  final Completer<void> stopped = Completer<void>();
-  final StreamSubscription<void> subscription = stop.listen((_) {
-    if (!stopped.isCompleted) stopped.complete();
-  });
+  // The platform stop source (section 18.7, T20): a real IPC endpoint on
+  // Windows, a documented no-op on Linux/macOS where SIGTERM stops the process.
+  // The daemon listens to it and runs the same section 18.2 shutdown; the
+  // SIGTERM/test [stop] stream drives the same [Daemon.stop] on every platform.
+  // On Windows the bound port is written to the data dir so a stop helper (the
+  // logon task) discovers the loopback endpoint without a fixed port.
+  final StopSignal platformStop = await platformStopSignal(
+    portFile: _join(paths.data, 'alterione.stop.port'),
+  );
+  final StreamSubscription<void> subscription = stop.listen(
+    (_) => daemon.stop(),
+  );
 
   try {
-    await daemon.start(llm: llm);
+    await daemon.start(llm: llm, stopSignal: platformStop);
   } on StateError catch (error) {
     await subscription.cancel();
+    await platformStop.close();
     // A held single-instance lock (section 18.1) lands here: clear message,
     // non-zero exit.
     err.writeln('serve: ${error.message}');
@@ -121,8 +130,9 @@ Future<int> _serve({
   }
 
   out.writeln('alterione: serving on port ${daemon.port}');
-  await stopped.future;
-  await daemon.stop();
+  // Completes when the section 18.2 shutdown finishes, whichever stop source
+  // fired (SIGTERM, the test stream, or the Windows IPC endpoint).
+  await daemon.stopped;
   await subscription.cancel();
   return ExitCode.success;
 }
@@ -161,7 +171,7 @@ Stream<void> _sigterm() {
 
 void _printUsage(StringSink out) {
   out.writeln('usage: alterione <command> [options]');
-  out.writeln('commands: serve, status, run, chat, watch, doctor');
+  out.writeln('commands: serve, service, status, run, chat, watch, doctor');
 }
 
 String _join(String base, String suffix) {

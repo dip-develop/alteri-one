@@ -16,5 +16,6 @@ library;
 export 'src/cli.dart';
 export 'src/cli_io.dart';
 export 'src/client_builder.dart';
+export 'src/commands/service_command.dart';
 export 'src/errors.dart';
 export 'src/exit_code.dart';

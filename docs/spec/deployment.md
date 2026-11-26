@@ -109,4 +109,12 @@ A server service runs as a system service under a dedicated unprivileged user. T
 
 - The daemon starts as a Task Scheduler task at user logon (MVP, ADR-0009). The task runs `alterione serve` with the user's privileges.
 - A Windows service that runs without a logon is planned after the MVP.
-- The stop mechanism without SIGTERM and the directory mapping (`%APPDATA%`) are verified in T20.
+- `alterione service install | uninstall | status` registers, removes, or queries the logon task. The command builds the `schtasks` command line and runs it through an injectable runner; it never imports the core. On non-Windows it reports that the logon task is Windows-only and exits successfully.
+- The Task Scheduler registration is a manual gate (T20): `schtasks` cannot run in CI, so the owner runs the command and verifies the task. Checklist:
+  1. Put the `alterione` binary on `PATH`, or pass its full path as the task command.
+  2. Run `alterione service install`; it calls `schtasks /Create /TN AlteriOne /SC ONLOGON /RL LIMITED /F /TR "alterione serve"`.
+  3. `alterione service status` queries the task; `alterione service uninstall` removes it.
+  4. Log off and on again; the task starts `alterione serve`. Confirm with `alterione status`.
+- The stop mechanism does not rely on SIGTERM (Windows has none for this). The daemon listens on a local IPC endpoint (a loopback TCP socket, `StopSignal` in the core); the first connection runs the same section 18.2 graceful shutdown. On Linux/macOS the process stops on SIGTERM and the platform stop signal is a no-op default.
+- The IPC stop endpoint is unauthenticated loopback and relies on the trusted-local-user assumption (security.md §17.2): any local process running as the same user can request a stop. The bound port is written to `<data>/alterione.stop.port` so a stop helper discovers the ephemeral loopback port; the file is removed when the daemon closes the endpoint.
+- The directory mapping (T20): configuration is `%APPDATA%\alterione` (Roaming), data (Hive, lock file) is `%LOCALAPPDATA%\alterione` (Local), and cache is `%LOCALAPPDATA%\alterione\cache`. `ALTERIONE_HOME` overrides the root for all three, the same as the XDG layout. `HomePaths.resolveWindows` / `fromWindowsEnvironment` implement it and `HomePaths.fromPlatform` selects it on Windows.

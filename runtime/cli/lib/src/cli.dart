@@ -9,6 +9,8 @@
 /// in; this library never reads files and never starts a daemon.
 library;
 
+import 'dart:io';
+
 import 'package:alteri_one_client/alteri_one_client.dart';
 import 'package:args/args.dart';
 
@@ -17,6 +19,7 @@ import 'client_builder.dart';
 import 'commands/chat_command.dart';
 import 'commands/doctor_command.dart';
 import 'commands/run_command.dart';
+import 'commands/service_command.dart';
 import 'commands/status_command.dart';
 import 'commands/watch_command.dart';
 import 'exit_code.dart';
@@ -76,6 +79,8 @@ final class AlteriOneCli {
         return _runWatch(rest);
       case 'doctor':
         return _runDoctor(rest);
+      case 'service':
+        return _runService(rest);
       case 'help':
         _printUsage();
         return Future<int>.value(ExitCode.success);
@@ -177,6 +182,41 @@ final class AlteriOneCli {
     ).execute();
   }
 
+  Future<int> _runService(List<String> args) {
+    final ArgParser parser = _baseParser();
+    final ArgResults? results = _parse(parser, args);
+    if (results == null) return Future<int>.value(ExitCode.usage);
+    if (results.flag('help')) {
+      out.writeln(parser.usage);
+      out.writeln(serviceManualChecklist);
+      return Future<int>.value(ExitCode.success);
+    }
+    final String? action = results.rest.isEmpty ? null : results.rest.first;
+    final ServiceAction? parsed = _serviceAction(action);
+    if (parsed == null) {
+      err.writeln('service: expected install, uninstall, or status');
+      err.writeln(parser.usage);
+      return Future<int>.value(ExitCode.usage);
+    }
+    return ServiceCommand(
+      io: _io,
+      baseUrl: baseUrl,
+      token: token,
+      buildClient: _buildClient,
+      action: parsed,
+      windows: Platform.isWindows,
+      runner: const ProcessCommandRunner(),
+      jsonOutput: results.flag('json'),
+    ).execute();
+  }
+
+  static ServiceAction? _serviceAction(String? name) {
+    for (final ServiceAction action in ServiceAction.values) {
+      if (action.name == name) return action;
+    }
+    return null;
+  }
+
   ArgParser _baseParser() => ArgParser()
     ..addFlag('json', help: 'machine-readable output')
     ..addFlag('help', abbr: 'h', negatable: false, help: 'show usage');
@@ -198,7 +238,7 @@ final class AlteriOneCli {
 
   void _printUsage() {
     out.writeln('usage: alterione <command> [options]');
-    out.writeln('commands: status, run, chat, watch, doctor');
+    out.writeln('commands: serve, status, run, chat, watch, doctor, service');
   }
 
   static AlteriOneClient _defaultClient(Uri baseUrl, {String? token}) =>
