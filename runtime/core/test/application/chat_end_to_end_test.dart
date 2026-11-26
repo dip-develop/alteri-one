@@ -63,6 +63,16 @@ final class _RecordingJournal implements JournalPort {
   }
 
   @override
+  Future<void> hostCallDenied(
+    String extensionId,
+    String operation,
+    String permission,
+  ) {
+    _log.add('journal.hostCallDenied $operation');
+    return _inner.hostCallDenied(extensionId, operation, permission);
+  }
+
+  @override
   Future<void> finished(
     RunId runId,
     int seq,
@@ -137,6 +147,13 @@ final class _FailOnModelStarted implements JournalPort {
   @override
   Future<void> denied(RunId runId, String tool, Risk risk, String reason) =>
       _inner.denied(runId, tool, risk, reason);
+
+  @override
+  Future<void> hostCallDenied(
+    String extensionId,
+    String operation,
+    String permission,
+  ) => _inner.hostCallDenied(extensionId, operation, permission);
 
   @override
   Future<void> finished(

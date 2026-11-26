@@ -106,6 +106,9 @@ final class FakeJournal implements JournalPort {
   /// The risk passed to each [denied] call, in order.
   final List<Risk> deniedRisks = [];
 
+  /// One line per [hostCallDenied] call, in call order.
+  final List<String> hostCallDenials = [];
+
   /// Tool invocations by `seq`; the status is replaced by [finished].
   final Map<int, Invocation> _invocations = <int, Invocation>{};
 
@@ -202,6 +205,18 @@ final class FakeJournal implements JournalPort {
     deniedRisks.add(risk);
     records.add('denied $tool $reason');
     log?.add('journal.denied $tool');
+    return Future.value();
+  }
+
+  @override
+  Future<void> hostCallDenied(
+    String extensionId,
+    String operation,
+    String permission,
+  ) {
+    hostCallDenials.add('$extensionId $operation $permission');
+    records.add('hostCallDenied $extensionId $operation $permission');
+    log?.add('journal.hostCallDenied $operation');
     return Future.value();
   }
 

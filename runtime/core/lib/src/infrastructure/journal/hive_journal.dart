@@ -31,6 +31,9 @@ final class HiveJournal implements JournalPort {
   /// Kind discriminator for run-lifecycle records.
   static const String _lifecycleKind = 'lifecycle';
 
+  /// Kind discriminator for denied extension host-call records.
+  static const String _hostCallKind = 'host_call';
+
   /// Metadata box (sequence counter).
   final Box<String> _meta;
 
@@ -188,6 +191,31 @@ final class HiveJournal implements JournalPort {
       'error': reason,
     };
     await _steps.put(_key(runId, seq), jsonEncode(record));
+    await _steps.flush();
+  }
+
+  @override
+  Future<void> hostCallDenied(
+    String extensionId,
+    String operation,
+    String permission,
+  ) async {
+    final seq = await _nextSeq();
+    final record = <String, Object?>{
+      'v': 1,
+      'kind': _hostCallKind,
+      'seq': seq,
+      'extensionId': extensionId,
+      'operation': operation,
+      'permission': permission,
+      'at': DateTime.now().toUtc().toIso8601String(),
+    };
+    // Host-call denials are not tied to a run, so they get their own key
+    // prefix; the run-scoped readers filter by `runId:` and never see them.
+    await _steps.put(
+      'host_call:${seq.toString().padLeft(12, '0')}',
+      jsonEncode(record),
+    );
     await _steps.flush();
   }
 

@@ -448,6 +448,13 @@ final class _FakeJournal implements JournalPort {
       throw UnimplementedError();
 
   @override
+  Future<void> hostCallDenied(
+    String extensionId,
+    String operation,
+    String permission,
+  ) => throw UnimplementedError();
+
+  @override
   Future<void> finished(
     RunId runId,
     int seq,

@@ -36,6 +36,13 @@ final class _FinishFailsJournal implements JournalPort {
       _inner.denied(runId, tool, risk, reason);
 
   @override
+  Future<void> hostCallDenied(
+    String extensionId,
+    String operation,
+    String permission,
+  ) => _inner.hostCallDenied(extensionId, operation, permission);
+
+  @override
   Future<void> finished(
     RunId runId,
     int seq,
