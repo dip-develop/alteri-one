@@ -33,6 +33,19 @@ abstract interface class JournalPort {
   /// Records that the policy denied a call before it started.
   Future<void> denied(RunId runId, String tool, Risk risk, String reason);
 
+  /// Records that the host refused an extension host-call before it reached
+  /// the effect (docs/spec/extensions.md, section 11.4).
+  ///
+  /// [extensionId] is the calling extension, [operation] the host API
+  /// operation (for example `secret` or `netGet`), and [permission] the
+  /// permission that was required and missing. The record is flushed before
+  /// this returns.
+  Future<void> hostCallDenied(
+    String extensionId,
+    String operation,
+    String permission,
+  );
+
   /// Records the outcome of a started record, whether a tool invocation or a
   /// model call.
   Future<void> finished(

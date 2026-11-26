@@ -602,6 +602,12 @@ final class _NullJournal implements JournalPort {
     String reason,
   ) async {}
   @override
+  Future<void> hostCallDenied(
+    String extensionId,
+    String operation,
+    String permission,
+  ) async {}
+  @override
   Future<void> finished(
     RunId runId,
     int seq,

@@ -32,6 +32,7 @@ export 'src/application/channels_cubit.dart';
 export 'src/application/config/configuration_exception.dart';
 export 'src/application/config/profile_loader.dart';
 export 'src/application/extensions_bloc.dart';
+export 'src/application/host_api.dart';
 export 'src/application/run_bloc.dart';
 export 'src/application/run_service.dart';
 export 'src/application/scheduler_bloc.dart';
