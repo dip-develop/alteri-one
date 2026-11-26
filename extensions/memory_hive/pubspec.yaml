@@ -15,7 +15,7 @@ topics:
 resolution: workspace
 dependencies:
   alteri_one_contracts: ^0.3.0
-  alteri_one_sdk: ^0.1.0
+  alteri_one_sdk: ^0.2.0
   hive_ce: ^2.22.0
 dev_dependencies:
   test: ^1.33.0
