@@ -50,6 +50,7 @@ export 'src/domain/memory.dart';
 export 'src/domain/messages.dart';
 export 'src/domain/model_call.dart';
 export 'src/domain/policy.dart';
+export 'src/domain/ports/extension_transport.dart';
 export 'src/domain/ports/journal_port.dart';
 export 'src/domain/ports/llm_port.dart';
 export 'src/domain/ports/memory_port.dart';
