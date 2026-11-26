@@ -4,6 +4,14 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and versions follow semver;
 `melos version` drives releases from conventional commits.
 
+## 0.2.0
+
+- Add the author API: `AlteriOneExtension`, `ExtensionContext`, the `ToolHandler`
+  and `OnEvent` typedefs, and the loaded-mode `runExtension` entry point with
+  `call`/`call.result`/`call.error`/`cancel` framing over `dart:isolate`.
+  `provideMemoryBackend` is a deferred seam (opaque handle) until `MemoryPort`
+  lands in `contracts` (M5 Step 14).
+
 ## 0.1.0
 
 - **Breaking change**: the minimum Dart SDK is now `^3.14.0` (raised from `^3.13.0`).

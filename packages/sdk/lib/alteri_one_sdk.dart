@@ -8,6 +8,7 @@
 /// `docs/guides/` for authoring documentation.
 ///
 /// Part of the [AlteriOne](https://alteri.one) monorepo.
-/// Status: scaffold only — implementation follows the milestones in
-/// `docs/spec/roadmap.md`.
 library;
+
+export 'src/extension.dart';
+export 'src/run_extension.dart';
