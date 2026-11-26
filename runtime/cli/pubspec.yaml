@@ -9,7 +9,7 @@ environment:
   sdk: ^3.14.0
 resolution: workspace
 dependencies:
-  alteri_one_contracts: ^0.2.0
+  alteri_one_contracts: ^0.3.0
   alteri_one_client: ^0.1.0
   args: ^2.7.0
 dev_dependencies:

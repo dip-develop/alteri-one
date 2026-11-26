@@ -7,28 +7,6 @@ import 'dart:collection';
 import 'package:alteri_one_contracts/alteri_one_contracts.dart';
 import 'package:injectable/injectable.dart';
 
-/// Topics that extensions and clients may observe
-/// (docs/spec/domain.md, section 8.11).
-enum StateTopic {
-  /// Run lifecycle: started, progress, finished.
-  runs,
-
-  /// Pending approvals and their decisions.
-  approvals,
-
-  /// Extension registry changes.
-  extensions,
-
-  /// Trigger enablement and firing.
-  triggers,
-
-  /// Channel availability.
-  channels,
-
-  /// Memory entry metadata only, never entry text.
-  memoryMeta,
-}
-
 /// Delivered to a subscriber whose bounded queue overflowed.
 ///
 /// The subscriber must request a new snapshot: events were dropped while it

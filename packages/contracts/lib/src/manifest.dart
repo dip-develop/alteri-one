@@ -1,57 +1,87 @@
 // Copyright 2026 The AlteriOne Authors.
 // SPDX-License-Identifier: Apache-2.0
 
+import 'package:schemantic/schemantic.dart';
+
+part 'manifest.g.dart';
+
 /// What an extension provides (docs/spec/contracts.md, section 10.5).
-final class ExtensionProvides(
+@Schema()
+abstract class $ExtensionProvides {
   /// Tool names without the `{extId}__` prefix.
-  final List<String> tools,
+  @Field(name: 'tools')
+  List<String> get tools;
 
   /// Trigger ids the extension registers.
-  final List<String> triggers,
+  @Field(name: 'triggers')
+  List<String> get triggers;
 
   /// Channel ids the extension registers.
-  final List<String> channels,
+  @Field(name: 'channels')
+  List<String> get channels;
 
   /// Context provider ids the extension registers.
-  final List<String> context,
+  @Field(name: 'context')
+  List<String> get context;
 
   /// Whether the extension is a memory backend.
-  final bool memoryBackend,
+  @Field(name: 'memory_backend')
+  bool get memoryBackend;
 
   /// Skill names the extension ships.
-  final List<String> skills,
-);
+  @Field(name: 'skills')
+  List<String> get skills;
+
+  /// State topics the extension observes (`StateTopic` names), default empty.
+  @Field(name: 'observes', defaultValue: [])
+  List<String>? get observes;
+}
 
 /// Extension manifest: identity, contents, permissions, and signature.
 ///
-/// Interim hand-written form; validated against a schemantic-generated JSON
-/// Schema after spike T2. The signature is computed over the canonical JSON
-/// produced from the parsed YAML.
-final class ExtensionManifest(
+/// Validated against the schemantic-generated JSON Schema
+/// (docs/spec/contracts.md, section 10.5). The signature is computed over the
+/// canonical JSON produced from the parsed YAML, with the [signature] field
+/// excluded.
+@Schema()
+abstract class $ExtensionManifest {
   /// Extension identifier, for example `weather`.
-  final String id,
+  @Field(name: 'id')
+  String get id;
 
   /// Extension version.
-  final String version,
+  @Field(name: 'version')
+  String get version;
 
   /// `alteri_one_contracts` version the extension was built against.
-  final String contract,
+  @Field(name: 'contract')
+  String get contract;
 
   /// Exact Dart SDK version used to build the snapshot.
-  final String sdk,
+  @Field(name: 'sdk')
+  String get sdk;
 
   /// Target platform, for example `linux-x64`.
-  final String target,
+  @Field(name: 'target')
+  String get target;
 
   /// What the extension registers.
-  final ExtensionProvides provides,
+  @Field(name: 'provides')
+  $ExtensionProvides get provides;
 
   /// Granted permissions, for example `net:api.open-meteo.com`.
-  final List<String> permissions,
+  @Field(name: 'permissions')
+  List<String> get permissions;
 
   /// Hash of the `.aot` snapshot.
-  final String sha256,
+  @Field(name: 'sha256')
+  String get sha256;
 
   /// Ed25519 signature over the canonical manifest JSON.
-  final String signature,
-);
+  @Field(name: 'signature')
+  String get signature;
+
+  /// State topics the extension observes (`StateTopic` names), default empty.
+  @Field(name: 'observes', defaultValue: [])
+  List<String>? get observes;
+}
