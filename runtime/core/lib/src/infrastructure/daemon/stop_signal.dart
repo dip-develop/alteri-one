@@ -34,23 +34,33 @@ abstract interface class StopSignal {
 /// composition root (or a small stop helper) connects to it to request the
 /// graceful shutdown. It is platform-neutral and testable on every OS.
 final class IpcStopSignal implements StopSignal {
-  new(this._server, this._controller);
+  new(this._server, this._controller, this._portFile);
 
   final ServerSocket _server;
   final StreamController<void> _controller;
+  final String? _portFile;
 
   /// Binds the IPC stop endpoint on an ephemeral loopback port.
   ///
   /// The returned signal's [port] is the port a stop helper connects to. The
-  /// first accepted connection is destroyed and completes [onStop].
-  static Future<IpcStopSignal> bind() async {
+  /// first accepted connection is destroyed and completes [onStop]. When
+  /// [portFile] is given, the bound port is written to it (so a stop helper
+  /// discovers the endpoint without a fixed port) and the file is removed on
+  /// [close].
+  static Future<IpcStopSignal> bind({String? portFile}) async {
     final controller = StreamController<void>.broadcast();
     final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
     server.listen((Socket socket) {
       socket.destroy();
       if (!controller.isClosed) controller.add(null);
     });
-    return IpcStopSignal(server, controller);
+    final signal = IpcStopSignal(server, controller, portFile);
+    if (portFile != null) {
+      final file = File(portFile);
+      await file.parent.create(recursive: true);
+      await file.writeAsString('${server.port}\n');
+    }
+    return signal;
   }
 
   /// The loopback port the endpoint listens on.
@@ -63,6 +73,10 @@ final class IpcStopSignal implements StopSignal {
   Future<void> close() async {
     if (!_controller.isClosed) await _controller.close();
     await _server.close();
+    if (_portFile != null) {
+      final file = File(_portFile);
+      if (file.existsSync()) file.deleteSync();
+    }
   }
 }
 
@@ -80,11 +94,12 @@ final class _NoStopSignal implements StopSignal {
 /// The platform stop signal.
 ///
 /// On Windows it is an [IpcStopSignal], the local IPC endpoint the logon task
-/// uses to stop the daemon without SIGTERM (section 18.7, T20). On Linux/macOS
-/// it is a no-op default: those platforms stop on SIGTERM (section 18.2), so
-/// [StopSignal.onStop] never emits and the daemon keeps running until the
-/// signal arrives.
-Future<StopSignal> platformStopSignal() async {
-  if (Platform.isWindows) return await IpcStopSignal.bind();
+/// uses to stop the daemon without SIGTERM (section 18.7, T20); [portFile],
+/// when given, is the file the bound port is written to so a stop helper
+/// discovers the endpoint. On Linux/macOS it is a no-op default: those
+/// platforms stop on SIGTERM (section 18.2), so [StopSignal.onStop] never
+/// emits and the daemon keeps running until the signal arrives.
+Future<StopSignal> platformStopSignal({String? portFile}) async {
+  if (Platform.isWindows) return await IpcStopSignal.bind(portFile: portFile);
   return _NoStopSignal();
 }

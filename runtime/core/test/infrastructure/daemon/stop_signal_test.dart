@@ -44,6 +44,27 @@ void main() {
         throwsA(isA<SocketException>()),
       );
     });
+
+    test(
+      'writes the bound port to the port file and removes it on close',
+      () async {
+        final Directory dir = await Directory.systemTemp.createTemp(
+          'stop_port_',
+        );
+        addTearDown(() => dir.delete(recursive: true));
+        final String portFile = '${dir.path}/alterione.stop.port';
+
+        final signal = await IpcStopSignal.bind(portFile: portFile);
+        final port = signal.port;
+
+        final file = File(portFile);
+        expect(file.existsSync(), isTrue);
+        expect(int.parse(file.readAsStringSync().trim()), port);
+
+        await signal.close();
+        expect(file.existsSync(), isFalse);
+      },
+    );
   });
 
   group('platformStopSignal', () {
