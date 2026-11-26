@@ -161,6 +161,15 @@ final class AlteriOneClient {
     return _list(response, 'extensions', ExtensionView.fromJson);
   }
 
+  /// Reads `GET /v1/doctor` and returns the [DoctorReportView] the daemon
+  /// builds (docs/spec/clients-cli.md, section 19). The route requires the
+  /// `read` scope; a rejected token surfaces as an [ApiException] with status
+  /// 401 or 403.
+  Future<DoctorReportView> getDoctorReport() async {
+    final http.Response response = await _exec(_request('GET', 'doctor'));
+    return DoctorReportView.fromJson(_object(response));
+  }
+
   /// Subscribes to `GET /v1/events`, reconnecting from the last `seq` on
   /// disconnect (section 16.4). See [readEventStream].
   Stream<AgentEvent> events({

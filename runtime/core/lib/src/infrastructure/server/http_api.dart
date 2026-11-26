@@ -13,6 +13,7 @@ import '../../application/state_publisher.dart';
 import '../../domain/ports/journal_port.dart';
 import '../../domain/run_state.dart';
 import 'auth.dart';
+import 'doctor.dart';
 import 'pairing.dart';
 import 'routes.dart';
 import 'scope.dart';
@@ -79,6 +80,7 @@ final class HttpApi {
     RunResourcePort? runs,
     ApprovalResourcePort? approvals,
     ExtensionResourcePort? extensions,
+    DoctorResourcePort? doctor,
     StatePublisher? publisher,
     JournalPort? journal,
     // ignore: prefer_initializing_formals
@@ -100,6 +102,9 @@ final class HttpApi {
        _approvals = approvals,
        // ignore: prefer_initializing_formals
        _extensions = extensions,
+       // The public parameter is `doctor`, the field is `_doctor`.
+       // ignore: prefer_initializing_formals
+       _doctor = doctor,
        // ignore: prefer_initializing_formals
        _publisher = publisher,
        // ignore: prefer_initializing_formals
@@ -132,6 +137,9 @@ final class HttpApi {
 
   /// The extension resource port, or `null` when `/v1/extensions` is absent.
   final ExtensionResourcePort? _extensions;
+
+  /// The doctor resource port, or `null` when `/v1/doctor` is absent.
+  final DoctorResourcePort? _doctor;
 
   /// The state publisher backing `GET /v1/events`, or `null` when the SSE
   /// route is absent.
@@ -196,6 +204,8 @@ final class HttpApi {
           return await _handleApprovals(request, segments);
         case 'extensions':
           return await _handleExtensions(request, segments);
+        case 'doctor':
+          return await _handleDoctor(request, segments);
         case 'events':
           return await _handleEvents(request);
       }
@@ -463,6 +473,26 @@ final class HttpApi {
     if (denied != null) return denied;
     final views = await extensions.listExtensions();
     return _json(200, {'extensions': views.map((e) => e.toJson()).toList()});
+  }
+
+  /// Handles `GET /v1/doctor` (section 16.3, scope `read`): the read-only
+  /// health report `alterione doctor` renders (docs/spec/clients-cli.md,
+  /// section 19).
+  ///
+  /// An absent [doctor] port is a 404. The route resolves the bearer token and
+  /// enforces the `read` scope, then returns the report the port builds; the
+  /// caller's scopes are part of that report.
+  Future<Response> _handleDoctor(Request request, List<String> segments) async {
+    final doctor = _doctor;
+    if (doctor == null || segments.length != 2 || request.method != 'GET') {
+      return _text(404, 'not found');
+    }
+    final denied = _authorize(request, Scope.read);
+    if (denied != null) return denied;
+    // `_authorize` returned null, so the resolver and the device are present.
+    final device = resolveDevice(_tokenResolver!, request)!;
+    final report = await doctor.report(device);
+    return _json(200, report.toJson());
   }
 
   /// Handles `GET /v1/events` (section 16.4, scope `read`): the SSE stream
