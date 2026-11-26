@@ -8,5 +8,9 @@ issue_tracker: https://github.com/dip-develop/alteri-one/issues
 environment:
   sdk: ^3.14.0
 resolution: workspace
+dependencies:
+  alteri_one_contracts:
+    path: ../../packages/contracts
+  cryptography: ^2.9.0
 dev_dependencies:
   test: ^1.25.0

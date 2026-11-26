@@ -32,6 +32,7 @@ Minimum versions as of the date of writing. Check the current version on pub.dev
 | http | current | client in `alteri_one_client` and providers |
 | args | `^2.7.0` | command-line parsing in `runtime/cli` |
 | material_ui | `^1.11.1` | Flutter Material Design library, replacement for the deprecated `package:flutter/material.dart`; only in the client |
+| cryptography | `^2.9.0` | pure-Dart Ed25519 + SHA-256 for extension signing in `tools/signing` |
 
 All workspace members resolve together. Version conflicts appear immediately. Keep one schemantic line across the workspace and run `dart pub outdated` after every addition.
 
@@ -178,5 +179,6 @@ Generated files (`*.g.dart`, `*.schemantic.dart`, `*.config.dart`) are never edi
 | `clients/site` | design, jaspr | everything else |
 | `e2e` | any workspace member | — |
 | `tools/*` | any dev dependencies | must not become runtime dependencies |
+| `tools/signing` | contracts, cryptography (`^2.9.0`, pure-Dart Ed25519 + SHA-256) | must not become a runtime dependency of the shipped product |
 
 The rules for `extensions/*` apply in both loading modes (section 11.6). `tools/arch_check` verifies the dependency rules from each `pubspec.yaml`. The e2e suite builds the reference extension in both modes and compares behavior.
