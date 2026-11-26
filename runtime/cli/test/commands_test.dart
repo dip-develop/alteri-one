@@ -264,19 +264,34 @@ void main() {
   group('doctor', () {
     test('reports the daemon reachable', () async {
       final StringBuffer out = StringBuffer();
-      final MockClient client = MockClient(
-        (http.Request request) async => _json(<String, Object?>{
-          'protocol_version': 1,
-          'sdk': '3.14.0',
-          'capabilities': <String>['sse'],
-        }),
-      );
+      final MockClient client = MockClient((http.Request request) async {
+        if (request.url.path == '/v1/info') {
+          return _json(<String, Object?>{
+            'protocol_version': 1,
+            'sdk': '3.14.0',
+            'capabilities': <String>['sse'],
+          });
+        }
+        if (request.url.path == '/v1/doctor') {
+          return _json(<String, Object?>{
+            'checks': <Object?>[
+              <String, Object?>{
+                'name': 'configuration',
+                'status': 'ok',
+                'detail': 'configuration loaded',
+              },
+            ],
+            'scopes': <String>['read'],
+          });
+        }
+        return http.Response('not found', 404);
+      });
 
       final int code = await _cli(client, out: out).run(<String>['doctor']);
 
       expect(code, ExitCode.success);
-      expect(out.toString(), contains('daemon: ok'));
-      expect(out.toString(), contains('Step 14'));
+      expect(out.toString(), contains('[ok] daemon'));
+      expect(out.toString(), contains('configuration'));
     });
   });
 
