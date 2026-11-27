@@ -17,6 +17,7 @@ export 'src/application/agent/agent_deps.dart';
 export 'src/application/agent/agent_loop.dart';
 export 'src/application/agent/approval_service.dart';
 export 'src/application/agent/context_builder.dart';
+export 'src/application/agent/extension_tool_registry.dart';
 export 'src/application/agent/journaling_llm.dart';
 export 'src/application/agent/profile_agent_config.dart';
 export 'src/application/agent/run_result.dart';
