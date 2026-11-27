@@ -46,6 +46,9 @@ StreamController<AgentEvent>? crashController;
 void main() {
   setUp(applyBlocDefaults);
 
+  Set<String>? granted;
+  Set<String>? observes;
+
   group('ExtensionsBloc load', () {
     blocTest<ExtensionsBloc, ExtensionsState>(
       'registers a spawned extension',
@@ -66,6 +69,58 @@ void main() {
       },
       verify: (bloc) {
         expect(bloc.state.registry, {'weather': ExtensionLifecycle.loaded});
+      },
+    );
+
+    blocTest<ExtensionsBloc, ExtensionsState>(
+      'exposes the effective approval from the reader',
+      build: () {
+        final loaded = _loaded('weather');
+        return ExtensionsBloc(
+          transport: FakeExtensionTransport(loaded: loaded),
+          approvals: _FakeApprovalReader(
+            EffectiveApproval(
+              EffectivePermissions(const {'host.memory.read'}),
+              const {'runs'},
+              const {},
+            ),
+          ),
+        );
+      },
+      act: (bloc) async {
+        bloc.add(
+          ExtensionLoadRequestedEvent(
+            extensionId: 'weather',
+            uri: Uri.parse(_weatherUri),
+          ),
+        );
+        await _waitLoaded(bloc, 'weather');
+        granted = bloc.approvalFor('weather')?.permissions.granted;
+        observes = bloc.approvalFor('weather')?.observes;
+      },
+      verify: (_) {
+        expect(granted, {'host.memory.read'});
+        expect(observes, {'runs'});
+      },
+    );
+
+    blocTest<ExtensionsBloc, ExtensionsState>(
+      'defaults to a deny when no reader is configured',
+      build: () => ExtensionsBloc(
+        transport: FakeExtensionTransport(loaded: _loaded('weather')),
+      ),
+      act: (bloc) async {
+        bloc.add(
+          ExtensionLoadRequestedEvent(
+            extensionId: 'weather',
+            uri: Uri.parse(_weatherUri),
+          ),
+        );
+        await _waitLoaded(bloc, 'weather');
+        granted = bloc.approvalFor('weather')?.permissions.granted;
+      },
+      verify: (_) {
+        expect(granted, isEmpty);
       },
     );
 
@@ -260,3 +315,22 @@ AgentEvent _crash(String id) => ExtensionStateChanged(
   extensionId: id,
   state: 'crashed',
 );
+
+/// An [ApprovalReader] returning a fixed [EffectiveApproval].
+final class _FakeApprovalReader implements ApprovalReader {
+  new(this._approval);
+
+  final EffectiveApproval _approval;
+
+  @override
+  EffectiveApproval read(ExtensionManifest manifest) => _approval;
+}
+
+/// Waits until [id] reaches [ExtensionLifecycle.loaded] in [bloc], or times out.
+Future<void> _waitLoaded(ExtensionsBloc bloc, String id) async {
+  for (var i = 0; i < 100; i++) {
+    if (bloc.state.registry[id] == ExtensionLifecycle.loaded) return;
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
+  fail('$id did not reach loaded');
+}

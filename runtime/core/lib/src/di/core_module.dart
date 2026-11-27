@@ -13,6 +13,7 @@ import '../application/agent/extension_tool_registry.dart';
 import '../application/agent/tool_set.dart';
 import '../application/approvals_bloc.dart';
 import '../application/extensions_bloc.dart';
+import '../application/host_api.dart';
 import '../application/run_service.dart';
 import '../application/state_publisher.dart';
 import '../domain/policy.dart';
@@ -70,9 +71,23 @@ abstract class CoreModule {
   /// The extension registry (docs/spec/extensions.md, section 11.3). Built
   /// here so the optional restart knobs keep their defaults; injectable cannot
   /// supply the `int`/`Duration` defaults of the primary constructor.
+  ///
+  /// [approvals] reads the owner approval of each loaded extension (M5 Step 9);
+  /// the default is fail-closed (default deny) until the composition root
+  /// installs a `dart:io`-backed [ApprovalLoader].
   @lazySingleton
-  ExtensionsBloc extensionsBloc(ExtensionTransport transport) =>
-      ExtensionsBloc(transport: transport);
+  ExtensionsBloc extensionsBloc(
+    ExtensionTransport transport,
+    ApprovalReader approvals,
+  ) => ExtensionsBloc(transport: transport, approvals: approvals);
+
+  /// Reads the owner approval of a loaded extension from `extensions/<id>.yaml`
+  /// (docs/spec/extensions.md, section 11.4; M5 Step 9). Fail-closed until the
+  /// composition root installs a `dart:io`-backed loader over the configured
+  /// `extensions/` directory: the default denies every permission, topic, and
+  /// skill.
+  @lazySingleton
+  ApprovalReader get approvalReader => const _DenyAllApprovals();
 
   /// Spawns extension modules; fail-closed until an infrastructure transport
   /// is installed (docs/spec/extensions.md, section 11.3).
@@ -153,4 +168,15 @@ final class _RejectAllManifests implements ManifestVerifier {
   @override
   Future<ExtensionManifest> verify(Uri module) =>
       Future.error(const ExtensionRejected('no manifest verifier configured'));
+}
+
+/// Fail-closed [ApprovalReader]: every extension gets [EffectiveApproval.none]
+/// until the composition root installs a `dart:io`-backed loader over the
+/// configured `extensions/` directory (docs/spec/extensions.md, section 11.4).
+final class _DenyAllApprovals implements ApprovalReader {
+  const new();
+
+  @override
+  EffectiveApproval read(ExtensionManifest manifest) =>
+      EffectiveApproval.none();
 }

@@ -21,6 +21,7 @@ import 'package:alteri_one_core/src/application/agent/tool_set.dart' as _i454;
 import 'package:alteri_one_core/src/application/approvals_bloc.dart' as _i511;
 import 'package:alteri_one_core/src/application/channels_cubit.dart' as _i456;
 import 'package:alteri_one_core/src/application/extensions_bloc.dart' as _i603;
+import 'package:alteri_one_core/src/application/host_api.dart' as _i196;
 import 'package:alteri_one_core/src/application/run_service.dart' as _i841;
 import 'package:alteri_one_core/src/application/scheduler_bloc.dart' as _i221;
 import 'package:alteri_one_core/src/application/state_publisher.dart' as _i869;
@@ -55,21 +56,25 @@ extension GetItInjectableX on _i174.GetIt {
     gh.lazySingleton<_i777.ProviderRegistry>(() => coreModule.providerRegistry);
     gh.lazySingleton<_i194.ApprovalService>(() => coreModule.approvalService);
     gh.lazySingleton<_i186.ContextBuilder>(() => coreModule.contextBuilder);
+    gh.lazySingleton<_i196.ApprovalReader>(() => coreModule.approvalReader);
     gh.lazySingleton<_i524.ExtensionTransport>(
       () => coreModule.extensionTransport,
     );
     gh.lazySingleton<_i726.ManifestVerifier>(() => coreModule.manifestVerifier);
     gh.lazySingleton<_i603.ExtensionsBloc>(
-      () => coreModule.extensionsBloc(gh<_i524.ExtensionTransport>()),
-    );
-    gh.lazySingleton<_i454.ToolRegistry>(
-      () => coreModule.toolRegistry(gh<_i603.ExtensionsBloc>()),
+      () => coreModule.extensionsBloc(
+        gh<_i524.ExtensionTransport>(),
+        gh<_i196.ApprovalReader>(),
+      ),
     );
     gh.lazySingleton<_i665.PolicyGate>(
       () => coreModule.policyGate(gh<_i1058.RuntimeConfig>()),
     );
     gh.lazySingleton<_i411.AgentConfig>(
       () => coreModule.agentConfig(gh<_i1058.RuntimeConfig>()),
+    );
+    gh.lazySingleton<_i454.ToolRegistry>(
+      () => coreModule.toolRegistry(gh<_i603.ExtensionsBloc>()),
     );
     gh.lazySingleton<_i982.AgentDepsFactory>(
       () => coreModule.agentDepsFactory(
