@@ -32,6 +32,7 @@ import 'dart:isolate';
 
 import 'package:alteri_one_contracts/alteri_one_contracts.dart';
 
+import '../../application/host_api.dart';
 import '../../application/state_publisher.dart';
 import '../../domain/cancel_token.dart';
 import '../../domain/ports/extension_transport.dart';
@@ -60,12 +61,19 @@ final class IsolateExtensionTransport implements ExtensionTransport {
   /// [verifier] checks the manifest before any route is registered (core must
   /// not import `tools/signing`; the composition root wires it). [publisher],
   /// when given, feeds the per-extension observation subscription: the topics
-  /// the manifest observes are piped to the extension with pause/resume
-  /// backpressure (Step 12 refines the owner-granted intersection).
-  new({required this.verifier, this.publisher});
+  /// the manifest observes **and** the owner granted (the [approvals] effective
+  /// set, M5 Step 9) are piped to the extension with pause/resume backpressure
+  /// (Step 12). Without [approvals] every topic is denied (default deny), so no
+  /// observation is wired.
+  new({required this.verifier, this.publisher, this.approvals});
 
   final ManifestVerifier verifier;
   final StatePublisher? publisher;
+
+  /// Reads the owner approval of a loaded extension (M5 Step 9). The
+  /// observation wiring subscribes only to `manifest.observes ∩
+  /// approval.observes`; `null` denies every topic (default deny).
+  final ApprovalReader? approvals;
 
   @override
   Future<LoadedExtension> spawn({
@@ -96,6 +104,7 @@ final class IsolateExtensionTransport implements ExtensionTransport {
       onExit: onExit,
       verifier: verifier,
       uri: uri,
+      approvals: approvals,
     );
     try {
       await loaded._handshake(handshakeTimeout);
@@ -129,6 +138,7 @@ final class IsolateLoadedExtension implements LoadedExtension {
     required ReceivePort onExit,
     required ManifestVerifier verifier,
     required this.uri,
+    this.approvals,
     // The named parameters are public, so they are not initializing formals.
     // ignore: prefer_initializing_formals
   }) : _replies = replies,
@@ -146,6 +156,11 @@ final class IsolateLoadedExtension implements LoadedExtension {
   final ManifestVerifier _verifier;
   final Uri uri;
 
+  /// Reads the owner approval; the observation wiring subscribes only to the
+  /// owner-granted topics (`manifest.observes ∩ approval.observes`). `null`
+  /// denies every topic (default deny).
+  final ApprovalReader? approvals;
+
   ExtensionManifest? _manifest;
   SendPort? _extension;
   bool _draining = false;
@@ -157,8 +172,8 @@ final class IsolateLoadedExtension implements LoadedExtension {
   int _nextId = 0;
   final Map<String, Completer<Object?>> _pending =
       <String, Completer<Object?>>{};
-  final List<StreamSubscription<AgentEvent>> _observations =
-      <StreamSubscription<AgentEvent>>[];
+  final Map<StateTopic, StreamSubscription<AgentEvent>> _observations =
+      <StateTopic, StreamSubscription<AgentEvent>>{};
 
   final StreamController<AgentEvent> _events =
       StreamController<AgentEvent>.broadcast();
@@ -284,27 +299,56 @@ final class IsolateLoadedExtension implements LoadedExtension {
     return completer.future;
   }
 
+  /// Subscribes the extension to the owner-granted topics and pipes each
+  /// [AgentEvent] to it as an [EventFrame] (docs/spec/domain.md, section 8.11;
+  /// docs/spec/extensions.md, section 11.3).
+  ///
+  /// The gate is `manifest.observes ∩ owner-granted`: a topic the owner did not
+  /// grant in `extensions/<id>.yaml` is never subscribed, so no state leaks to
+  /// an extension that was not approved for it. `memory.meta` is metadata only;
+  /// the publisher already stores no entry text. On overflow the subscription
+  /// fails with [StatePublisherResyncRequired]; the error is forwarded as a
+  /// `resync_required` frame and the topic is re-subscribed so the extension
+  /// receives a fresh snapshot (step 3) and resumes from a consistent state.
   void _startObservations(StatePublisher publisher) {
-    final topics = _manifest?.observes ?? const <String>[];
-    for (final name in topics) {
+    final manifest = _manifest;
+    if (manifest == null) return;
+    final reader = approvals;
+    final Set<String> granted =
+        reader?.read(manifest).observes ?? const <String>{};
+    for (final String name in manifest.observes ?? const <String>[]) {
+      if (!granted.contains(name)) continue;
       final topic = _topicByName(name);
       if (topic == null) continue;
-      _observations.add(
-        publisher
-            .subscribe(topic)
-            .listen(
-              _sendEvent,
-              onError: (Object error) {
-                if (error is StatePublisherResyncRequired) {
-                  _extension?.send(<String, Object?>{
-                    'kind': 'resync_required',
-                    'topic': topic.name,
-                  });
-                }
-              },
-            ),
-      );
+      _subscribe(topic, publisher);
     }
+  }
+
+  void _subscribe(StateTopic topic, StatePublisher publisher) {
+    _observations[topic] = publisher
+        .subscribe(topic)
+        .listen(
+          _sendEvent,
+          onError: (Object error) =>
+              _onObservationError(topic, publisher, error),
+        );
+  }
+
+  void _onObservationError(
+    StateTopic topic,
+    StatePublisher publisher,
+    Object error,
+  ) {
+    if (error is! StatePublisherResyncRequired) return;
+    _extension?.send(<String, Object?>{
+      'kind': 'resync_required',
+      'topic': topic.name,
+    });
+    // The failed subscription removed itself; re-subscribe so the extension
+    // gets a fresh snapshot and can continue from a consistent state.
+    if (_killed || _draining) return;
+    _observations.remove(topic);
+    _subscribe(topic, publisher);
   }
 
   /// Pauses the observation subscriptions (a slow extension): the bounded
@@ -312,14 +356,14 @@ final class IsolateLoadedExtension implements LoadedExtension {
   /// forwarded to the extension as a `resync_required` frame
   /// (docs/spec/extensions.md, section 11.3; mirrors `infrastructure/server/sse.dart`).
   void pauseObservations() {
-    for (final StreamSubscription<AgentEvent> sub in _observations) {
+    for (final StreamSubscription<AgentEvent> sub in _observations.values) {
       sub.pause();
     }
   }
 
   /// Resumes the observation subscriptions after [pauseObservations].
   void resumeObservations() {
-    for (final StreamSubscription<AgentEvent> sub in _observations) {
+    for (final StreamSubscription<AgentEvent> sub in _observations.values) {
       sub.resume();
     }
   }
@@ -334,7 +378,7 @@ final class IsolateLoadedExtension implements LoadedExtension {
   Future<void> drain(Duration timeout) async {
     if (_killed || _draining) return;
     _draining = true;
-    for (final StreamSubscription<AgentEvent> sub in _observations) {
+    for (final StreamSubscription<AgentEvent> sub in _observations.values) {
       await sub.cancel();
     }
     _observations.clear();
@@ -358,7 +402,7 @@ final class IsolateLoadedExtension implements LoadedExtension {
   Future<void> kill() async {
     if (_killed) return;
     _killed = true;
-    for (final StreamSubscription<AgentEvent> sub in _observations) {
+    for (final StreamSubscription<AgentEvent> sub in _observations.values) {
       await sub.cancel();
     }
     _observations.clear();
