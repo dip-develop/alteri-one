@@ -4,6 +4,16 @@ All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and versions follow semver;
 `melos version` drives releases from conventional commits.
 
+## 0.4.0
+
+- **Additive change**: add typed extension message frame models in `frames.dart`
+  — `HelloFrame`, `CallFrame`, `CallResultFrame`, `CallErrorFrame`,
+  `CancelFrame`, and `EventFrame` — generated with schemantic. Each carries a
+  `kind` discriminator with the wire strings the host and SDK already use
+  (`hello`/`call`/`call.result`/`call.error`/`cancel`/`event`); `EventFrame`
+  wraps a serialized `AgentEvent`. The extension reply `SendPort` stays a native
+  field outside `HelloFrame` (ADR-0022).
+
 ## 0.3.0
 
 - **Additive change**: add `observes` (`List<String>`, default empty) to

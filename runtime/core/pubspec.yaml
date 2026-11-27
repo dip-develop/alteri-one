@@ -9,9 +9,9 @@ environment:
   sdk: ^3.14.0
 resolution: workspace
 dependencies:
-  alteri_one_contracts: ^0.3.0
+  alteri_one_contracts: ^0.4.0
   alteri_one_provider_api: ^0.2.0
-  alteri_one_sdk: ^0.2.0
+  alteri_one_sdk: ^0.3.0
   alteri_one_prompts: ^0.1.0
   bloc: ^9.2.0
   bloc_concurrency: ^0.3.0

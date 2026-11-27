@@ -14,9 +14,11 @@
 ///
 /// Framing is native Dart messages over the ports, not newline-delimited JSON:
 /// the `hello` frame carries a [SendPort], which is not JSON-serializable, so
-/// the wire shapes are the `Map<String, Object?>` frames the SDK sends and
-/// receives (`hello`/`call`/`call.result`/`call.error`/`cancel`, plus the
-/// `event` observation frame). This is the one deliberate deviation from the
+/// it travels as a native `{kind, port}` envelope. Every other frame is a typed
+/// schemantic model from `alteri_one_contracts` (`CallFrame`,
+/// `CallResultFrame`, `CallErrorFrame`, `CancelFrame`, `EventFrame`) encoded
+/// with `toJson` and parsed with `fromJson` (ADR-0022); only the `hello`
+/// [SendPort] stays native. This is the one deliberate deviation from the
 /// spec's "newline-delimited JSON" wording; the SDK (Step 3) is the source of
 /// truth for the frame shapes.
 ///
@@ -187,21 +189,16 @@ final class IsolateLoadedExtension implements LoadedExtension {
     }
     if (message is! Map<String, Object?>) return;
     switch (message['kind']) {
-      case 'call.result':
-        final id = message['id'] as String?;
-        final completer = id == null ? null : _pending.remove(id);
-        completer?.complete(message['output']);
-      case 'call.error':
-        final id = message['id'] as String?;
-        final completer = id == null ? null : _pending.remove(id);
-        completer?.completeError(
-          ExtensionCallException('${message['code']}', '${message['message']}'),
-        );
-      case 'event':
-        final event = message['event'];
-        if (event is Map<String, Object?>) {
-          _events.add(AgentEvent.fromJson(event));
-        }
+      case callResultFrameKind:
+        final result = CallResultFrame.fromJson(message);
+        _pending.remove(result.id)?.complete(result.output);
+      case callErrorFrameKind:
+        final error = CallErrorFrame.fromJson(message);
+        _pending
+            .remove(error.id)
+            ?.completeError(ExtensionCallException(error.code, error.message));
+      case eventFrameKind:
+        _events.add(AgentEvent.fromJson(EventFrame.fromJson(message).event));
       default:
         break; // Unknown kinds are ignored (forward compatibility).
     }
@@ -213,12 +210,16 @@ final class IsolateLoadedExtension implements LoadedExtension {
       _rejectHandshake(const ExtensionRejected('first frame is not a map'));
       return;
     }
-    if (message['kind'] != 'hello') {
+    if (message['kind'] != helloFrameKind) {
       _rejectHandshake(
         ExtensionRejected('unexpected frame ${message['kind']}'),
       );
       return;
     }
+    // The hello frame keeps its native `{kind, port}` shape: the reply
+    // [SendPort] is not JSON-serializable, so it is read here beside the
+    // discriminator rather than from a [HelloFrame] (ADR-0022). The manifest is
+    // verified separately through [_verifier], not carried on the frame.
     final port = message['port'];
     if (port is! SendPort) {
       _rejectHandshake(const ExtensionRejected('hello without a port'));
@@ -269,17 +270,14 @@ final class IsolateLoadedExtension implements LoadedExtension {
     final id = 'c${_nextId++}';
     final completer = Completer<Object?>();
     _pending[id] = completer;
-    extension.send(<String, Object?>{
-      'kind': 'call',
-      'id': id,
-      'tool': tool,
-      'input': input,
-    });
+    extension.send(
+      CallFrame(kind: callFrameKind, id: id, tool: tool, input: input).toJson(),
+    );
     if (cancel.isCancelled) {
       // Cancelled between the check and the send: tell the extension to drop
       // the call and fail fast instead of waiting for a reply that will not
       // come (the SDK drops a cancelled call's result).
-      extension.send(<String, Object?>{'kind': 'cancel', 'id': id});
+      extension.send(CancelFrame(kind: cancelFrameKind, id: id).toJson());
       _pending.remove(id);
       return Future<Object?>.error(const RunCancelledException());
     }
@@ -327,10 +325,9 @@ final class IsolateLoadedExtension implements LoadedExtension {
   }
 
   void _sendEvent(AgentEvent event) {
-    _extension?.send(<String, Object?>{
-      'kind': 'event',
-      'event': _encode(event),
-    });
+    _extension?.send(
+      EventFrame(kind: eventFrameKind, event: _encode(event)).toJson(),
+    );
   }
 
   @override
