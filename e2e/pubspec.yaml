@@ -12,5 +12,7 @@ dependencies:
   alteri_one_contracts: ^0.4.0
   alteri_one_client: ^0.1.0
   alteri_one_core: ^0.0.1
+  alteri_one_ext_weather: ^0.1.0
+  alteri_one_sdk: ^0.3.0
 dev_dependencies:
   test: ^1.33.0
