@@ -29,8 +29,12 @@ import 'package:alteri_one_core/src/di/core_module.dart' as _i398;
 import 'package:alteri_one_core/src/di/provider_registry.dart' as _i777;
 import 'package:alteri_one_core/src/di/runtime_config.dart' as _i1058;
 import 'package:alteri_one_core/src/domain/policy.dart' as _i665;
+import 'package:alteri_one_core/src/domain/ports/extension_transport.dart'
+    as _i524;
 import 'package:alteri_one_core/src/domain/ports/journal_port.dart' as _i673;
 import 'package:alteri_one_core/src/domain/ports/llm_port.dart' as _i500;
+import 'package:alteri_one_core/src/domain/ports/manifest_verifier.dart'
+    as _i726;
 import 'package:get_it/get_it.dart' as _i174;
 import 'package:injectable/injectable.dart' as _i526;
 
@@ -44,7 +48,6 @@ extension GetItInjectableX on _i174.GetIt {
     final coreModule = _$CoreModule();
     gh.lazySingleton<_i511.ApprovalsBloc>(() => _i511.ApprovalsBloc());
     gh.lazySingleton<_i456.ChannelsCubit>(() => _i456.ChannelsCubit());
-    gh.lazySingleton<_i603.ExtensionsBloc>(() => _i603.ExtensionsBloc());
     gh.lazySingleton<_i221.SchedulerBloc>(() => _i221.SchedulerBloc());
     gh.lazySingleton<_i869.StatePublisher>(() => _i869.StatePublisher());
     gh.lazySingleton<_i476.TriggersCubit>(() => _i476.TriggersCubit());
@@ -52,7 +55,16 @@ extension GetItInjectableX on _i174.GetIt {
     gh.lazySingleton<_i777.ProviderRegistry>(() => coreModule.providerRegistry);
     gh.lazySingleton<_i194.ApprovalService>(() => coreModule.approvalService);
     gh.lazySingleton<_i186.ContextBuilder>(() => coreModule.contextBuilder);
-    gh.lazySingleton<_i454.ToolRegistry>(() => coreModule.toolRegistry);
+    gh.lazySingleton<_i524.ExtensionTransport>(
+      () => coreModule.extensionTransport,
+    );
+    gh.lazySingleton<_i726.ManifestVerifier>(() => coreModule.manifestVerifier);
+    gh.lazySingleton<_i603.ExtensionsBloc>(
+      () => coreModule.extensionsBloc(gh<_i524.ExtensionTransport>()),
+    );
+    gh.lazySingleton<_i454.ToolRegistry>(
+      () => coreModule.toolRegistry(gh<_i603.ExtensionsBloc>()),
+    );
     gh.lazySingleton<_i665.PolicyGate>(
       () => coreModule.policyGate(gh<_i1058.RuntimeConfig>()),
     );
