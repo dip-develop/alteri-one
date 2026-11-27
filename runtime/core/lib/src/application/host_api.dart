@@ -1,6 +1,8 @@
 // Copyright 2026 The AlteriOne Authors.
 // SPDX-License-Identifier: Apache-2.0
 
+import 'package:alteri_one_contracts/alteri_one_contracts.dart';
+
 import '../domain/ids.dart';
 import '../domain/memory.dart';
 import '../domain/ports/journal_port.dart';
@@ -20,6 +22,43 @@ final class EffectivePermissions(
 ) {
   /// Whether [permission] is in the effective set.
   bool grants(String permission) => granted.contains(permission);
+}
+
+/// The effective grant for one loaded extension, computed by the owner-approval
+/// loader (M5 Step 9) as the intersection of the manifest and
+/// `extensions/<id>.yaml`.
+///
+/// [permissions] is the set [HostApi] checks on every call; [observes] and
+/// [skills] are the granted `StateTopic` and skill names the observation wiring
+/// (Step 12) and `skill.load` (Step 15) gate on.
+final class EffectiveApproval(
+  /// The effective permission set.
+  final EffectivePermissions permissions,
+
+  /// The granted `StateTopic` names.
+  final Set<String> observes,
+
+  /// The granted skill names.
+  final Set<String> skills,
+) {
+  /// The default deny: no permission, topic, or skill.
+  static EffectiveApproval none() => EffectiveApproval(
+    EffectivePermissions(const <String>{}),
+    const <String>{},
+    const <String>{},
+  );
+}
+
+/// Reads the owner approval for a loaded extension
+/// (docs/spec/extensions.md, section 11.4).
+///
+/// Seam: the `dart:io`-backed implementation lives in the infrastructure layer
+/// (M5 Step 9); the application layer depends on this port so the bloc never
+/// imports `dart:io`.
+abstract interface class ApprovalReader {
+  /// Returns the effective grant of [manifest], defaulting to
+  /// [EffectiveApproval.none] when the owner has not approved the extension.
+  EffectiveApproval read(ExtensionManifest manifest);
 }
 
 /// Thrown when the host refuses an extension host-call because the effective

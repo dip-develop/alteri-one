@@ -68,6 +68,7 @@ export 'src/infrastructure/daemon/daemon_config.dart';
 export 'src/infrastructure/daemon/instance_lock.dart';
 export 'src/infrastructure/daemon/run_registry.dart';
 export 'src/infrastructure/daemon/stop_signal.dart';
+export 'src/infrastructure/extension/approval_loader.dart';
 export 'src/infrastructure/extension/isolate_extension_transport.dart';
 export 'src/infrastructure/journal/hive_journal.dart';
 export 'src/infrastructure/paths.dart';

@@ -7,6 +7,7 @@ import 'package:alteri_one_contracts/alteri_one_contracts.dart';
 import 'package:bloc/bloc.dart';
 
 import '../domain/ports/extension_transport.dart';
+import 'host_api.dart';
 
 /// Lifecycle states of an extension (docs/spec/domain.md, section 8.10).
 enum ExtensionLifecycle {
@@ -115,8 +116,15 @@ final class ExtensionCrashedEvent extends ExtensionsEvent {
 /// moves to `stopped` (docs/spec/extensions.md, section 11.3).
 class ExtensionsBloc extends Bloc<ExtensionsEvent, ExtensionsState> {
   /// Creates the bloc over [transport] with an empty registry.
+  ///
+  /// When [approvals] is given, loading an extension also computes its
+  /// [EffectiveApproval] from `extensions/<id>.yaml` (the owner-approved
+  /// subset of the manifest, M5 Step 9); the composition root reads it through
+  /// [approvalFor] to build the extension's `HostApi`. Without it every
+  /// extension gets [EffectiveApproval.none] (default deny).
   new({
     required this.transport,
+    this.approvals,
     this.maxConsecutiveCrashes = 5,
     this.restartBackoff = const Duration(seconds: 1),
   }) : super(ExtensionsState.empty()) {
@@ -127,6 +135,11 @@ class ExtensionsBloc extends Bloc<ExtensionsEvent, ExtensionsState> {
 
   /// Spawns extension modules (docs/spec/extensions.md, section 11.3).
   final ExtensionTransport transport;
+
+  /// Reads the owner approval for a loaded extension (M5 Step 9); `null` when
+  /// no approval reader is configured, in which case every extension gets
+  /// [EffectiveApproval.none] (default deny).
+  final ApprovalReader? approvals;
 
   /// The `{extId}__{name}` shape the model sees (docs/spec/extensions.md,
   /// section 11.5): `[a-z0-9_]`, up to 48 characters.
@@ -142,9 +155,16 @@ class ExtensionsBloc extends Bloc<ExtensionsEvent, ExtensionsState> {
   final Map<String, StreamSubscription<AgentEvent>> _subs = {};
   final Map<String, Uri> _uris = {};
   final Map<String, int> _crashes = {};
+  final Map<String, EffectiveApproval> _approvals = {};
 
   /// The loaded extension registered under [id], if any.
   LoadedExtension? extension(String id) => _loaded[id];
+
+  /// The effective grant of the extension registered under [id]
+  /// (docs/spec/extensions.md, section 11.4), or `null` when it is not loaded.
+  ///
+  /// The composition root reads this to build the extension's `HostApi`.
+  EffectiveApproval? approvalFor(String id) => _approvals[id];
 
   /// The currently loaded extensions, in registration order.
   Iterable<LoadedExtension> get loaded => _loaded.values;
@@ -199,6 +219,7 @@ class ExtensionsBloc extends Bloc<ExtensionsEvent, ExtensionsState> {
     }
     _uris.remove(extensionId);
     _crashes.remove(extensionId);
+    _approvals.remove(extensionId);
     emit(_with(extensionId, ExtensionLifecycle.draining));
     await loaded.drain(timeout);
     await _subs.remove(extensionId)?.cancel();
@@ -223,6 +244,7 @@ class ExtensionsBloc extends Bloc<ExtensionsEvent, ExtensionsState> {
     if (uri == null || crashes >= maxConsecutiveCrashes) {
       _crashes.remove(extensionId);
       _uris.remove(extensionId);
+      _approvals.remove(extensionId);
       if (uri != null) emit(_with(extensionId, ExtensionLifecycle.stopped));
       return;
     }
@@ -242,6 +264,7 @@ class ExtensionsBloc extends Bloc<ExtensionsEvent, ExtensionsState> {
         if (count >= maxConsecutiveCrashes) {
           _crashes.remove(extensionId);
           _uris.remove(extensionId);
+          _approvals.remove(extensionId);
           emit(_with(extensionId, ExtensionLifecycle.stopped));
           return;
         }
@@ -281,6 +304,9 @@ class ExtensionsBloc extends Bloc<ExtensionsEvent, ExtensionsState> {
 
   void _register(String extensionId, LoadedExtension loaded) {
     _loaded[extensionId] = loaded;
+    final ApprovalReader? reader = approvals;
+    _approvals[extensionId] =
+        reader?.read(loaded.manifest) ?? EffectiveApproval.none();
     _subs[extensionId] = loaded.events.listen((event) {
       if (event is ExtensionStateChanged && event.state == 'crashed') {
         add(ExtensionCrashedEvent(extensionId));
@@ -323,6 +349,7 @@ class ExtensionsBloc extends Bloc<ExtensionsEvent, ExtensionsState> {
     // `_onCrash` sees no uri and returns without emitting into a closed bloc.
     _uris.clear();
     _crashes.clear();
+    _approvals.clear();
     for (final id in ids) {
       final loaded = _loaded.remove(id);
       await _subs.remove(id)?.cancel();
