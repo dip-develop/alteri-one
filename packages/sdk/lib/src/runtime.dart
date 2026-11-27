@@ -45,35 +45,44 @@ final class ExtensionRuntime {
 
   /// Handles one host frame, sending any reply through [reply].
   ///
-  /// A `call` frame runs the named tool and replies `call.result` or
-  /// `call.error`; a `cancel` frame cancels the in-flight call with the same id.
-  /// Unknown kinds are ignored so a newer host does not break an older extension.
+  /// A [CallFrame] runs the named tool and replies [CallResultFrame] or
+  /// [CallErrorFrame]; a [CancelFrame] cancels the in-flight call with the same
+  /// id. Unknown kinds are ignored so a newer host does not break an older
+  /// extension. The frame arrives as a raw JSON map and is parsed into the
+  /// typed schemantic model (ADR-0022).
   Future<void> handle(
     Map<String, Object?> frame,
     void Function(Map<String, Object?>) reply,
   ) async {
     switch (frame['kind']) {
-      case 'call':
-        await _call(frame, reply);
-      case 'cancel':
-        _inflight[frame['id'] as String]?.cancel();
+      case callFrameKind:
+        await _call(CallFrame.fromJson(frame), reply);
+      case cancelFrameKind:
+        _inflight[CancelFrame.fromJson(frame).id]?.cancel();
       default:
         break;
     }
   }
 
   Future<void> _call(
-    Map<String, Object?> frame,
+    CallFrame frame,
     void Function(Map<String, Object?>) reply,
   ) async {
-    final id = frame['id'] as String;
-    final name = frame['tool'] as String;
+    final id = frame.id;
+    final name = frame.tool;
     final handler = _tools[name];
     if (handler == null) {
-      reply(_error(id, 'tool_unavailable', 'no tool named $name'));
+      reply(
+        CallErrorFrame(
+          kind: callErrorFrameKind,
+          id: id,
+          code: 'tool_unavailable',
+          message: 'no tool named $name',
+        ).toJson(),
+      );
       return;
     }
-    final input = (frame['input'] as Map<String, Object?>?) ?? const {};
+    final input = frame.input ?? const <String, Object?>{};
     final token = _CancelToken();
     _inflight[id] = token;
     final Object? output;
@@ -81,7 +90,14 @@ final class ExtensionRuntime {
       output = await handler(input);
     } catch (e) {
       if (!token.isCancelled) {
-        reply(_error(id, 'failed', '$e'));
+        reply(
+          CallErrorFrame(
+            kind: callErrorFrameKind,
+            id: id,
+            code: 'failed',
+            message: '$e',
+          ).toJson(),
+        );
       }
       _inflight.remove(id);
       return;
@@ -90,16 +106,14 @@ final class ExtensionRuntime {
     if (token.isCancelled) {
       return;
     }
-    reply(<String, Object?>{'kind': 'call.result', 'id': id, 'output': output});
+    reply(
+      CallResultFrame(
+        kind: callResultFrameKind,
+        id: id,
+        output: output,
+      ).toJson(),
+    );
   }
-
-  Map<String, Object?> _error(String id, String code, String message) =>
-      <String, Object?>{
-        'kind': 'call.error',
-        'id': id,
-        'code': code,
-        'message': message,
-      };
 }
 
 /// The [ExtensionContext] handed to an extension's `register`.
