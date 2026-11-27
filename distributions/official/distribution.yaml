@@ -13,12 +13,15 @@ extensions:
   - package: alteri_one_ext_workspace
     version: ^0.0.1
     load: built_in
-  - package: alteri_one_ext_lsp
-    version: ^0.0.1
-    load: built_in
-  - package: alteri_one_ext_mcp
-    version: ^0.0.1
-    load: built_in
+  # lsp and mcp are dropped from the official build (owner decision, M5 Step 13):
+  # both are scaffolds and the official binary ships without them. Re-enable by
+  # uncommenting once they are implemented (docs/spec/integrations-lsp-mcp.md).
+  # - package: alteri_one_ext_lsp
+  #   version: ^0.0.1
+  #   load: built_in
+  # - package: alteri_one_ext_mcp
+  #   version: ^0.0.1
+  #   load: built_in
   - package: alteri_one_ext_memory_hive
     version: ^0.0.1
     load: built_in

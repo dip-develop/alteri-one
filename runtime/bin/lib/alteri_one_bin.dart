@@ -23,6 +23,8 @@ import 'dart:io';
 import 'package:alteri_one_cli/alteri_one_cli.dart';
 import 'package:alteri_one_core/alteri_one_core.dart';
 
+import 'src/build/build_command.dart';
+
 /// Runs `alterione` with [args] and returns the process exit code.
 ///
 /// [environment] is the process environment the paths and the config read;
@@ -38,6 +40,7 @@ Future<int> runAlteriOne(
   Stream<String>? stdin,
   LlmPort? serveLlm,
   List<ModelProvider> providers = const <ModelProvider>[],
+  ToolRegistry? toolRegistry,
   Stream<void>? serveStop,
 }) async {
   final env = environment ?? Platform.environment;
@@ -56,7 +59,16 @@ Future<int> runAlteriOne(
       err: stderrSink,
       serveLlm: serveLlm,
       providers: providers,
+      toolRegistry: toolRegistry,
       serveStop: serveStop,
+    );
+  }
+
+  if (args.isNotEmpty && args.first == 'build') {
+    return await runBuild(
+      args.skip(1).toList(),
+      out: stdoutSink,
+      err: stderrSink,
     );
   }
 
@@ -84,6 +96,7 @@ Future<int> _serve({
   required StringSink err,
   required LlmPort? serveLlm,
   required List<ModelProvider> providers,
+  required ToolRegistry? toolRegistry,
   required Stream<void>? serveStop,
 }) async {
   final LlmPort? llm = serveLlm ?? await _llmFromProviders(providers);
@@ -119,7 +132,11 @@ Future<int> _serve({
   );
 
   try {
-    await daemon.start(llm: llm, stopSignal: platformStop);
+    await daemon.start(
+      llm: llm,
+      stopSignal: platformStop,
+      toolRegistry: toolRegistry,
+    );
   } on StateError catch (error) {
     await subscription.cancel();
     await platformStop.close();
@@ -171,7 +188,9 @@ Stream<void> _sigterm() {
 
 void _printUsage(StringSink out) {
   out.writeln('usage: alterione <command> [options]');
-  out.writeln('commands: serve, service, status, run, chat, watch, doctor');
+  out.writeln(
+    'commands: serve, build, service, status, run, chat, watch, doctor',
+  );
 }
 
 String _join(String base, String suffix) {
