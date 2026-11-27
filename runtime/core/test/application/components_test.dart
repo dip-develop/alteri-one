@@ -5,6 +5,8 @@ import 'package:alteri_one_core/alteri_one_core.dart';
 import 'package:bloc_test/bloc_test.dart';
 import 'package:test/test.dart';
 
+import 'extension_fakes.dart';
+
 void main() {
   setUp(applyBlocDefaults);
 
@@ -46,7 +48,7 @@ void main() {
   group('ExtensionsBloc', () {
     blocTest<ExtensionsBloc, ExtensionsState>(
       'registers and updates lifecycle',
-      build: ExtensionsBloc.new,
+      build: () => ExtensionsBloc(transport: FakeExtensionTransport()),
       act: (bloc) => bloc
         ..add(
           const ExtensionRegisteredEvent('weather', ExtensionLifecycle.loaded),

@@ -1,6 +1,7 @@
 // Copyright 2026 The AlteriOne Authors.
 // SPDX-License-Identifier: Apache-2.0
 
+import 'package:alteri_one_contracts/alteri_one_contracts.dart';
 import 'package:injectable/injectable.dart';
 
 import '../application/agent/agent_config.dart';
@@ -8,13 +9,17 @@ import '../application/agent/agent_defaults.dart';
 import '../application/agent/agent_deps.dart';
 import '../application/agent/approval_service.dart';
 import '../application/agent/context_builder.dart';
+import '../application/agent/extension_tool_registry.dart';
 import '../application/agent/tool_set.dart';
 import '../application/approvals_bloc.dart';
+import '../application/extensions_bloc.dart';
 import '../application/run_service.dart';
 import '../application/state_publisher.dart';
 import '../domain/policy.dart';
+import '../domain/ports/extension_transport.dart';
 import '../domain/ports/journal_port.dart';
 import '../domain/ports/llm_port.dart';
+import '../domain/ports/manifest_verifier.dart';
 import 'provider_registry.dart';
 import 'runtime_config.dart';
 
@@ -55,9 +60,32 @@ abstract class CoreModule {
   @lazySingleton
   ContextBuilder get contextBuilder => const PromptContextBuilder();
 
-  /// Loaded tools; extensions land in M5.
+  /// Loaded tools, backed by the loaded extensions (docs/spec/extensions.md,
+  /// section 11.5). Empty until an extension is loaded, matching
+  /// [EmptyToolRegistry].
   @lazySingleton
-  ToolRegistry get toolRegistry => const EmptyToolRegistry();
+  ToolRegistry toolRegistry(ExtensionsBloc extensions) =>
+      ExtensionToolRegistry(extensions);
+
+  /// The extension registry (docs/spec/extensions.md, section 11.3). Built
+  /// here so the optional restart knobs keep their defaults; injectable cannot
+  /// supply the `int`/`Duration` defaults of the primary constructor.
+  @lazySingleton
+  ExtensionsBloc extensionsBloc(ExtensionTransport transport) =>
+      ExtensionsBloc(transport: transport);
+
+  /// Spawns extension modules; fail-closed until an infrastructure transport
+  /// is installed (docs/spec/extensions.md, section 11.3).
+  @lazySingleton
+  ExtensionTransport get extensionTransport =>
+      const _FailClosedExtensionTransport();
+
+  /// Verifies a loaded module's manifest; fail-closed until the composition
+  /// root installs a signing-backed implementation (docs/spec/extensions.md,
+  /// section 11.4). Core must not import `tools/signing`, so the default
+  /// rejects every module.
+  @lazySingleton
+  ManifestVerifier get manifestVerifier => const _RejectAllManifests();
 
   /// The factory that hands out the agent loop's collaborators per run
   /// (docs/adr/0012-model-call-journaling.md).
@@ -99,4 +127,30 @@ abstract class CoreModule {
     publisher: publisher,
     approvalsBloc: approvalsBloc,
   );
+}
+
+/// Fail-closed [ExtensionTransport]: every spawn is rejected until an
+/// infrastructure transport is registered (docs/spec/extensions.md,
+/// section 11.3).
+final class _FailClosedExtensionTransport implements ExtensionTransport {
+  const new();
+
+  @override
+  Future<LoadedExtension> spawn({
+    required Uri uri,
+    required Duration handshakeTimeout,
+  }) => Future.error(
+    const ExtensionRejected('no extension transport configured'),
+  );
+}
+
+/// Fail-closed [ManifestVerifier]: every module is rejected until the
+/// composition root registers a signing-backed verifier
+/// (docs/spec/extensions.md, section 11.4).
+final class _RejectAllManifests implements ManifestVerifier {
+  const new();
+
+  @override
+  Future<ExtensionManifest> verify(Uri module) =>
+      Future.error(const ExtensionRejected('no manifest verifier configured'));
 }
