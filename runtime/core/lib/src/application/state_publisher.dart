@@ -43,14 +43,47 @@ final class StatePublisherResyncRequired implements Exception {
 /// same.
 @lazySingleton
 final class StatePublisher {
-  /// Production capacity. T15 tunes this per topic in M5.
-  new() : capacity = 64;
+  /// Production per-topic queue capacities (T15, docs/spec/domain.md, section
+  /// 8.11 step 4).
+  ///
+  /// `runs.progress` deltas are coalesced to the latest fragment per run, so a
+  /// modest `runs` bound holds many in-flight runs without growing without
+  /// limit; `approvals` and the guaranteed `runs.finished` events get a larger
+  /// bound because their delivery is guaranteed and an overflow disconnects the
+  /// subscriber with `resync_required` rather than dropping. The numbers are
+  /// chosen in the T15 spike (docs/plan/M5.md) and verified by the deterministic
+  /// per-topic overflow tests in `test/application/state_publisher_test.dart`.
+  static const Map<StateTopic, int> defaultTopicCapacities = {
+    StateTopic.runs: 256,
+    StateTopic.approvals: 128,
+    StateTopic.extensions: 64,
+    StateTopic.triggers: 64,
+    StateTopic.channels: 32,
+    StateTopic.memoryMeta: 64,
+  };
 
-  /// Test seam: a smaller capacity makes overflow deterministic.
-  new withLimits({required this.capacity}) : assert(capacity > 0);
+  /// Production publisher: the per-topic [defaultTopicCapacities] with a
+  /// fallback for any topic not listed.
+  new()
+    : this.withLimits(capacity: 64, topicCapacities: defaultTopicCapacities);
 
-  /// Maximum number of queued events per subscriber.
-  final int capacity;
+  /// Test seam: a [capacity] fallback plus optional per-topic overrides make
+  /// overflow deterministic. A topic absent from [topicCapacities] uses
+  /// [capacity].
+  new withLimits({required int capacity, Map<StateTopic, int>? topicCapacities})
+    : _fallbackCapacity = capacity,
+      _topicCapacities = topicCapacities ?? const <StateTopic, int>{},
+      assert(capacity > 0);
+
+  /// The capacity for a topic absent from the per-topic map.
+  final int _fallbackCapacity;
+
+  /// Per-topic capacity overrides; a missing topic uses [_fallbackCapacity].
+  final Map<StateTopic, int> _topicCapacities;
+
+  /// The bounded-queue capacity of [topic]'s subscriptions.
+  int capacityFor(StateTopic topic) =>
+      _topicCapacities[topic] ?? _fallbackCapacity;
 
   /// Latest snapshot value per entity and topic.
   final Map<StateTopic, LinkedHashMap<String, AgentEvent>> _snapshots =
@@ -210,11 +243,11 @@ final class _Subscription {
           (AgentEvent queued) => queued is RunDelta && queued.runId == runId,
         );
         if (index >= 0) _queue.removeAt(index);
-        if (_queue.length >= _publisher.capacity) return;
+        if (_queue.length >= _publisher.capacityFor(topic)) return;
         _queue.add(event);
       case _:
         _queue.add(event);
-        if (_queue.length > _publisher.capacity) {
+        if (_queue.length > _publisher.capacityFor(topic)) {
           fail();
           return;
         }
