@@ -8,6 +8,8 @@ import '../../config/profile_schema.dart';
 import '../../domain/budget.dart';
 import '../../domain/policy.dart';
 import '../../domain/profile.dart';
+import '../../domain/task_config.dart';
+import '../../domain/workspace.dart';
 import 'configuration_exception.dart';
 
 /// Matches one `${env:NAME}` reference.
@@ -23,6 +25,9 @@ const Set<String> _profileKeys = {
   'risk_rules',
   'tool_risks',
   'memory',
+  'workspace',
+  'auto_resume',
+  'shell_allowlist',
 };
 
 /// The keys the budget block may set (section 14.5).
@@ -32,6 +37,9 @@ const Set<String> _budgetKeys = {
   'max_seconds',
   'max_output_tokens',
 };
+
+/// The keys the workspace block may set (docs/spec/task-mode.md, section 29.1).
+const Set<String> _workspaceKeys = {'root', 'allowed_paths'};
 
 /// Loads a profile from YAML text
 /// (docs/spec/prompts-config.md, section 14.3).
@@ -89,7 +97,7 @@ final class ProfileLoader {
   Profile parse(Map<String, Object?> json) {
     _rejectUnknownKeys(json);
     try {
-      return _map(ProfileConfig.fromJson(json));
+      return _map(ProfileConfig.fromJson(json), json);
     } on ConfigurationException {
       rethrow;
     } on Object catch (error) {
@@ -97,7 +105,7 @@ final class ProfileLoader {
     }
   }
 
-  Profile _map(ProfileConfig config) => Profile(
+  Profile _map(ProfileConfig config, Map<String, Object?> json) => Profile(
     config.id,
     config.model,
     config.prompt,
@@ -106,7 +114,50 @@ final class ProfileLoader {
     _mapRiskRules(config.riskRules),
     _mapToolRisks(config.toolRisks),
     _mapMemory(config.memory),
+    _mapTaskConfig(config, json),
   );
+
+  TaskConfig? _mapTaskConfig(ProfileConfig config, Map<String, Object?> json) {
+    final workspace = config.workspace;
+    final autoResume = config.autoResume;
+    // Read the nested list from the raw JSON: the generated getter casts each
+    // entry to `List<String>`, which a YAML `List<Object?>` fails.
+    final shellAllowlist = json['shell_allowlist'];
+    if (workspace == null && autoResume == null && shellAllowlist == null) {
+      return null;
+    }
+    if (workspace == null) {
+      throw const ConfigurationException(
+        'profile sets a task option without a "workspace" block',
+      );
+    }
+    final root = workspace.root;
+    if (root.isEmpty) {
+      throw const ConfigurationException('workspace "root" must not be empty');
+    }
+    return TaskConfig(
+      workspace: Workspace(root, workspace.allowedPaths ?? const []),
+      autoResume: autoResume ?? false,
+      shellAllowlist: _mapShellAllowlist(shellAllowlist),
+    );
+  }
+
+  List<List<String>> _mapShellAllowlist(Object? raw) {
+    if (raw == null) return const [];
+    if (raw is! List) {
+      throw const ConfigurationException('"shell_allowlist" must be a list');
+    }
+    final result = <List<String>>[];
+    for (final prefix in raw) {
+      if (prefix is! List) {
+        throw const ConfigurationException(
+          'each "shell_allowlist" entry must be a list',
+        );
+      }
+      result.add(List<String>.from(prefix));
+    }
+    return result;
+  }
 
   Budget _mapBudget(BudgetConfig? config) {
     final defaults = Budget.standard();
@@ -189,6 +240,14 @@ final class ProfileLoader {
       for (final key in budget.keys) {
         if (!_budgetKeys.contains(key.toString())) {
           throw ConfigurationException('unknown budget key "$key"');
+        }
+      }
+    }
+    final workspace = json['workspace'];
+    if (workspace is Map) {
+      for (final key in workspace.keys) {
+        if (!_workspaceKeys.contains(key.toString())) {
+          throw ConfigurationException('unknown workspace key "$key"');
         }
       }
     }

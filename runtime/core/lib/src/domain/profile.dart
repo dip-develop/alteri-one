@@ -6,6 +6,7 @@ import 'package:alteri_one_contracts/alteri_one_contracts.dart';
 import '../application/config/configuration_exception.dart';
 import 'budget.dart';
 import 'policy.dart';
+import 'task_config.dart';
 
 /// A profile: the configured behaviour of a run
 /// (docs/spec/prompts-config.md, section 14).
@@ -57,6 +58,13 @@ final class Profile {
   /// owner confirms it. `auto` is granted only explicitly.
   final MemoryRights memory;
 
+  /// The task-mode configuration, or null for a chat or resident profile
+  /// (docs/spec/task-mode.md, section 29.1).
+  ///
+  /// Set when the profile configures `workspace`, `auto_resume`, or
+  /// `shell_allowlist`.
+  final TaskConfig? taskConfig;
+
   /// Creates the profile.
   ///
   /// Copies [tools] into an unmodifiable view and both maps into unmodifiable
@@ -70,6 +78,7 @@ final class Profile {
     Map<Risk, Decision> riskRules,
     Map<String, Risk> toolRisks, [
     this.memory = MemoryRights.propose,
+    this.taskConfig,
   ]) : tools = List.unmodifiable(tools),
        riskRules = Map.unmodifiable(riskRules),
        toolRisks = Map.unmodifiable(toolRisks);
