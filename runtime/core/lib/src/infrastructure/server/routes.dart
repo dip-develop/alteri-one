@@ -283,13 +283,54 @@ abstract interface class ApprovalResourcePort {
   Future<ApprovalDecisionResult> decideApproval(String id, bool approved);
 }
 
-/// The resource seam behind `GET /v1/extensions` (docs/spec/api.md,
+/// The outcome of a load or unload action (`:load`, `:unload`).
+sealed class ExtensionActionResult {
+  const new();
+}
+
+/// The action applied; [view] is the extension in its new lifecycle state.
+final class ExtensionActionApplied extends ExtensionActionResult {
+  /// Creates an applied result for [view].
+  const new(this.view);
+
+  /// The extension in its new state.
+  final ExtensionView view;
+}
+
+/// The extension is not available to act on: it is not loaded (unload) or its
+/// module cannot be resolved (load). A 503 in the route
+/// (`extension_unavailable`).
+final class ExtensionUnavailable extends ExtensionActionResult {
+  /// Creates an unavailable result.
+  const new();
+}
+
+/// The load was rejected: a duplicate tool name, or a signature or permission
+/// check failed. A 400 in the route (`invalid_request`).
+final class ExtensionActionRejected extends ExtensionActionResult {
+  /// Creates a rejected result.
+  const new();
+}
+
+/// The resource seam behind the `/v1/extensions` routes (docs/spec/api.md,
 /// section 16.3).
 ///
 /// The daemon (M4 Step 9) implements this over `ExtensionsBloc`; tests
-/// implement it as a fake. Loading and unloading extensions (`:load`,
-/// `:unload`) are M5 and not part of this seam.
+/// implement it as a fake. [listExtensions] reads the registry (`read` scope);
+/// [loadExtension] and [unloadExtension] drive the bloc's load/drain path
+/// (`admin` scope). Loading resolves the module, spawns and verifies it, and
+/// registers it; unloading drains it to `stopped`.
 abstract interface class ExtensionResourcePort {
   /// Lists the registered extensions and their lifecycle state.
   Future<List<ExtensionView>> listExtensions();
+
+  /// Loads the extension [id]: resolves its module, spawns and verifies it, and
+  /// registers it. Returns [ExtensionActionRejected] on a duplicate name or a
+  /// signature/permission failure, and [ExtensionUnavailable] when the module
+  /// cannot be resolved.
+  Future<ExtensionActionResult> loadExtension(String id);
+
+  /// Unloads the extension [id]: drains it to `stopped`. Returns
+  /// [ExtensionUnavailable] when it is not loaded.
+  Future<ExtensionActionResult> unloadExtension(String id);
 }
