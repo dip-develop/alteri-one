@@ -8,19 +8,24 @@ import '../application/agent/agent_config.dart';
 import '../application/agent/agent_defaults.dart';
 import '../application/agent/agent_deps.dart';
 import '../application/agent/approval_service.dart';
+import '../application/agent/composite_tool_registry.dart';
 import '../application/agent/context_builder.dart';
 import '../application/agent/extension_tool_registry.dart';
+import '../application/agent/skill_load_tool.dart';
 import '../application/agent/tool_set.dart';
 import '../application/approvals_bloc.dart';
 import '../application/extensions_bloc.dart';
 import '../application/host_api.dart';
 import '../application/run_service.dart';
+import '../application/skill_registry.dart';
 import '../application/state_publisher.dart';
 import '../domain/policy.dart';
 import '../domain/ports/extension_transport.dart';
 import '../domain/ports/journal_port.dart';
 import '../domain/ports/llm_port.dart';
 import '../domain/ports/manifest_verifier.dart';
+import '../domain/ports/skill_parser.dart';
+import '../infrastructure/skill/skill_md_parser.dart';
 import 'provider_registry.dart';
 import 'runtime_config.dart';
 
@@ -57,16 +62,31 @@ abstract class CoreModule {
   @lazySingleton
   ApprovalService get approvalService => const DenyAllApprovals();
 
-  /// Starting conversation; prompt wrapping lands with section 13.
+  /// Starting conversation; lists the owner-approved skills (M5 Step 15).
   @lazySingleton
-  ContextBuilder get contextBuilder => const PromptContextBuilder();
+  ContextBuilder contextBuilder(SkillRegistry skills) =>
+      PromptContextBuilder(skills: skills);
 
-  /// Loaded tools, backed by the loaded extensions (docs/spec/extensions.md,
-  /// section 11.5). Empty until an extension is loaded, matching
-  /// [EmptyToolRegistry].
+  /// Loaded tools: the built-in `skill.load` tool plus the loaded extensions
+  /// (docs/spec/extensions.md, section 11.5; M5 Step 15). Empty of extension
+  /// tools until an extension is loaded, matching [EmptyToolRegistry];
+  /// `skill.load` is always present and refuses while no skill is approved.
   @lazySingleton
-  ToolRegistry toolRegistry(ExtensionsBloc extensions) =>
-      ExtensionToolRegistry(extensions);
+  ToolRegistry toolRegistry(ExtensionsBloc extensions, SkillRegistry skills) =>
+      CompositeToolRegistry([
+        ExtensionToolRegistry(extensions),
+        SkillToolRegistry(skills),
+      ]);
+
+  /// The owner-approved skills (M5 Step 15). Empty until the composition root
+  /// parses the shipped `SKILL.md` files and registers the approved ones; the
+  /// fail-closed default exposes no skill to the prompt or `skill.load`.
+  @lazySingleton
+  SkillRegistry skillRegistry() => SkillRegistry();
+
+  /// Parses `SKILL.md` frontmatter and body (M5 Step 15, T10).
+  @lazySingleton
+  SkillParser skillParser() => const SkillMdParser();
 
   /// The extension registry (docs/spec/extensions.md, section 11.3). Built
   /// here so the optional restart knobs keep their defaults; injectable cannot
