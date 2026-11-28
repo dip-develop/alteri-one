@@ -41,6 +41,8 @@ Future<int> runAlteriOne(
   LlmPort? serveLlm,
   List<ModelProvider> providers = const <ModelProvider>[],
   ToolRegistry? toolRegistry,
+  List<MemoryBackendHandle> memoryBackends = const <MemoryBackendHandle>[],
+  MemoryBackendPortResolver? memoryBackendResolver,
   Stream<void>? serveStop,
 }) async {
   final env = environment ?? Platform.environment;
@@ -60,6 +62,8 @@ Future<int> runAlteriOne(
       serveLlm: serveLlm,
       providers: providers,
       toolRegistry: toolRegistry,
+      memoryBackends: memoryBackends,
+      memoryBackendResolver: memoryBackendResolver,
       serveStop: serveStop,
     );
   }
@@ -97,6 +101,8 @@ Future<int> _serve({
   required LlmPort? serveLlm,
   required List<ModelProvider> providers,
   required ToolRegistry? toolRegistry,
+  required List<MemoryBackendHandle> memoryBackends,
+  required MemoryBackendPortResolver? memoryBackendResolver,
   required Stream<void>? serveStop,
 }) async {
   final LlmPort? llm = serveLlm ?? await _llmFromProviders(providers);
@@ -136,6 +142,8 @@ Future<int> _serve({
       llm: llm,
       stopSignal: platformStop,
       toolRegistry: toolRegistry,
+      memoryBackends: memoryBackends,
+      memoryBackendResolver: memoryBackendResolver,
     );
   } on StateError catch (error) {
     await subscription.cancel();

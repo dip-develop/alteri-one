@@ -18,6 +18,9 @@ final class _FakeLoadedExtension implements LoadedExtension {
   @override
   final Stream<AgentEvent> events;
 
+  @override
+  MemoryBackendHandle? get memoryBackend => null;
+
   final Object? callResult;
 
   int drainCount = 0;

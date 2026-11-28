@@ -10,9 +10,12 @@ providers:
     version: ^0.0.1
 
 extensions:
-  - package: alteri_one_ext_workspace
-    version: ^0.0.1
-    load: built_in
+  # workspace is dropped from the official build for now (M5 Step 14): it is
+  # still a scaffold with no entry class, so naming it breaks the official
+  # build. Re-enable by uncommenting once the workspace extension lands (M6).
+  # - package: alteri_one_ext_workspace
+  #   version: ^0.0.1
+  #   load: built_in
   # lsp and mcp are dropped from the official build (owner decision, M5 Step 13):
   # both are scaffolds and the official binary ships without them. Re-enable by
   # uncommenting once they are implemented (docs/spec/integrations-lsp-mcp.md).

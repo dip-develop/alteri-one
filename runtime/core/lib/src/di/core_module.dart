@@ -14,6 +14,7 @@ import '../application/agent/tool_set.dart';
 import '../application/approvals_bloc.dart';
 import '../application/extensions_bloc.dart';
 import '../application/host_api.dart';
+import '../application/memory_backend_registry.dart';
 import '../application/run_service.dart';
 import '../application/state_publisher.dart';
 import '../domain/policy.dart';
@@ -67,6 +68,18 @@ abstract class CoreModule {
   @lazySingleton
   ToolRegistry toolRegistry(ExtensionsBloc extensions) =>
       ExtensionToolRegistry(extensions);
+
+  /// The memory backends provided by extensions
+  /// (docs/spec/extensions.md, section 11.6; docs/plan/M5.md Step 14).
+  ///
+  /// Built-in and loaded extensions both register through this same registry;
+  /// [MemoryPort] resolution delegates to it. Empty (fail-closed) until an
+  /// extension declares `provides.memoryBackend` and the composition root
+  /// resolves its handle. The encryption key a backend needs is supplied by the
+  /// host/secret store, never by the registry or the extension
+  /// (docs/spec/storage.md §15.4).
+  @lazySingleton
+  MemoryBackendRegistry memoryBackendRegistry() => MemoryBackendRegistry();
 
   /// The extension registry (docs/spec/extensions.md, section 11.3). Built
   /// here so the optional restart knobs keep their defaults; injectable cannot
