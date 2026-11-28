@@ -13,6 +13,11 @@ final class ToolSet(List<ToolPort> tools) {
   /// Copied so that a registry cannot change a snapshot after handing it out.
   final List<ToolPort> _tools = List.unmodifiable(tools);
 
+  /// The tools of this set, in order, read-only.
+  ///
+  /// Lets a composite registry merge the snapshots of several registries.
+  List<ToolPort> get tools => _tools;
+
   /// The specifications of the tools, in the order the tools were given.
   List<ToolSpec> get specs => [for (final tool in _tools) tool.spec];
 

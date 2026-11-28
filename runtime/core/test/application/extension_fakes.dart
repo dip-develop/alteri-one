@@ -12,6 +12,7 @@ final class FakeLoadedExtension implements LoadedExtension {
     required this.manifest,
     required this.events,
     this.callResult,
+    this.memoryBackend,
     Future<Object?> Function(String tool, Map<String, Object?> input)? onCall,
     // The named parameter is public, so it is not an initializing formal.
     // ignore: prefer_initializing_formals
@@ -22,6 +23,9 @@ final class FakeLoadedExtension implements LoadedExtension {
 
   @override
   final Stream<AgentEvent> events;
+
+  @override
+  final MemoryBackendHandle? memoryBackend;
 
   final Object? callResult;
   final Future<Object?> Function(String tool, Map<String, Object?> input)?

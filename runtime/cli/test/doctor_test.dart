@@ -150,6 +150,67 @@ void main() {
       expect(code, ExitCode.failure);
     });
 
+    test('a distribution match passes (exit 0)', () async {
+      final StringBuffer out = StringBuffer();
+      final MockClient client = _daemon(
+        _info(),
+        _report('distribution', 'ok', 'binary matches distribution.yaml'),
+      );
+
+      final int code = await _cli(client, out: out).run(<String>['doctor']);
+
+      expect(code, ExitCode.success);
+      expect(out.toString(), contains('[ok]'));
+    });
+
+    test('extension signatures ok passes (exit 0)', () async {
+      final StringBuffer out = StringBuffer();
+      final MockClient client = _daemon(
+        _info(),
+        _report('extension_signatures', 'ok', 'weather: ok'),
+      );
+
+      final int code = await _cli(client, out: out).run(<String>['doctor']);
+
+      expect(code, ExitCode.success);
+      expect(out.toString(), contains('[ok]'));
+      expect(out.toString(), contains('extension_signatures'));
+    });
+
+    test('extension signatures fail exits 1', () async {
+      final StringBuffer out = StringBuffer();
+      final MockClient client = _daemon(
+        _info(),
+        _report(
+          'extension_signatures',
+          'fail',
+          'acme: rejected (bad-signature)',
+        ),
+      );
+
+      final int code = await _cli(client, out: out).run(<String>['doctor']);
+
+      expect(code, ExitCode.failure);
+      expect(out.toString(), contains('[FAIL]'));
+    });
+
+    test('extension signatures skipped does not fail (exit 0)', () async {
+      final StringBuffer out = StringBuffer();
+      final MockClient client = _daemon(
+        _info(),
+        _report(
+          'extension_signatures',
+          'skipped',
+          'no manifest verifier wired in the composition root',
+        ),
+      );
+
+      final int code = await _cli(client, out: out).run(<String>['doctor']);
+
+      expect(code, ExitCode.success);
+      expect(out.toString(), contains('[skip]'));
+    });
+
     test('an invalid token fails the token check (exit 4)', () async {
       final StringBuffer out = StringBuffer();
       final MockClient client = MockClient((http.Request request) async {

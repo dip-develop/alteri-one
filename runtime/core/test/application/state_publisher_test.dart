@@ -370,5 +370,125 @@ void main() {
         expect(received.whereType<RunDelta>(), isEmpty);
       },
     );
+
+    group('per-topic capacities (T15)', () {
+      test(
+        'a small runs cap coalesces progress to the latest fragment',
+        () async {
+          // A per-topic cap of 2 for runs, with a large fallback for every
+          // other topic, isolates the runs bound. Progress deltas coalesce to
+          // the latest per run, so a paused subscriber keeps only the newest
+          // fragment of each run and is never disconnected.
+          final StatePublisher publisher = StatePublisher.withLimits(
+            capacity: 1 << 20,
+            topicCapacities: const {StateTopic.runs: 2},
+          );
+          final List<AgentEvent> received = <AgentEvent>[];
+          final List<Object> errors = <Object>[];
+          final StreamSubscription<AgentEvent> sub = publisher
+              .subscribe(StateTopic.runs)
+              .listen(received.add, onError: errors.add);
+          sub.pause();
+
+          for (var i = 0; i < 10; i++) {
+            publisher.publish(StateTopic.runs, _delta('r-1', 'f$i'));
+          }
+          sub.resume();
+
+          await _settle();
+
+          // Only the latest fragment of r-1 survives; progress never overflows.
+          expect(errors, isEmpty);
+          expect(received, hasLength(1));
+          expect(
+            received.single,
+            isA<RunDelta>().having((RunDelta e) => e.text, 'text', 'f9'),
+          );
+          expect(publisher.subscriberCount(StateTopic.runs), 1);
+
+          await sub.cancel();
+        },
+      );
+
+      test('a large approvals cap delivers all then resyncs on overflow and re-subscribes', () async {
+        // A per-topic cap of 2 for approvals (large fallback elsewhere): a
+        // paused subscriber that receives three guaranteed events overflows
+        // and is disconnected with resync_required; a fresh subscribe then
+        // replays the snapshot.
+        final StatePublisher publisher = StatePublisher.withLimits(
+          capacity: 1 << 20,
+          topicCapacities: const {StateTopic.approvals: 2},
+        );
+        final List<AgentEvent> received = <AgentEvent>[];
+        final List<Object> errors = <Object>[];
+        final StreamSubscription<AgentEvent> sub = publisher
+            .subscribe(StateTopic.approvals)
+            .listen(received.add, onError: errors.add);
+        sub.pause();
+
+        for (var i = 0; i < 3; i++) {
+          publisher.publish(
+            StateTopic.approvals,
+            ApprovalRequested(
+              at: _at,
+              approvalId: 'a-$i',
+              runId: 'r-1',
+              tool: 'shell',
+            ),
+          );
+        }
+        sub.resume();
+
+        await _settle();
+
+        expect(errors.single, isA<StatePublisherResyncRequired>());
+        expect(
+          errors.single,
+          isA<StatePublisherResyncRequired>().having(
+            (StatePublisherResyncRequired e) => e.topic,
+            'topic',
+            StateTopic.approvals,
+          ),
+        );
+        // The queue was dropped on failure: no guaranteed event was delivered.
+        expect(received, isEmpty);
+        expect(publisher.subscriberCount(StateTopic.approvals), 0);
+        await sub.cancel();
+
+        // Re-subscribe: the snapshot carries the latest event per approval.
+        final List<AgentEvent> replayed = <AgentEvent>[];
+        final StreamSubscription<AgentEvent> resub = publisher
+            .subscribe(StateTopic.approvals)
+            .listen(replayed.add);
+        await _settle();
+        await resub.cancel();
+
+        expect(replayed, hasLength(3));
+        expect(replayed.every((e) => e is ApprovalRequested), isTrue);
+      });
+
+      test('a topic absent from the map uses the fallback capacity', () async {
+        final StatePublisher publisher = StatePublisher.withLimits(
+          capacity: 1,
+          topicCapacities: const {StateTopic.approvals: 1 << 20},
+        );
+        // runs is not in the map, so it uses the fallback of 1 and overflows.
+        final Stream<AgentEvent> stream = publisher.subscribe(StateTopic.runs);
+        publisher.publish(StateTopic.runs, _finished('r-1'));
+        publisher.publish(StateTopic.runs, _finished('r-2'));
+
+        await expectLater(
+          stream,
+          emitsError(isA<StatePublisherResyncRequired>()),
+        );
+      });
+
+      test('the production publisher uses the documented per-topic map', () {
+        final StatePublisher publisher = StatePublisher();
+        expect(publisher.capacityFor(StateTopic.runs), 256);
+        expect(publisher.capacityFor(StateTopic.approvals), 128);
+        expect(publisher.capacityFor(StateTopic.channels), 32);
+      });
+    });
   });
 }

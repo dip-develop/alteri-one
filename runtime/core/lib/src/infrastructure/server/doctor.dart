@@ -15,6 +15,8 @@ library;
 
 import 'dart:convert';
 
+import '../../domain/ports/extension_transport.dart';
+import '../../domain/ports/manifest_verifier.dart';
 import 'auth.dart';
 
 /// The outcome of a single doctor check (docs/spec/clients-cli.md, section 19).
@@ -157,6 +159,124 @@ Future<DoctorCheck> checkLlamaServerTools({
     name: name,
     status: DoctorStatus.fail,
     detail: 'llama-server built-in tools are enabled (${toolsList.length})',
+  );
+}
+
+/// A loaded extension the signature check re-verifies: its [id] and the
+/// [uri] of the module it was spawned from.
+final class ExtensionModuleRef {
+  /// Creates a reference to the module at [uri] registered under [id].
+  const new({required this.id, required this.uri});
+
+  /// The extension identifier from its manifest.
+  final String id;
+
+  /// The module the extension was spawned from.
+  final Uri uri;
+}
+
+/// The extension-signature check (docs/spec/extensions.md, sections 11.2 and
+/// 11.4; docs/spec/clients-cli.md, section 19).
+///
+/// Re-verifies every loaded extension's module through [verifier] (the
+/// signing-backed `ManifestVerifier` the composition root wires) and reports
+/// `ok` only when every module verifies, `fail` when any is rejected, and
+/// `skipped` — never a faked `ok` — when there is nothing to verify or no
+/// verifier is wired. The [modules] are the loaded extensions in registration
+/// order; the detail names each one's outcome.
+Future<DoctorCheck> checkExtensionSignatures({
+  required List<ExtensionModuleRef> modules,
+  required ManifestVerifier? verifier,
+}) async {
+  const String name = 'extension_signatures';
+  if (modules.isEmpty) {
+    return const DoctorCheck(
+      name: name,
+      status: DoctorStatus.skipped,
+      detail: 'no loaded extensions to verify',
+    );
+  }
+  if (verifier == null) {
+    return const DoctorCheck(
+      name: name,
+      status: DoctorStatus.skipped,
+      detail: 'no manifest verifier wired in the composition root',
+    );
+  }
+  final results = <String>[];
+  var failed = false;
+  for (final module in modules) {
+    try {
+      await verifier.verify(module.uri);
+      results.add('${module.id}: ok');
+    } on ExtensionRejected catch (error) {
+      failed = true;
+      results.add('${module.id}: rejected (${error.reason})');
+    } on Object catch (error) {
+      failed = true;
+      results.add('${module.id}: error ($error)');
+    }
+  }
+  return DoctorCheck(
+    name: name,
+    status: failed ? DoctorStatus.fail : DoctorStatus.ok,
+    detail: results.join('; '),
+  );
+}
+
+/// The contents of a personal build: its [name] and the package names of the
+/// extensions it ships (docs/spec/extensions.md, section 11.7).
+final class DistributionContents {
+  /// Creates the contents of the build named [name] shipping [extensions].
+  const new({required this.name, required this.extensions});
+
+  /// The build name from `distribution.yaml`.
+  final String name;
+
+  /// The package names of the shipped extensions.
+  final List<String> extensions;
+}
+
+/// The `distribution.yaml`-match check (docs/spec/extensions.md, section 11.7;
+/// docs/spec/clients-cli.md, section 19).
+///
+/// Compares the running binary's contents [running] with its declared
+/// [declared] `distribution.yaml`: `ok` when the extension sets are equal,
+/// `fail` when they differ, and `skipped` — never a faked match — when either
+/// side is not available to the running daemon (the declared file is a
+/// build-time artifact the binary does not carry yet).
+Future<DoctorCheck> checkDistribution({
+  required DistributionContents? running,
+  required DistributionContents? declared,
+}) async {
+  const String name = 'distribution';
+  if (running == null || declared == null) {
+    return const DoctorCheck(
+      name: name,
+      status: DoctorStatus.skipped,
+      detail:
+          'distribution.yaml is a build-time artifact not available to the '
+          'running daemon',
+    );
+  }
+  final runningSet = running.extensions.toSet();
+  final declaredSet = declared.extensions.toSet();
+  if (runningSet.length == declaredSet.length &&
+      runningSet.containsAll(declaredSet)) {
+    return DoctorCheck(
+      name: name,
+      status: DoctorStatus.ok,
+      detail: 'binary matches distribution.yaml (${declared.name})',
+    );
+  }
+  final missing = declaredSet.difference(runningSet).toList()..sort();
+  final extra = runningSet.difference(declaredSet).toList()..sort();
+  return DoctorCheck(
+    name: name,
+    status: DoctorStatus.fail,
+    detail:
+        'binary does not match distribution.yaml; missing: $missing, '
+        'extra: $extra',
   );
 }
 

@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:alteri_one_contracts/alteri_one_contracts.dart';
+import 'package:alteri_one_sdk/alteri_one_sdk.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as shelf_io;
 
@@ -15,6 +16,7 @@ import '../../application/approval/approval_channel.dart';
 import '../../application/approvals_bloc.dart';
 import '../../application/config/profile_loader.dart';
 import '../../application/extensions_bloc.dart';
+import '../../application/memory_backend_registry.dart';
 import '../../application/run_service.dart';
 import '../../application/state_publisher.dart';
 import '../../di/injection.dart';
@@ -22,6 +24,7 @@ import '../../di/provider_registry.dart';
 import '../../domain/ids.dart';
 import '../../domain/ports/journal_port.dart';
 import '../../domain/ports/llm_port.dart';
+import '../../domain/ports/manifest_verifier.dart';
 import '../../domain/profile.dart';
 import '../journal/hive_journal.dart';
 import '../paths.dart';
@@ -171,6 +174,8 @@ final class Daemon {
     ApprovalChannel? approvalChannel,
     PairingService? pairing,
     ToolRegistry? toolRegistry,
+    List<MemoryBackendHandle> memoryBackends = const <MemoryBackendHandle>[],
+    MemoryBackendPortResolver? memoryBackendResolver,
     StopSignal? stopSignal,
   }) async {
     if (_started) throw StateError('The daemon is already started');
@@ -187,6 +192,7 @@ final class Daemon {
     _profile ??= ProfileLoader(env: _environment).parse(_config.profile);
     registerProfile(profile: _profile!, channel: approvalChannel);
     registerLlmPort(llm);
+    _registerMemoryBackends(memoryBackends, memoryBackendResolver);
     if (toolRegistry != null) {
       // Replace the fail-closed empty registry before RunService is first
       // resolved, so the agent deps capture the injected tools.
@@ -217,11 +223,12 @@ final class Daemon {
       tokenResolver: tokenResolver,
       runs: registry,
       approvals: _ApprovalsResource(approvalsBloc),
-      extensions: _ExtensionsResource(getIt<ExtensionsBloc>()),
+      extensions: _ExtensionsResource(getIt<ExtensionsBloc>(), _paths),
       doctor: _DoctorResource(
         config: _config,
         registry: getIt<ProviderRegistry>(),
         extensions: getIt<ExtensionsBloc>(),
+        verifier: getIt<ManifestVerifier>(),
         fetch: _defaultToolsFetch,
       ),
       publisher: publisher,
@@ -244,6 +251,27 @@ final class Daemon {
     if (stopSignal != null) {
       _stopSignal = stopSignal;
       _stopSubscription = stopSignal.onStop.listen((_) => stop());
+    }
+  }
+
+  /// Registers the built-in memory backend handles the generated entry
+  /// collected, through the same [MemoryBackendRegistry] the loaded-extension
+  /// path uses (docs/spec/extensions.md, section 11.6; M5 Step 14).
+  ///
+  /// Built-in extensions run in the build's own isolate and hand the host an
+  /// opaque [MemoryBackendHandle]; [resolver] (supplied by the composition
+  /// root, the only code that names both the extension and the core) turns it
+  /// into a [MemoryPort]. The MVP has a single memory backend, so the handles
+  /// are registered under the `built-in` id. A `null` resolver leaves the
+  /// registry fail-closed.
+  void _registerMemoryBackends(
+    List<MemoryBackendHandle> handles,
+    MemoryBackendPortResolver? resolver,
+  ) {
+    if (handles.isEmpty || resolver == null) return;
+    final registry = getIt<MemoryBackendRegistry>();
+    for (final handle in handles) {
+      registry.registerFromHandle('built-in', handle, resolver: resolver);
     }
   }
 
@@ -424,38 +452,73 @@ final class _ApprovalsResource implements ApprovalResourcePort {
 }
 
 /// The real [ExtensionResourcePort] over [ExtensionsBloc]
-/// (docs/spec/api.md, section 16.3).
+/// (docs/spec/api.md, section 16.3; M5 Step 16).
+///
+/// [listExtensions] reads the registry. [loadExtension] resolves the module at
+/// `<data>/extensions/<id>.aot`, rejects a duplicate id, and adds a
+/// [ExtensionLoadRequestedEvent] so the bloc spawns, verifies, and registers it;
+/// [unloadExtension] adds an [ExtensionUnloadRequestedEvent] so the bloc drains
+/// it to `stopped`. The action is applied to the bloc asynchronously, so the
+/// returned view reflects the intended state; a concurrent `GET /v1/extensions`
+/// reports the settled state.
 final class _ExtensionsResource implements ExtensionResourcePort {
-  new(this._bloc);
+  new(this._bloc, this._paths);
   final ExtensionsBloc _bloc;
+  final HomePaths _paths;
 
   @override
   Future<List<ExtensionView>> listExtensions() async => [
     for (final entry in _bloc.state.registry.entries)
       ExtensionView(id: entry.key, state: entry.value.name),
   ];
+
+  @override
+  Future<ExtensionActionResult> loadExtension(String id) async {
+    if (_bloc.state.registry.containsKey(id)) {
+      return const ExtensionActionRejected();
+    }
+    final module = File('${_paths.data}/extensions/$id.aot');
+    if (!module.existsSync()) {
+      return const ExtensionUnavailable();
+    }
+    _bloc.add(ExtensionLoadRequestedEvent(extensionId: id, uri: module.uri));
+    return ExtensionActionApplied(ExtensionView(id: id, state: 'loaded'));
+  }
+
+  @override
+  Future<ExtensionActionResult> unloadExtension(String id) async {
+    if (!_bloc.state.registry.containsKey(id)) {
+      return const ExtensionUnavailable();
+    }
+    _bloc.add(ExtensionUnloadRequestedEvent(id));
+    return ExtensionActionApplied(ExtensionView(id: id, state: 'stopped'));
+  }
 }
 
 /// The real [DoctorResourcePort] over the daemon's configuration, extension
-/// registry, and provider (docs/spec/clients-cli.md, section 19; M4 Step 14).
+/// registry, provider, and manifest verifier (docs/spec/clients-cli.md,
+/// section 19; M4 Step 14, M5 Step 16).
 ///
 /// It reports the facts only the core knows: the configuration loaded (a
 /// `ConfigurationException` would have stopped the daemon at `load`), the
-/// registered extensions (their signatures are verified when signed AOT modules
-/// land in M5, so the check is `skipped` for now), the registered providers, the
-/// `llama-server` built-in tools list (proxied from the provider `base_url`), and
-/// the `distribution.yaml` match (a build-time artifact the running binary does
-/// not carry yet, so it is `skipped`). TLS and token-strength checks are M4b.
+/// registered extensions' signatures (re-verified through the wired
+/// [ManifestVerifier], or `skipped` when none is wired), the registered
+/// providers, the `llama-server` built-in tools list (proxied from the provider
+/// `base_url`), and the `distribution.yaml` match (a build-time artifact the
+/// running binary does not carry yet, so it is `skipped`). TLS and
+/// token-strength checks are M4b.
 final class _DoctorResource implements DoctorResourcePort {
   new({
     required this.config,
     required this.registry,
     required this.extensions,
+    required this.verifier,
     required this.fetch,
   });
   final DaemonConfig config;
   final ProviderRegistry registry;
   final ExtensionsBloc extensions;
+  final ManifestVerifier? verifier;
   final ToolsFetcher fetch;
 
   @override
@@ -466,38 +529,20 @@ final class _DoctorResource implements DoctorResourcePort {
         status: DoctorStatus.ok,
         detail: 'configuration loaded (mode: ${config.mode})',
       ),
-      _extensionsCheck(),
+      await checkExtensionSignatures(
+        modules: [
+          for (final module in extensions.loadedModules)
+            ExtensionModuleRef(id: module.id, uri: module.uri),
+        ],
+        verifier: verifier,
+      ),
       _providerCheck(),
       await checkLlamaServerTools(baseUrl: _providerBaseUrl(), fetch: fetch),
-      const DoctorCheck(
-        name: 'distribution',
-        status: DoctorStatus.skipped,
-        detail:
-            'distribution.yaml is a build-time artifact; the running binary '
-            'does not carry it yet',
-      ),
+      await checkDistribution(running: null, declared: null),
     ];
     return DoctorReport(
       checks: checks,
       scopes: <String>[for (final scope in token.scopes) scope.wire],
-    );
-  }
-
-  DoctorCheck _extensionsCheck() {
-    final count = extensions.state.registry.entries.length;
-    if (count == 0) {
-      return const DoctorCheck(
-        name: 'extensions',
-        status: DoctorStatus.skipped,
-        detail: 'no extensions registered',
-      );
-    }
-    return DoctorCheck(
-      name: 'extensions',
-      status: DoctorStatus.skipped,
-      detail:
-          '$count extension(s) registered; signature verification lands '
-          'with signed AOT modules (M5)',
     );
   }
 

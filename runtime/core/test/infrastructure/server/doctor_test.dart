@@ -70,6 +70,89 @@ void main() {
     });
   });
 
+  group('checkExtensionSignatures', () {
+    final modules = [
+      ExtensionModuleRef(
+        id: 'weather',
+        uri: Uri.parse('file:///ext/weather.aot'),
+      ),
+      ExtensionModuleRef(id: 'acme', uri: Uri.parse('file:///ext/acme.aot')),
+    ];
+
+    test('ok when every module verifies', () async {
+      final check = await checkExtensionSignatures(
+        modules: modules,
+        verifier: _AcceptingVerifier(),
+      );
+      expect(check.status, DoctorStatus.ok);
+      expect(check.detail, contains('weather: ok'));
+      expect(check.detail, contains('acme: ok'));
+    });
+
+    test('fail when a module is rejected', () async {
+      final check = await checkExtensionSignatures(
+        modules: modules,
+        verifier: _RejectingVerifier('acme'),
+      );
+      expect(check.status, DoctorStatus.fail);
+      expect(check.detail, contains('acme: rejected'));
+    });
+
+    test('skipped when there are no loaded extensions', () async {
+      final check = await checkExtensionSignatures(
+        modules: const [],
+        verifier: _AcceptingVerifier(),
+      );
+      expect(check.status, DoctorStatus.skipped);
+    });
+
+    test('skipped when no verifier is wired (never a faked ok)', () async {
+      final check = await checkExtensionSignatures(
+        modules: modules,
+        verifier: null,
+      );
+      expect(check.status, DoctorStatus.skipped);
+      expect(check.detail, contains('no manifest verifier'));
+    });
+  });
+
+  group('checkDistribution', () {
+    test('ok when the binary matches distribution.yaml', () async {
+      final check = await checkDistribution(
+        running: const DistributionContents(
+          name: 'home',
+          extensions: ['weather', 'workspace'],
+        ),
+        declared: const DistributionContents(
+          name: 'home',
+          extensions: ['workspace', 'weather'],
+        ),
+      );
+      expect(check.status, DoctorStatus.ok);
+    });
+
+    test('fail when the binary does not match', () async {
+      final check = await checkDistribution(
+        running: const DistributionContents(
+          name: 'home',
+          extensions: ['weather'],
+        ),
+        declared: const DistributionContents(
+          name: 'home',
+          extensions: ['weather', 'workspace'],
+        ),
+      );
+      expect(check.status, DoctorStatus.fail);
+      expect(check.detail, contains('workspace'));
+    });
+
+    test('skipped when the distribution info is unavailable', () async {
+      final check = await checkDistribution(running: null, declared: null);
+      expect(check.status, DoctorStatus.skipped);
+      expect(check.detail, contains('not available'));
+    });
+  });
+
   group('GET /v1/doctor', () {
     final resolver = _MapResolver({
       'read': DeviceToken('dev-read', const {Scope.read}),
@@ -155,6 +238,47 @@ final class _FakeDoctor implements DoctorResourcePort {
   @override
   Future<DoctorReport> report(DeviceToken token) async => _report;
 }
+
+/// A [ManifestVerifier] that accepts every module.
+final class _AcceptingVerifier implements ManifestVerifier {
+  @override
+  Future<ExtensionManifest> verify(Uri module) async =>
+      _manifest(module.path.split('/').last.replaceAll('.aot', ''));
+}
+
+/// A [ManifestVerifier] that rejects the module whose id is [rejectId].
+final class _RejectingVerifier implements ManifestVerifier {
+  new(this.rejectId);
+  final String rejectId;
+
+  @override
+  Future<ExtensionManifest> verify(Uri module) async {
+    final id = module.path.split('/').last.replaceAll('.aot', '');
+    if (id == rejectId) {
+      throw const ExtensionRejected('bad-signature');
+    }
+    return _manifest(id);
+  }
+}
+
+ExtensionManifest _manifest(String id) => ExtensionManifest(
+  id: id,
+  version: '1.0.0',
+  contract: '2.0.0',
+  sdk: '3.14.0',
+  target: 'linux-x64',
+  provides: ExtensionProvides(
+    tools: const [],
+    triggers: const [],
+    channels: const [],
+    context: const [],
+    memoryBackend: false,
+    skills: const [],
+  ),
+  permissions: const [],
+  sha256: 'abc123',
+  signature: 'deadbeef',
+);
 
 /// A [TokenResolver] backed by a fixed token-to-device map.
 final class _MapResolver implements TokenResolver {

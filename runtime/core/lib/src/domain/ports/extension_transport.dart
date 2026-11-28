@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import 'package:alteri_one_contracts/alteri_one_contracts.dart';
+import 'package:alteri_one_sdk/alteri_one_sdk.dart';
 
 import '../cancel_token.dart';
 
@@ -76,4 +77,15 @@ abstract interface class LoadedExtension {
 
   /// Kills the extension immediately, abandoning any in-flight calls.
   Future<void> kill();
+
+  /// The opaque memory backend handle the extension provided, if any
+  /// (docs/spec/extensions.md, section 11.6).
+  ///
+  /// The concrete type lives in the extension package and is opaque to the
+  /// core; the composition root resolves it through a
+  /// `MemoryBackendPortResolver`. The handle does not cross the isolate
+  /// boundary, so a loaded extension's transport returns `null` here until the
+  /// cross-isolate memory wiring lands (docs/plan/M5.md Step 14); built-in
+  /// extensions expose it directly.
+  MemoryBackendHandle? get memoryBackend => null;
 }

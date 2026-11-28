@@ -99,6 +99,24 @@ void main(List<String> args, SendPort host) {
 }
 ''';
 
+/// A module that echoes every observation `event` frame it receives back to the
+/// host as an `event`, so the host can assert the snapshot and live events the
+/// extension was piped.
+const _snapshotProbeModule = r'''
+import 'dart:isolate';
+
+void main(List<String> args, SendPort host) {
+  final port = ReceivePort();
+  host.send(<String, Object?>{'kind': 'hello', 'port': port.sendPort});
+  port.listen((Object? message) {
+    if (message is! Map<String, Object?>) return;
+    if (message['kind'] == 'event') {
+      host.send(<String, Object?>{'kind': 'event', 'event': message['event']});
+    }
+  });
+}
+''';
+
 Future<File> _writeModule(String source) async {
   final dir = await Directory.systemTemp.createTemp('m5_iso_transport');
   return File('${dir.path}/module.dart')..writeAsStringSync(source);
@@ -129,6 +147,21 @@ final class _AcceptingVerifier implements ManifestVerifier {
     sha256: 'abc',
     signature: 'sig',
     observes: observes,
+  );
+}
+
+/// An [ApprovalReader] that grants a fixed set of observed topics, standing in
+/// for the owner's `extensions/<id>.yaml`.
+final class _GrantingApprovals implements ApprovalReader {
+  new(this._granted);
+
+  final Set<String> _granted;
+
+  @override
+  EffectiveApproval read(ExtensionManifest manifest) => EffectiveApproval(
+    EffectivePermissions(const <String>{}),
+    _granted,
+    const <String>{},
   );
 }
 
@@ -216,6 +249,82 @@ void main() {
       await module.parent.delete(recursive: true);
     });
 
+    test('a granted topic delivers a snapshot then live events to the extension', () async {
+      // The owner granted `runs`; the manifest observes it. A pre-existing
+      // snapshot event is replayed first, then a live event is piped as an
+      // `event` frame the module echoes back. The collector is attached
+      // immediately after spawn so the snapshot echo (an isolate round-trip
+      // that lands after spawn returns) is not missed on the broadcast stream.
+      final publisher = StatePublisher.withLimits(capacity: 64);
+      publisher.publish(
+        StateTopic.runs,
+        RunStarted(at: DateTime.utc(2026), runId: 'snap', profile: 'test'),
+      );
+      final module = await _writeModule(_snapshotProbeModule);
+      final transport = IsolateExtensionTransport(
+        verifier: _AcceptingVerifier(observes: const ['runs']),
+        publisher: publisher,
+        approvals: _GrantingApprovals(const {'runs'}),
+      );
+      final loaded = await transport.spawn(
+        uri: module.uri,
+        handshakeTimeout: const Duration(seconds: 5),
+      );
+
+      final List<AgentEvent> received = <AgentEvent>[];
+      final Completer<void> twoEvents = Completer<void>();
+      loaded.events.listen((AgentEvent event) {
+        received.add(event);
+        if (received.length >= 2 && !twoEvents.isCompleted) {
+          twoEvents.complete();
+        }
+      });
+
+      // A live event published after subscribe is piped through as well.
+      publisher.publish(
+        StateTopic.runs,
+        RunStarted(at: DateTime.utc(2026), runId: 'live', profile: 'test'),
+      );
+
+      await twoEvents.future.timeout(const Duration(seconds: 5));
+
+      expect(received, hasLength(2));
+      expect(
+        received.first,
+        isA<RunStarted>().having((RunStarted e) => e.runId, 'runId', 'snap'),
+      );
+      expect(
+        received[1],
+        isA<RunStarted>().having((RunStarted e) => e.runId, 'runId', 'live'),
+      );
+
+      await loaded.kill();
+      await module.parent.delete(recursive: true);
+    });
+
+    test('an ungranted topic is not subscribed', () async {
+      // The manifest observes `runs` and `approvals`, but the owner granted
+      // only `runs`: no subscription to `approvals` is created, so no data
+      // leaks for the ungranted topic.
+      final publisher = StatePublisher.withLimits(capacity: 64);
+      final module = await _writeModule(_echoModule);
+      final transport = IsolateExtensionTransport(
+        verifier: _AcceptingVerifier(observes: const ['runs', 'approvals']),
+        publisher: publisher,
+        approvals: _GrantingApprovals(const {'runs'}),
+      );
+      final loaded = await transport.spawn(
+        uri: module.uri,
+        handshakeTimeout: const Duration(seconds: 5),
+      );
+
+      expect(publisher.subscriberCount(StateTopic.runs), 1);
+      expect(publisher.subscriberCount(StateTopic.approvals), 0);
+
+      await loaded.kill();
+      await module.parent.delete(recursive: true);
+    });
+
     test('a slow consumer overflows the queue and triggers resync', () async {
       // A capacity of 1 makes overflow deterministic: pause the subscription,
       // publish two events, and the bounded queue fails with resync. The probe
@@ -225,6 +334,7 @@ void main() {
       final transport = IsolateExtensionTransport(
         verifier: _AcceptingVerifier(observes: const ['runs']),
         publisher: publisher,
+        approvals: _GrantingApprovals(const {'runs'}),
       );
       final loaded = await transport.spawn(
         uri: module.uri,

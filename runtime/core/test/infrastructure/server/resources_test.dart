@@ -474,6 +474,109 @@ void main() {
     });
   });
 
+  group('POST /v1/extensions/{id}:action', () {
+    test(':load delegates to the port and returns the view', () async {
+      final extensions = FakeExtensionResource();
+      final api = newApi(extensions: extensions);
+
+      final response = await api.handler(
+        req('POST', 'v1/extensions/weather:load', token: 'full'),
+      );
+
+      expect(response.statusCode, 200);
+      expect(await decode(response), {'id': 'weather', 'state': 'loaded'});
+      expect(extensions.loaded, ['weather']);
+    });
+
+    test(':unload delegates to the port and returns the view', () async {
+      final extensions = FakeExtensionResource();
+      final api = newApi(extensions: extensions);
+
+      final response = await api.handler(
+        req('POST', 'v1/extensions/weather:unload', token: 'full'),
+      );
+
+      expect(response.statusCode, 200);
+      expect(await decode(response), {'id': 'weather', 'state': 'stopped'});
+      expect(extensions.unloaded, ['weather']);
+    });
+
+    test('a token without admin scope gets 403', () async {
+      final extensions = FakeExtensionResource();
+      final api = newApi(extensions: extensions);
+
+      final load = await api.handler(
+        req('POST', 'v1/extensions/weather:load', token: 'read'),
+      );
+      final unload = await api.handler(
+        req('POST', 'v1/extensions/weather:unload', token: 'run'),
+      );
+
+      expect(load.statusCode, 403);
+      expect(unload.statusCode, 403);
+      // The port is never reached without the admin scope.
+      expect(extensions.loaded, isEmpty);
+      expect(extensions.unloaded, isEmpty);
+    });
+
+    test('extension_unavailable maps to 503', () async {
+      final api = newApi(
+        extensions: FakeExtensionResource(
+          const [],
+          const ExtensionUnavailable(),
+          const ExtensionUnavailable(),
+        ),
+      );
+
+      final load = await api.handler(
+        req('POST', 'v1/extensions/ghost:load', token: 'full'),
+      );
+      final unload = await api.handler(
+        req('POST', 'v1/extensions/ghost:unload', token: 'full'),
+      );
+
+      expect(load.statusCode, 503);
+      expect(await load.readAsString(), ApiErrorCode.extensionUnavailable);
+      expect(unload.statusCode, 503);
+    });
+
+    test('a rejected load (duplicate/signature) maps to 400', () async {
+      final api = newApi(
+        extensions: FakeExtensionResource(
+          const [],
+          const ExtensionActionRejected(),
+        ),
+      );
+
+      final response = await api.handler(
+        req('POST', 'v1/extensions/weather:load', token: 'full'),
+      );
+
+      expect(response.statusCode, 400);
+      expect(await response.readAsString(), ApiErrorCode.invalidRequest);
+    });
+
+    test('an unknown action is 404', () async {
+      final api = newApi(extensions: FakeExtensionResource());
+
+      final response = await api.handler(
+        req('POST', 'v1/extensions/weather:explode', token: 'full'),
+      );
+
+      expect(response.statusCode, 404);
+    });
+
+    test('an absent extensions port is 404', () async {
+      final api = newApi();
+
+      final response = await api.handler(
+        req('POST', 'v1/extensions/weather:load', token: 'full'),
+      );
+
+      expect(response.statusCode, 404);
+    });
+  });
+
   group('absent resource ports', () {
     test('a resource route is 404 when its port is not wired', () async {
       final api = newApi();
@@ -614,12 +717,37 @@ final class FakeApprovalResource implements ApprovalResourcePort {
 
 /// A fixed [ExtensionResourcePort] for the route tests.
 final class FakeExtensionResource implements ExtensionResourcePort {
-  new([this.extensions = const []]);
+  new([
+    this.extensions = const [],
+    this.loadResult = const ExtensionActionApplied(
+      ExtensionView(id: 'weather', state: 'loaded'),
+    ),
+    this.unloadResult = const ExtensionActionApplied(
+      ExtensionView(id: 'weather', state: 'stopped'),
+    ),
+  ]);
 
   final List<ExtensionView> extensions;
+  final ExtensionActionResult loadResult;
+  final ExtensionActionResult unloadResult;
+
+  final List<String> loaded = [];
+  final List<String> unloaded = [];
 
   @override
   Future<List<ExtensionView>> listExtensions() async => extensions;
+
+  @override
+  Future<ExtensionActionResult> loadExtension(String id) async {
+    loaded.add(id);
+    return loadResult;
+  }
+
+  @override
+  Future<ExtensionActionResult> unloadExtension(String id) async {
+    unloaded.add(id);
+    return unloadResult;
+  }
 }
 
 extension on RunView {
