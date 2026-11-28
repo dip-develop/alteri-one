@@ -28,4 +28,4 @@
 
 ## 17.3 Vulnerability disclosure
 
-`SECURITY.md` describes a private reporting channel. Vulnerability reports never go to public issues. The public threat model and the signing-key policy are in `docs/security/`.
+`SECURITY.md` describes a private reporting channel. Vulnerability reports never go to public issues. The public threat model and the signing-key policy are in `docs/security/`; the signing-key policy is [`docs/security/signing.md`](../security/signing.md) (Ed25519 over canonical JSON, `0600` key file with the OS keyring deferred, ADR-0026).

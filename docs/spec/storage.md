@@ -42,7 +42,7 @@ Test: `kill -9` in the middle of a tool call, restart, and verify the state tran
 
 ### 15.4 Encryption
 
-- Hive supports AES encryption for boxes. The key is 32 bytes. It is stored in the system keyring, or in systemd credentials on a server without a keyring. The key never appears in YAML or in the repository. The Dart library for each platform's keyring is verified in spike T19.
+- Hive supports AES encryption for boxes. The key is 32 bytes. M5 ships the `memory_hive` backend over an encrypted Hive CE `LazyBox`: the 32-byte AES key and the data directory are supplied by the host/secret store, and the backend's default key provider is fail-closed, so a backend used without a configured key refuses to open rather than persisting unencrypted memory (ADR-0028). The key never appears in YAML or in the repository. The OS keyring is deferred (T19); the `0600` file the signing key uses (ADR-0026) is the current fallback for key material on POSIX.
 - Encryption is enabled by default for `memory` and `approvals`.
 - The decision must be made before the first personal memory entry is written. Enabling encryption later requires migrating existing data.
 
