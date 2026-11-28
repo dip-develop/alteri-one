@@ -96,8 +96,10 @@ void main() {
     final main = File('${root.path}/build/distributions/official/bin/main.dart')
         .readAsStringSync();
     expect(main, contains('alteri_one_ext_weather'));
-    expect(main, contains('alteri_one_ext_workspace'));
     expect(main, contains('alteri_one_ext_memory_hive'));
+    // workspace is deferred to M6 (commented out of distribution.yaml), so the
+    // official build must not name it; neither must lsp/mcp.
+    expect(main, isNot(contains('alteri_one_ext_workspace')));
     expect(main, isNot(contains('alteri_one_ext_lsp')));
     expect(main, isNot(contains('alteri_one_ext_mcp')));
   });
