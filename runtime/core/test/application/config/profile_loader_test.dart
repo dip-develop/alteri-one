@@ -44,6 +44,7 @@ risk_rules:
       // Unset keys keep the domain defaults.
       expect(profile.toolRisks, isEmpty);
       expect(profile.memory, MemoryRights.propose);
+      expect(profile.taskConfig, isNull);
     });
 
     test('keeps the default budget when no budget block is given', () async {
@@ -60,6 +61,111 @@ prompt: assistant
       expect(profile.budget.maxTokens, defaults.maxTokens);
       expect(profile.budget.maxDuration, defaults.maxDuration);
       expect(profile.budget.maxOutputTokens, defaults.maxOutputTokens);
+    });
+
+    test('loads the task-mode keys into a TaskConfig', () async {
+      const loader = ProfileLoader();
+
+      final profile = await loader.load('''
+id: fixer
+model: local
+prompt: fixer
+workspace:
+  root: /repo
+  allowed_paths: [src, test]
+auto_resume: true
+shell_allowlist:
+  - [dart, analyze]
+  - [dart, test]
+''');
+
+      final task = profile.taskConfig;
+      expect(task, isNotNull);
+      expect(task!.workspace.root, '/repo');
+      expect(task.workspace.allowedPaths, ['src', 'test']);
+      expect(task.autoResume, isTrue);
+      expect(task.shellAllowlist, [
+        ['dart', 'analyze'],
+        ['dart', 'test'],
+      ]);
+    });
+
+    test('defaults autoResume to false and shellAllowlist to empty', () async {
+      const loader = ProfileLoader();
+
+      final profile = await loader.load('''
+id: fixer
+model: local
+prompt: fixer
+workspace:
+  root: /repo
+''');
+
+      final task = profile.taskConfig;
+      expect(task, isNotNull);
+      expect(task!.autoResume, isFalse);
+      expect(task.shellAllowlist, isEmpty);
+      expect(task.workspace.allowedPaths, isEmpty);
+    });
+
+    test('rejects a task option without a workspace block', () {
+      const loader = ProfileLoader();
+
+      expect(
+        () => loader.parse({
+          'id': 'fixer',
+          'model': 'local',
+          'prompt': 'fixer',
+          'auto_resume': true,
+        }),
+        throwsA(
+          isA<ConfigurationException>().having(
+            (error) => error.message,
+            'message',
+            contains('workspace'),
+          ),
+        ),
+      );
+    });
+
+    test('rejects an empty workspace root', () {
+      const loader = ProfileLoader();
+
+      expect(
+        () => loader.parse({
+          'id': 'fixer',
+          'model': 'local',
+          'prompt': 'fixer',
+          'workspace': {'root': ''},
+        }),
+        throwsA(
+          isA<ConfigurationException>().having(
+            (error) => error.message,
+            'message',
+            contains('root'),
+          ),
+        ),
+      );
+    });
+
+    test('rejects an unknown workspace key', () {
+      const loader = ProfileLoader();
+
+      expect(
+        () => loader.parse({
+          'id': 'fixer',
+          'model': 'local',
+          'prompt': 'fixer',
+          'workspace': {'root': '/repo', 'escape': true},
+        }),
+        throwsA(
+          isA<ConfigurationException>().having(
+            (error) => error.message,
+            'message',
+            contains('escape'),
+          ),
+        ),
+      );
     });
 
     test('rejects an unknown top-level key', () {
@@ -298,6 +404,20 @@ tool_risks:
         () => profile.validateToolRisks({'wipe': Risk.read}),
         returnsNormally,
       );
+    });
+  });
+
+  group('Budget.task', () {
+    test('is the large task budget: 200 steps and 8 hours', () {
+      final task = Budget.task();
+
+      expect(task.maxSteps, 200);
+      expect(task.maxDuration, const Duration(hours: 8));
+      // The per-reply cap and token budget match the chat defaults; the profile
+      // overrides max_tokens (docs/spec/task-mode.md, section 29.5).
+      final standard = Budget.standard();
+      expect(task.maxTokens, standard.maxTokens);
+      expect(task.maxOutputTokens, standard.maxOutputTokens);
     });
   });
 

@@ -33,6 +33,9 @@ base class ProfileConfig {
     Map<String, String>? riskRules,
     Map<String, String>? toolRisks,
     String? memory,
+    WorkspaceConfig? workspace,
+    bool? autoResume,
+    List<List<String>>? shellAllowlist,
   }) {
     _json = {
       'id': id,
@@ -43,6 +46,9 @@ base class ProfileConfig {
       'risk_rules': ?riskRules,
       'tool_risks': ?toolRisks,
       'memory': ?memory,
+      'workspace': ?workspace?.toJson(),
+      'auto_resume': ?autoResume,
+      'shell_allowlist': ?shellAllowlist,
     };
   }
 
@@ -158,6 +164,56 @@ base class ProfileConfig {
     }
   }
 
+  /// The task-mode workspace: a root and the allowed paths inside it
+  /// (docs/spec/task-mode.md, section 29.1).
+  WorkspaceConfig? get workspace {
+    return _json['workspace'] == null
+        ? null
+        : WorkspaceConfig.fromJson(_json['workspace'] as Map<String, dynamic>);
+  }
+
+  /// The task-mode workspace: a root and the allowed paths inside it
+  /// (docs/spec/task-mode.md, section 29.1).
+  set workspace(WorkspaceConfig? value) {
+    if (value == null) {
+      _json.remove('workspace');
+    } else {
+      _json['workspace'] = value.toJson();
+    }
+  }
+
+  /// Whether an interrupted task resumes without the owner
+  /// (docs/spec/task-mode.md, section 29.3).
+  bool? get autoResume {
+    return _json['auto_resume'] as bool?;
+  }
+
+  /// Whether an interrupted task resumes without the owner
+  /// (docs/spec/task-mode.md, section 29.3).
+  set autoResume(bool? value) {
+    if (value == null) {
+      _json.remove('auto_resume');
+    } else {
+      _json['auto_resume'] = value;
+    }
+  }
+
+  /// Argv prefixes `workspace__shell` may run with risk `write`
+  /// (docs/spec/task-mode.md, section 29.1).
+  List<List<String>>? get shellAllowlist {
+    return (_json['shell_allowlist'] as List?)?.cast<List<String>>();
+  }
+
+  /// Argv prefixes `workspace__shell` may run with risk `write`
+  /// (docs/spec/task-mode.md, section 29.1).
+  set shellAllowlist(List<List<String>>? value) {
+    if (value == null) {
+      _json.remove('shell_allowlist');
+    } else {
+      _json['shell_allowlist'] = value;
+    }
+  }
+
   @override
   String toString() {
     return _json.toString();
@@ -200,10 +256,98 @@ base class _ProfileConfigTypeFactory extends SchemanticType<ProfileConfig> {
           'additionalProperties': <String, Object?>{'type': 'string'},
         },
         'memory': <String, Object?>{'type': 'string'},
+        'workspace': <String, Object?>{r'$ref': r'#/$defs/WorkspaceConfig'},
+        'auto_resume': <String, Object?>{'type': 'boolean'},
+        'shell_allowlist': <String, Object?>{
+          'type': 'array',
+          'items': <String, Object?>{
+            'type': 'array',
+            'items': <String, Object?>{'type': 'string'},
+          },
+        },
       },
       'required': ['id', 'model', 'prompt'],
     },
-    dependencies: [BudgetConfig.$schema],
+    dependencies: [BudgetConfig.$schema, WorkspaceConfig.$schema],
+  );
+}
+
+/// The workspace block of a profile (docs/spec/task-mode.md, section 29.1).
+base class WorkspaceConfig {
+  /// Creates a [WorkspaceConfig] from a JSON map.
+  factory WorkspaceConfig.fromJson(Map<String, dynamic> json) =>
+      $schema.parse(json);
+
+  WorkspaceConfig._(this._json);
+
+  WorkspaceConfig({required String root, List<String>? allowedPaths}) {
+    _json = {'root': root, 'allowed_paths': ?allowedPaths};
+  }
+
+  late final Map<String, dynamic> _json;
+
+  /// The JSON schema and type descriptor for [WorkspaceConfig].
+  static const SchemanticType<WorkspaceConfig> $schema =
+      _WorkspaceConfigTypeFactory();
+
+  /// The workspace root directory.
+  String get root {
+    return _json['root'] as String;
+  }
+
+  /// The workspace root directory.
+  set root(String value) {
+    _json['root'] = value;
+  }
+
+  /// Paths inside [root] the run may use.
+  List<String>? get allowedPaths {
+    return (_json['allowed_paths'] as List?)?.cast<String>();
+  }
+
+  /// Paths inside [root] the run may use.
+  set allowedPaths(List<String>? value) {
+    if (value == null) {
+      _json.remove('allowed_paths');
+    } else {
+      _json['allowed_paths'] = value;
+    }
+  }
+
+  @override
+  String toString() {
+    return _json.toString();
+  }
+
+  /// Serializes this [WorkspaceConfig] to a JSON map.
+  Map<String, dynamic> toJson() {
+    return _json;
+  }
+}
+
+base class _WorkspaceConfigTypeFactory extends SchemanticType<WorkspaceConfig> {
+  const _WorkspaceConfigTypeFactory();
+
+  @override
+  WorkspaceConfig parse(Object? json) {
+    return WorkspaceConfig._(json as Map<String, dynamic>);
+  }
+
+  @override
+  JsonSchemaMetadata get schemaMetadata => JsonSchemaMetadata(
+    name: 'WorkspaceConfig',
+    definition: <String, Object?>{
+      'type': 'object',
+      'properties': <String, Object?>{
+        'root': <String, Object?>{'type': 'string'},
+        'allowed_paths': <String, Object?>{
+          'type': 'array',
+          'items': <String, Object?>{'type': 'string'},
+        },
+      },
+      'required': ['root'],
+    },
+    dependencies: [],
   );
 }
 

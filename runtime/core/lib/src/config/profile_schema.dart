@@ -41,6 +41,31 @@ abstract class $ProfileConfig {
   /// Rights of the run over long-term memory: `none`, `read`, `propose` or
   /// `auto`.
   String? get memory;
+
+  /// The task-mode workspace: a root and the allowed paths inside it
+  /// (docs/spec/task-mode.md, section 29.1).
+  $WorkspaceConfig? get workspace;
+
+  /// Whether an interrupted task resumes without the owner
+  /// (docs/spec/task-mode.md, section 29.3).
+  @Field(name: 'auto_resume')
+  bool? get autoResume;
+
+  /// Argv prefixes `workspace__shell` may run with risk `write`
+  /// (docs/spec/task-mode.md, section 29.1).
+  @Field(name: 'shell_allowlist')
+  List<List<String>>? get shellAllowlist;
+}
+
+/// The workspace block of a profile (docs/spec/task-mode.md, section 29.1).
+@Schema()
+abstract class $WorkspaceConfig {
+  /// The workspace root directory.
+  String get root;
+
+  /// Paths inside [root] the run may use.
+  @Field(name: 'allowed_paths')
+  List<String>? get allowedPaths;
 }
 
 /// The budget block of a profile (section 14.5).
