@@ -5,6 +5,8 @@ import 'package:alteri_one_contracts/alteri_one_contracts.dart';
 
 import '../../domain/messages.dart';
 import '../../domain/run.dart';
+import '../../domain/skill.dart';
+import '../skill_registry.dart';
 import 'approval_service.dart';
 import 'context_builder.dart';
 import 'tool_set.dart';
@@ -37,17 +39,45 @@ final class DenyAllApprovals implements ApprovalService {
       Future.value(false);
 }
 
-/// A [ContextBuilder] that starts the run from its prompt alone.
+/// The starting [ContextBuilder] for a run.
 ///
-/// System instructions and context fragments are rendered in section 13; until
-/// then the owner prompt is the whole conversation.
+/// Renders the system instructions and context fragments of section 13; until
+/// then the owner prompt is the conversation, preceded by the approved-skills
+/// listing when a [SkillRegistry] is given (docs/spec/domain.md, section 8.9).
+///
+/// Only the `name` and `description` of each approved skill enter the prompt;
+/// the body is loaded on demand by the `skill.load` tool. An unapproved skill
+/// is not in the registry and so never appears here.
 final class PromptContextBuilder implements ContextBuilder {
-  /// Creates the defaults.
-  const new();
+  /// Creates the builder, optionally listing the skills of [skills].
+  const new({this.skills});
+
+  /// The approved skills to list, or `null` to start from the prompt alone.
+  final SkillRegistry? skills;
 
   @override
-  Future<List<Message>> build(Run run) =>
-      Future.value([Message.user(run.prompt)]);
+  Future<List<Message>> build(Run run) {
+    final messages = <Message>[];
+    final SkillRegistry? registry = skills;
+    if (registry != null) {
+      final String? listing = _skillsListing(registry.approved);
+      if (listing != null) messages.add(Message.system(listing));
+    }
+    messages.add(Message.user(run.prompt));
+    return Future.value(messages);
+  }
+
+  /// The system-prompt listing of [skills], or `null` when there are none.
+  ///
+  /// Each line is `- {name}: {description}`; the body is never included.
+  static String? _skillsListing(List<Skill> skills) {
+    if (skills.isEmpty) return null;
+    final buffer = StringBuffer('Available skills:');
+    for (final skill in skills) {
+      buffer.write('\n- ${skill.name}: ${skill.description}');
+    }
+    return buffer.toString();
+  }
 }
 
 /// A [ToolRegistry] without tools.

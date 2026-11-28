@@ -83,10 +83,13 @@ void main() {
       expect(approved, isFalse);
     });
 
-    test('ToolRegistry is empty', () {
+    test('ToolRegistry has only the built-in skill.load', () {
       configureCore(environment: 'test');
 
-      expect(getIt<ToolRegistry>().snapshot('test').specs, isEmpty);
+      // Extensions land in M5; with none loaded the only tool is the built-in
+      // `skill.load`, which refuses while no skill is approved (Step 15).
+      final specs = getIt<ToolRegistry>().snapshot('test').specs;
+      expect(specs.map((spec) => spec.llmName), ['skill_load']);
     });
 
     test('ContextBuilder starts from the prompt alone', () async {

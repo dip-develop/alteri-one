@@ -49,7 +49,7 @@ T1 is closed (ADR-0007). T14 is closed: the `RunBloc` suite in `alteri_one_core`
 | T7 | durability guarantees of `flush` in Hive CE (fsync) — closed: flush sufficient; spike test passed (docs/spikes/m0-environment.md) | M0 | done |
 | T8 | handlebars_dart strict mode through dotprompt | M0 | explicit input checks in `alteri_one_prompts` |
 | T9 | `hive_ce` API names (`openLazyBox`, encryption) — closed: API names verified; spike test passed (docs/spikes/m0-environment.md) | M0 | done |
-| T10 | the `SKILL.md` format in `genkit_middleware` | M5 | a custom parser |
+| T10 | ~~the `SKILL.md` format in `genkit_middleware`~~ Resolved 2026-11-28: the dialect is confirmed against `genkit_middleware` 1.0.3 (Skills middleware) — a `---`-delimited YAML frontmatter with `name` and `description`, then a markdown body. The core implements that dialect directly behind the `SkillParser` port (`SkillMdParser`) instead of taking a hard `genkit_middleware` dependency (which would pull the Genkit runtime into the core); the port keeps it swappable, so a switch to the upstream parser is the documented upgrade. | M5 | done (custom parser behind `SkillParser`) |
 | T11 | the `dart build cli` command on Dart 3.13 for each OS | M4 | `dart compile exe` |
 | T12 | ~~`melos.scripts` syntax, composite scripts, `melos exec` flags~~ Closed 2026-10-20: Melos 8 syntax verified against 8.9.0. | M0 | done |
 | T13 | the `shelf_io.serve` signature with `securityContext` | M4b | a TLS proxy in front of the daemon |

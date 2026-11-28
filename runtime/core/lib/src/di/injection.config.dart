@@ -24,6 +24,7 @@ import 'package:alteri_one_core/src/application/extensions_bloc.dart' as _i603;
 import 'package:alteri_one_core/src/application/host_api.dart' as _i196;
 import 'package:alteri_one_core/src/application/run_service.dart' as _i841;
 import 'package:alteri_one_core/src/application/scheduler_bloc.dart' as _i221;
+import 'package:alteri_one_core/src/application/skill_registry.dart' as _i486;
 import 'package:alteri_one_core/src/application/state_publisher.dart' as _i869;
 import 'package:alteri_one_core/src/application/triggers_cubit.dart' as _i476;
 import 'package:alteri_one_core/src/di/core_module.dart' as _i398;
@@ -36,6 +37,7 @@ import 'package:alteri_one_core/src/domain/ports/journal_port.dart' as _i673;
 import 'package:alteri_one_core/src/domain/ports/llm_port.dart' as _i500;
 import 'package:alteri_one_core/src/domain/ports/manifest_verifier.dart'
     as _i726;
+import 'package:alteri_one_core/src/domain/ports/skill_parser.dart' as _i868;
 import 'package:get_it/get_it.dart' as _i174;
 import 'package:injectable/injectable.dart' as _i526;
 
@@ -55,12 +57,16 @@ extension GetItInjectableX on _i174.GetIt {
     gh.lazySingleton<_i1058.RuntimeConfig>(() => coreModule.runtimeConfig);
     gh.lazySingleton<_i777.ProviderRegistry>(() => coreModule.providerRegistry);
     gh.lazySingleton<_i194.ApprovalService>(() => coreModule.approvalService);
-    gh.lazySingleton<_i186.ContextBuilder>(() => coreModule.contextBuilder);
     gh.lazySingleton<_i196.ApprovalReader>(() => coreModule.approvalReader);
     gh.lazySingleton<_i524.ExtensionTransport>(
       () => coreModule.extensionTransport,
     );
     gh.lazySingleton<_i726.ManifestVerifier>(() => coreModule.manifestVerifier);
+    gh.lazySingleton<_i486.SkillRegistry>(() => coreModule.skillRegistry());
+    gh.lazySingleton<_i868.SkillParser>(() => coreModule.skillParser());
+    gh.lazySingleton<_i186.ContextBuilder>(
+      () => coreModule.contextBuilder(gh<_i486.SkillRegistry>()),
+    );
     gh.lazySingleton<_i603.ExtensionsBloc>(
       () => coreModule.extensionsBloc(
         gh<_i524.ExtensionTransport>(),
@@ -74,7 +80,10 @@ extension GetItInjectableX on _i174.GetIt {
       () => coreModule.agentConfig(gh<_i1058.RuntimeConfig>()),
     );
     gh.lazySingleton<_i454.ToolRegistry>(
-      () => coreModule.toolRegistry(gh<_i603.ExtensionsBloc>()),
+      () => coreModule.toolRegistry(
+        gh<_i603.ExtensionsBloc>(),
+        gh<_i486.SkillRegistry>(),
+      ),
     );
     gh.lazySingleton<_i982.AgentDepsFactory>(
       () => coreModule.agentDepsFactory(
