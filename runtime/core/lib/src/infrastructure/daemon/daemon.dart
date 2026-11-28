@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:alteri_one_contracts/alteri_one_contracts.dart';
+import 'package:alteri_one_sdk/alteri_one_sdk.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as shelf_io;
 
@@ -15,6 +16,7 @@ import '../../application/approval/approval_channel.dart';
 import '../../application/approvals_bloc.dart';
 import '../../application/config/profile_loader.dart';
 import '../../application/extensions_bloc.dart';
+import '../../application/memory_backend_registry.dart';
 import '../../application/run_service.dart';
 import '../../application/state_publisher.dart';
 import '../../di/injection.dart';
@@ -171,6 +173,8 @@ final class Daemon {
     ApprovalChannel? approvalChannel,
     PairingService? pairing,
     ToolRegistry? toolRegistry,
+    List<MemoryBackendHandle> memoryBackends = const <MemoryBackendHandle>[],
+    MemoryBackendPortResolver? memoryBackendResolver,
     StopSignal? stopSignal,
   }) async {
     if (_started) throw StateError('The daemon is already started');
@@ -187,6 +191,7 @@ final class Daemon {
     _profile ??= ProfileLoader(env: _environment).parse(_config.profile);
     registerProfile(profile: _profile!, channel: approvalChannel);
     registerLlmPort(llm);
+    _registerMemoryBackends(memoryBackends, memoryBackendResolver);
     if (toolRegistry != null) {
       // Replace the fail-closed empty registry before RunService is first
       // resolved, so the agent deps capture the injected tools.
@@ -244,6 +249,27 @@ final class Daemon {
     if (stopSignal != null) {
       _stopSignal = stopSignal;
       _stopSubscription = stopSignal.onStop.listen((_) => stop());
+    }
+  }
+
+  /// Registers the built-in memory backend handles the generated entry
+  /// collected, through the same [MemoryBackendRegistry] the loaded-extension
+  /// path uses (docs/spec/extensions.md, section 11.6; M5 Step 14).
+  ///
+  /// Built-in extensions run in the build's own isolate and hand the host an
+  /// opaque [MemoryBackendHandle]; [resolver] (supplied by the composition
+  /// root, the only code that names both the extension and the core) turns it
+  /// into a [MemoryPort]. The MVP has a single memory backend, so the handles
+  /// are registered under the `built-in` id. A `null` resolver leaves the
+  /// registry fail-closed.
+  void _registerMemoryBackends(
+    List<MemoryBackendHandle> handles,
+    MemoryBackendPortResolver? resolver,
+  ) {
+    if (handles.isEmpty || resolver == null) return;
+    final registry = getIt<MemoryBackendRegistry>();
+    for (final handle in handles) {
+      registry.registerFromHandle('built-in', handle, resolver: resolver);
     }
   }
 

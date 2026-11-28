@@ -11,6 +11,8 @@ library;
 
 // Application state (docs/spec/domain.md, section 8.10) and
 // composition; then the pure domain (sections 8.1–8.9).
+export 'package:alteri_one_sdk/alteri_one_sdk.dart' show MemoryBackendHandle;
+
 export 'src/application/agent/agent_config.dart';
 export 'src/application/agent/agent_defaults.dart';
 export 'src/application/agent/agent_deps.dart';
@@ -36,6 +38,7 @@ export 'src/application/config/distribution_loader.dart';
 export 'src/application/config/profile_loader.dart';
 export 'src/application/extensions_bloc.dart';
 export 'src/application/host_api.dart';
+export 'src/application/memory_backend_registry.dart';
 export 'src/application/run_bloc.dart';
 export 'src/application/run_service.dart';
 export 'src/application/scheduler_bloc.dart';

@@ -31,6 +31,7 @@ import 'dart:async';
 import 'dart:isolate';
 
 import 'package:alteri_one_contracts/alteri_one_contracts.dart';
+import 'package:alteri_one_sdk/alteri_one_sdk.dart';
 
 import '../../application/state_publisher.dart';
 import '../../domain/cancel_token.dart';
@@ -168,6 +169,12 @@ final class IsolateLoadedExtension implements LoadedExtension {
 
   @override
   Stream<AgentEvent> get events => _events.stream;
+
+  // A loaded extension's memory backend handle lives in the extension isolate
+  // and does not cross the boundary, so this stays null until the cross-isolate
+  // memory wiring lands (docs/plan/M5.md Step 14).
+  @override
+  MemoryBackendHandle? get memoryBackend => null;
 
   /// Receives the `hello` frame, verifies the manifest, and marks the extension
   /// ready. Throws [ExtensionTimeout] or [ExtensionRejected] on failure.

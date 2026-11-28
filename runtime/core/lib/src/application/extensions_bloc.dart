@@ -8,6 +8,7 @@ import 'package:bloc/bloc.dart';
 
 import '../domain/ports/extension_transport.dart';
 import 'host_api.dart';
+import 'memory_backend_registry.dart';
 
 /// Lifecycle states of an extension (docs/spec/domain.md, section 8.10).
 enum ExtensionLifecycle {
@@ -125,6 +126,8 @@ class ExtensionsBloc extends Bloc<ExtensionsEvent, ExtensionsState> {
   new({
     required this.transport,
     this.approvals,
+    this.memoryBackends,
+    this.memoryBackendResolver,
     this.maxConsecutiveCrashes = 5,
     this.restartBackoff = const Duration(seconds: 1),
   }) : super(ExtensionsState.empty()) {
@@ -140,6 +143,15 @@ class ExtensionsBloc extends Bloc<ExtensionsEvent, ExtensionsState> {
   /// no approval reader is configured, in which case every extension gets
   /// [EffectiveApproval.none] (default deny).
   final ApprovalReader? approvals;
+
+  /// The memory backend registry a loaded extension that declares
+  /// `provides.memoryBackend` registers into (docs/spec/extensions.md,
+  /// section 11.6; M5 Step 14). `null` disables memory-backend registration.
+  final MemoryBackendRegistry? memoryBackends;
+
+  /// Resolves a loaded extension's opaque memory backend handle into a
+  /// [MemoryPort] for [memoryBackends]. `null` leaves the registry fail-closed.
+  final MemoryBackendPortResolver? memoryBackendResolver;
 
   /// The `{extId}__{name}` shape the model sees (docs/spec/extensions.md,
   /// section 11.5): `[a-z0-9_]`, up to 48 characters.
@@ -220,6 +232,7 @@ class ExtensionsBloc extends Bloc<ExtensionsEvent, ExtensionsState> {
     _uris.remove(extensionId);
     _crashes.remove(extensionId);
     _approvals.remove(extensionId);
+    memoryBackends?.unregister(extensionId);
     emit(_with(extensionId, ExtensionLifecycle.draining));
     await loaded.drain(timeout);
     await _subs.remove(extensionId)?.cancel();
@@ -245,6 +258,7 @@ class ExtensionsBloc extends Bloc<ExtensionsEvent, ExtensionsState> {
       _crashes.remove(extensionId);
       _uris.remove(extensionId);
       _approvals.remove(extensionId);
+      memoryBackends?.unregister(extensionId);
       if (uri != null) emit(_with(extensionId, ExtensionLifecycle.stopped));
       return;
     }
@@ -265,6 +279,7 @@ class ExtensionsBloc extends Bloc<ExtensionsEvent, ExtensionsState> {
           _crashes.remove(extensionId);
           _uris.remove(extensionId);
           _approvals.remove(extensionId);
+          memoryBackends?.unregister(extensionId);
           emit(_with(extensionId, ExtensionLifecycle.stopped));
           return;
         }
@@ -307,11 +322,26 @@ class ExtensionsBloc extends Bloc<ExtensionsEvent, ExtensionsState> {
     final ApprovalReader? reader = approvals;
     _approvals[extensionId] =
         reader?.read(loaded.manifest) ?? EffectiveApproval.none();
+    _registerMemoryBackend(extensionId, loaded);
     _subs[extensionId] = loaded.events.listen((event) {
       if (event is ExtensionStateChanged && event.state == 'crashed') {
         add(ExtensionCrashedEvent(extensionId));
       }
     });
+  }
+
+  /// Registers the memory backend a loaded extension provides, if it declares
+  /// `provides.memoryBackend` and a registry and resolver are configured
+  /// (docs/spec/extensions.md, section 11.6). A no-op otherwise, so an
+  /// extension without a backend leaves the registry untouched.
+  void _registerMemoryBackend(String extensionId, LoadedExtension loaded) {
+    final registry = memoryBackends;
+    final resolver = memoryBackendResolver;
+    if (registry == null || resolver == null) return;
+    if (!loaded.manifest.provides.memoryBackend) return;
+    final handle = loaded.memoryBackend;
+    if (handle == null) return;
+    registry.registerFromHandle(extensionId, handle, resolver: resolver);
   }
 
   /// Whether [loaded] declares a tool name another loaded extension already
@@ -351,6 +381,7 @@ class ExtensionsBloc extends Bloc<ExtensionsEvent, ExtensionsState> {
     _crashes.clear();
     _approvals.clear();
     for (final id in ids) {
+      memoryBackends?.unregister(id);
       final loaded = _loaded.remove(id);
       await _subs.remove(id)?.cancel();
       if (loaded == null) continue;
