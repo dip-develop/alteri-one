@@ -169,6 +169,17 @@ class ExtensionsBloc extends Bloc<ExtensionsEvent, ExtensionsState> {
   /// The currently loaded extensions, in registration order.
   Iterable<LoadedExtension> get loaded => _loaded.values;
 
+  /// The module URI each currently loaded extension was spawned from, in
+  /// registration order.
+  ///
+  /// The doctor signature check re-verifies these through the wired
+  /// [ManifestVerifier]; an extension is present only while it is loaded (a
+  /// crashed or draining extension is absent, matching [loaded]).
+  Iterable<({String id, Uri uri})> get loadedModules => [
+    for (final id in _loaded.keys)
+      if (_uris[id] case final uri?) (id: id, uri: uri),
+  ];
+
   Future<void> _onEvent(
     ExtensionsEvent event,
     Emitter<ExtensionsState> emit,

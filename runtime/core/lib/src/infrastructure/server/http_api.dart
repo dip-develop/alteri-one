@@ -34,8 +34,8 @@ import 'sse.dart';
 /// [ApprovalResourcePort], and [ExtensionResourcePort] seams so the routes do
 /// not depend on the concrete application services; the daemon composition
 /// (Step 9) supplies the adapters. The `transcript` and `invocations/{seq}/io`
-/// routes (`read.io`) and the extension `:load`/`:unload` routes (`admin`) are
-/// later steps and are intentionally absent.
+/// routes (`read.io`) are a later step and are intentionally absent; the
+/// extension `:load`/`:unload` routes (`admin`) are added in M5 Step 16.
 ///
 /// Step 7 adds the SSE transport (section 16.4): `GET /v1/events` (scope
 /// `read`) replays journalled lifecycle events after `since`/`Last-Event-ID`
@@ -454,10 +454,15 @@ final class HttpApi {
     };
   }
 
-  /// Handles `GET /v1/extensions` (section 16.3, scope `read`).
+  /// Handles the `/v1/extensions` resource routes (section 16.3).
   ///
-  /// An absent [extensions] port is a 404. Loading and unloading extensions
-  /// (`:load`/`:unload`, scope `admin`) are M5 and not routed here.
+  /// `GET /v1/extensions` (scope `read`) lists the registry;
+  /// `POST /v1/extensions/{id}:load` and `:unload` (scope `admin`) drive the
+  /// bloc's load/drain path. An absent [extensions] port is a 404. A load or
+  /// unload maps its result to the status code the contracts assign:
+  /// `extension_unavailable` (503) when the extension is not available, and
+  /// `invalid_request` (400) when the load is rejected (duplicate name, or a
+  /// signature/permission failure).
   Future<Response> _handleExtensions(
     Request request,
     List<String> segments,
@@ -466,13 +471,49 @@ final class HttpApi {
     if (extensions == null) {
       return _text(404, 'not found');
     }
-    if (segments.length != 2 || request.method != 'GET') {
+    final method = request.method;
+    if (segments.length == 2) {
+      if (method != 'GET') {
+        // Still enforce the body limit for a non-GET so an oversize upload is a
+        // 413, matching the unknown-route behavior.
+        if (await _readBody(request) == null) {
+          return _text(413, 'payload too large');
+        }
+        return _text(404, 'not found');
+      }
+      final denied = _authorize(request, Scope.read);
+      if (denied != null) return denied;
+      final views = await extensions.listExtensions();
+      return _json(200, {'extensions': views.map((e) => e.toJson()).toList()});
+    }
+    if (method != 'POST') {
       return _text(404, 'not found');
     }
-    final denied = _authorize(request, Scope.read);
+    // `v1/extensions/{id}:action`.
+    final last = segments[2];
+    final colon = last.indexOf(':');
+    final id = colon < 0 ? last : last.substring(0, colon);
+    final action = colon < 0 ? null : last.substring(colon + 1);
+    // Drain the (empty) body under the default limit before acting.
+    if (await _readBody(request) == null) {
+      return _text(413, 'payload too large');
+    }
+    final denied = _authorize(request, Scope.admin);
     if (denied != null) return denied;
-    final views = await extensions.listExtensions();
-    return _json(200, {'extensions': views.map((e) => e.toJson()).toList()});
+    final ExtensionActionResult result;
+    switch (action) {
+      case 'load':
+        result = await extensions.loadExtension(id);
+      case 'unload':
+        result = await extensions.unloadExtension(id);
+      default:
+        return _text(404, 'not found');
+    }
+    return switch (result) {
+      ExtensionActionApplied(:final view) => _json(200, view.toJson()),
+      ExtensionUnavailable() => _text(503, ApiErrorCode.extensionUnavailable),
+      ExtensionActionRejected() => _text(400, ApiErrorCode.invalidRequest),
+    };
   }
 
   /// Handles `GET /v1/doctor` (section 16.3, scope `read`): the read-only
