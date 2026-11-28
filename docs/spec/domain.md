@@ -224,9 +224,9 @@ Implementation note: this sketch lists the ports and their central methods, not 
 
 ### 8.9 Skills
 
-- A skill is a markdown file `SKILL.md` with YAML frontmatter (`name`, `description`) and a body with instructions. The format is compatible with `genkit_middleware`.
+- A skill is a markdown file `SKILL.md` with YAML frontmatter (`name`, `description`) and a body with instructions. The format is compatible with `genkit_middleware`; M5 ships a `SkillParser` port with a `genkit_middleware`-compatible parser (the dialect confirmed against `genkit_middleware` 1.0.3, T10), so no hard `genkit_middleware` dependency is pulled into the core.
 - Only `name` and `description` of each skill enter the system prompt. The body is loaded by the `skill.load` tool.
-- A skill is not executed, but it affects model behavior. Skills provided by extensions take effect only after the owner approves them in `extensions/*.yaml`.
+- A skill is not executed, but it affects model behavior. Skills provided by extensions take effect only after the owner approves them in `extensions/*.yaml`; `skill.load` serves only an approved skill's body, and an unapproved skill is excluded from the prompt.
 
 ### 8.10 State: bloc
 
@@ -260,10 +260,12 @@ Mechanics:
 1. Bloc state changes become serializable `AgentEvent` values in one place, the `StatePublisher` of the application layer. Extensions receive the same events that clients receive over SSE. There is no separate channel for extensions.
 2. Observation topics: `runs`, `approvals`, `extensions`, `triggers`, `channels`, and `memory.meta` (entry metadata only, no text). An extension lists its topics in the manifest (`observes:`), and the owner grants them in `extensions/*.yaml`.
 3. On subscription, the extension receives a snapshot of the topic, then the events.
-4. Each subscriber has a bounded queue. For `runs.progress`, events are coalesced and only the latest value is kept. For `approvals.*` and `runs.finished`, delivery is guaranteed: if the queue overflows, the subscriber is disconnected with the code `resync_required` and must request a new snapshot.
+4. Each subscriber has a bounded queue. For `runs.progress`, events are coalesced and only the latest value is kept. For `approvals.*` and `runs.finished`, delivery is guaranteed: if the queue overflows, the subscriber is disconnected with the code `resync_required` and must request a new snapshot. M5 makes the bound a per-topic capacity map (`StatePublisher.withLimits`, T15): the chosen defaults are `runs` 256, `approvals` 128, `extensions` 64, `triggers` 64, `channels` 32, `memory.meta` 64, verified by deterministic per-topic overflow tests.
 5. Extensions do not receive bloc objects, do not call `add()`, and do not change state directly. They act only through tools, triggers, channels, and the host API. Every state transition therefore follows one path and appears in the journal.
 6. Built-in extensions use the same path, with no special cases.
 7. Feedback through observation (an observer starts a run that changes state) is bounded by the loop protection: `chainId` and `depth` (section 8.7).
+
+M5 implements this: on `hello`, for each `topic in manifest.observes ∩ owner-granted`, the host subscribes the extension to the `StatePublisher` (snapshot then live events as `AgentEvent` frames), applies pause/resume backpressure, and turns a `StatePublisherResyncRequired` into a `resync_required` frame that makes the extension re-subscribe. `memory.meta` is metadata only.
 
 ## 9. Agent loop
 

@@ -45,7 +45,9 @@ Generated with schemantic:
 - `RunCreateRequest`, `Run`, `Invocation` (without tool input and output).
 - `ApprovalRequest`, `ApprovalDecision`.
 - `MemoryEntry`, `MemoryDraft`, `MemoryQuery`.
-- `ExtensionManifest`, `ExtensionProvides`, `ToolSpec` (with the `untrustedOutput` field, default `true`).
+- `ExtensionManifest`, `ExtensionProvides` (with the additive `observes` field, ADR-0027), `ToolSpec` (with the `untrustedOutput` field, default `true`).
+- `StateTopic` (promoted into contracts so the host and the SDK share one definition, ADR-0027).
+- The extension message frames `HelloFrame`, `CallFrame`, `CallResultFrame`, `CallErrorFrame`, `CancelFrame`, `EventFrame` (schemantic models, ADR-0022).
 - `ApiError { code, message, details }`.
 
 Error codes are constants in `alteri_one_contracts`. A client must treat an unknown code as a generic error. Error messages never contain secrets or fragments of prompts.
@@ -114,6 +116,7 @@ provides:
   context: []
   memory_backend: false
   skills: []
+  observes: [runs]            # StateTopic names the extension observes (ADR-0027)
 permissions:
   - net:api.open-meteo.com
   - host.memory.write    # only if the extension writes memory

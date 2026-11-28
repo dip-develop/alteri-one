@@ -4,7 +4,9 @@
 
 ## 11.1 Model
 
-An extension is a separate AOT module. The core loads it through `Isolate.spawnUri`. The transport sits behind the `ExtensionTransport` interface. Loading an AOT module with `Isolate.spawnUri` on Dart 3.13 is verified (ADR-0007).
+An extension is a separate AOT module. The core loads it through `Isolate.spawnUri`. The transport sits behind the `ExtensionTransport` interface. Loading an AOT module with `Isolate.spawnUri` on Dart 3.13 is verified (ADR-0007); the M5 per-OS results (Linux verified, macOS/Windows a manual gate) are appended to that ADR.
+
+The M5 mechanism is implemented end to end: the `ExtensionTransport` port and the `IsolateExtensionTransport` (handshake, newline-delimited `{v:1,kind:...}` framing modelled as schemantic frames, ADR-0022), the host-side `HostApi` with per-call permission checks (ADR-0023), the author SDK (ADR-0024), `alterione build` (ADR-0025), Ed25519 signing (ADR-0026), the contracts additions (ADR-0027), and the memory backend registry (ADR-0028). LSP and MCP remain M7/M8 and the workspace extension M6; they are not part of M5.
 
 Capability kinds: `tools`, `triggers`, `channels`, `context`, `memory` (backend), and `skills`. An extension implements any subset.
 
@@ -34,9 +36,9 @@ discovered → verified → spawned → active → draining → stopped
 ## 11.4 Trust and permissions
 
 - An isolate is not a sandbox. An extension in the same process can see the host's memory, read files, and call FFI. Therefore only signed extensions that the owner has explicitly approved are loaded.
-- Permissions: `net:<host>`, `host.memory.read`, `host.memory.write`, `host.secret:<NAME>`, `host.fs:<path>`. The host API checks the permission on every call.
+- Permissions: `net:<host>`, `host.memory.read`, `host.memory.write`, `host.secret:<NAME>`, `host.fs:<path>`. The host API checks the permission on every call; the effective set is `manifest.permissions ∩ extensions/<id>.yaml`, and a denied call is journalled and returns `call.error` `forbidden` (ADR-0023).
 - Secrets never enter the model context. An extension receives a secret value through `host.secret` only when it holds the permission.
-- The signing algorithm is Ed25519. For personal builds, the signing key belongs to the owner. The procedure for issuing, rotating, and revoking keys for public releases is described in `docs/security/`.
+- The signing algorithm is Ed25519 over the canonical JSON of the manifest, using the `cryptography` package; the private key is a `0600` file outside the repository (T19 fallback, OS keyring deferred). For personal builds, the signing key belongs to the owner. The procedure for issuing, rotating, and revoking keys for public releases is described in [`docs/security/signing.md`](../security/signing.md) (ADR-0026).
 
 ## 11.5 Author SDK
 
@@ -131,14 +133,14 @@ defaults:
   profile: assistant
 ```
 
-The command `alterione build distributions/home` (in `runtime/bin`):
+The command `alterione build distributions/home` (in `runtime/bin`, ADR-0025):
 1. Validates the YAML against the schema and checks that the package versions are available.
-2. Generates `pubspec.yaml` and `bin/main.dart` in `build/distributions/home/`. The entry point registers the built-in extensions and the providers.
+2. Generates `pubspec.yaml` and `bin/main.dart` in `build/distributions/home/`. The generated `bin/main.dart` is the only place the built-in extensions and providers are named; `runtime/bin` itself never imports an extension.
 3. Resolves dependencies. A version conflict between built-in packages is reported with a clear message.
-4. Compiles the binary (`dart build cli`, [VERIFY]).
-5. Compiles the loaded extensions to AOT and signs them (`tools/signing`).
+4. Compiles the binary (`dart build cli`, with `dart compile exe` as the T11 fallback where `dart build cli` is unavailable).
+5. Compiles the loaded extensions to AOT and signs them (`tools/signing`, ADR-0026).
 
-The `minimal` build contains only chat and no extensions. The `official` build describes the contents of the official binary. At launch it contains the built-in extensions from the repository: `workspace`, `lsp`, `mcp`, `memory_hive`, and `weather` (a reference example).
+The `minimal` build contains only chat and no extensions. The `official` build ships the built-in `workspace`, `memory_hive`, and `weather` (a reference example); `lsp` and `mcp` are commented out of `official` (M7/M8 scaffolds), and `workspace` is an M6 item.
 
 `alterione doctor` compares the binary's contents with its `distribution.yaml` and reports any mismatch.
 
